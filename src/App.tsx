@@ -15,6 +15,7 @@ import { ResultScreen } from './ui/ResultScreen';
 import { RouteList } from './ui/RouteList';
 import { Breakthrough } from './ui/Breakthrough';
 import { Title } from './ui/Title';
+import { Standings } from './ui/Standings';
 import './app.css';
 
 /**
@@ -24,6 +25,7 @@ import './app.css';
 type Screen =
   | { kind: 'title' }
   | { kind: 'board' }
+  | { kind: 'standings' }
   | { kind: 'climb'; route: Route; mode: AttemptMode; daily: boolean }
   | { kind: 'result'; route: Route; attempt: Attempt; card: ScoreCard; best: ScoreCard | null }
   | { kind: 'breakthrough'; data: BreakthroughData; unlocked: number };
@@ -107,8 +109,12 @@ export default function App() {
           daily={daily}
           onClimb={startClimb}
           onToggleProject={(id) => update((p) => toggleProject(p, id))}
+          onStandings={() => setScreen({ kind: 'standings' })}
         />
       );
+
+    case 'standings':
+      return <Standings profile={profile} onBack={() => setScreen({ kind: 'board' })} />;
 
     case 'climb': {
       const left = attemptsRemaining(daily);

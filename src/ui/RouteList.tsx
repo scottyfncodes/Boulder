@@ -21,9 +21,10 @@ export type RouteListProps = {
   daily: DailyState;
   onClimb: (route: Route, opts: { daily?: boolean }) => void;
   onToggleProject: (routeId: string) => void;
+  onStandings: () => void;
 };
 
-export function RouteList({ profile, daily, onClimb, onToggleProject }: RouteListProps) {
+export function RouteList({ profile, daily, onClimb, onToggleProject, onStandings }: RouteListProps) {
   const [tab, setTab] = useState<'board' | 'projects'>('board');
 
   const byGrade = useMemo(() => {
@@ -52,11 +53,11 @@ export function RouteList({ profile, daily, onClimb, onToggleProject }: RouteLis
             </span>
           </div>
         </div>
-        <div className="board__tally">
+        <button className="board__tally" onClick={onStandings} aria-label="Standings">
           <div><b>{profile.totalSends}</b><span>sends</span></div>
           <div><b>{profile.points}</b><span>points</span></div>
           <div><b>{profile.totalFalls}</b><span>falls</span></div>
-        </div>
+        </button>
       </header>
 
       {dailyRoute && (

@@ -60,8 +60,10 @@ export class WallScene {
   // --- environment -------------------------------------------------------
 
   private buildEnvironment(): void {
-    const w = WALL.maxX - WALL.minX + 1.6;
-    const h = WALL.maxY + 1.2;
+    // Generously oversized: at a wide desktop aspect the camera sees far more
+    // wall than the climbable area, and running out of gym looks like a bug.
+    const w = (WALL.maxX - WALL.minX) * 4;
+    const h = WALL.maxY * 2.6;
     const cx = (WALL.minX + WALL.maxX) / 2;
 
     const wall = new THREE.Mesh(
@@ -75,7 +77,7 @@ export class WallScene {
     // Panel seams. Purely visual, but they give the eye a scale reference,
     // which matters when you are judging whether a move is 30cm or 60cm.
     const seamMat = new THREE.MeshBasicMaterial({ color: GYM.seam });
-    for (let y = 0.2; y < WALL.maxY + 0.6; y += 1.22) {
+    for (let y = 0.2; y < WALL.maxY + 2.4; y += 1.22) {
       const seam = new THREE.Mesh(new THREE.BoxGeometry(w, 0.014, 0.01), seamMat);
       seam.position.set(cx, y, 0.006);
       this.scene.add(seam);
@@ -87,7 +89,7 @@ export class WallScene {
     }
 
     const mat = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 1.2, 0.34, 2.6),
+      new THREE.BoxGeometry(w + 2, 0.34, 2.6),
       new THREE.MeshStandardMaterial({ color: GYM.mat, roughness: 1 }),
     );
     mat.position.set(cx, -0.17, 1.2);

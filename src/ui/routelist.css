@@ -31,7 +31,16 @@
   color: var(--ink-faint);
   letter-spacing: 0;
 }
-.board__tally { display: flex; gap: 0.9rem; text-align: right; }
+.board__tally {
+  display: flex;
+  gap: 0.9rem;
+  text-align: right;
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0.2rem 0;
+  cursor: pointer;
+}
 .board__tally div { display: flex; flex-direction: column; }
 .board__tally b { font-size: 1.05rem; }
 .board__tally span { font-size: 0.64rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.08em; }

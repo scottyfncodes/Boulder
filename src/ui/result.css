@@ -154,3 +154,10 @@
   from { opacity: 0; transform: translateY(0.8rem); }
   to { opacity: 1; transform: none; }
 }
+
+.beta__caveat {
+  margin: 0.9rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}

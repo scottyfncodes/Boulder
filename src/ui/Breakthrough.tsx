@@ -11,6 +11,7 @@ import './breakthrough.css';
  */
 
 const LINES: Partial<Record<Grade, string>> = {
+  V0: 'One down. The wall is taller than it looks from the mat.',
   V1: 'The warmups are warmups now.',
   V2: 'You are reading sequences instead of guessing them.',
   V3: 'Your feet have started doing some of the work.',
@@ -36,9 +37,11 @@ export function Breakthrough({ grade, previous, unlockedCount, onContinue }: Bre
       <div className="brk__inner">
         <div className="brk__kicker">New grade</div>
         <div className="brk__grade" style={{ color }}>{grade}</div>
-        {previous && (
-          <p className="brk__line">You are no longer a {previous} climber.</p>
-        )}
+        <p className="brk__line">
+          {previous
+            ? `You are no longer a ${previous} climber.`
+            : 'Your first send.'}
+        </p>
         <p className="brk__sub">{LINES[grade] ?? 'That is a harder number than the last number.'}</p>
         {unlockedCount > 0 && (
           <div className="brk__unlocks">

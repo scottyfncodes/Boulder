@@ -3,7 +3,7 @@ import type { Route } from '../game/types';
 import type { Attempt, Beta } from '../game/attempt';
 import { betaDistance, toBeta } from '../game/attempt';
 import { type ScoreCard, verdict } from '../game/scoring';
-import { communityBetasFor } from '../content/communityBeta';
+import { type CommunityBeta, communityBetasFor } from '../content/communityBeta';
 import { GRADE_COLOR } from '../render/palette';
 import './result.css';
 
@@ -31,12 +31,18 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
   const beta = useMemo(() => toBeta(attempt.moves), [attempt]);
   const community = useMemo(() => communityBetasFor(route.id), [route.id]);
 
-  const differing = useMemo(() => {
-    if (community.length === 0) return 0;
-    const weighted = community.reduce(
-      (s, c) => s + (betaDistance(beta, c.beta) > 0.34 ? c.share : 0), 0,
-    );
-    return Math.round(weighted * 100);
+  // Which known sequence the player's line most resembles. There is no backend
+  // yet, so these are lines the headless climber found rather than lines real
+  // people took — the screen says so rather than inventing a population.
+  const closest = useMemo(() => {
+    if (community.length === 0) return null;
+    let best = 0;
+    let bestD = Infinity;
+    community.forEach((c, i) => {
+      const d = betaDistance(beta, c.beta);
+      if (d < bestD) { best = i; bestD = d; }
+    });
+    return { index: best, distance: bestD };
   }, [beta, community]);
 
   const improved = personalBest !== null && card.efficiency > personalBest.efficiency;
@@ -85,7 +91,7 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
             {improved && <div className="result__pb">New personal best on this one.</div>}
           </>
         ) : (
-          <BetaPanel beta={beta} community={community} differing={differing} route={route} />
+          <BetaPanel beta={beta} community={community} closest={closest} />
         )}
 
         <div className="result__actions">
@@ -107,15 +113,15 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 function BetaPanel({
-  beta, community, differing, route,
+  beta, community, closest,
 }: {
   beta: Beta;
-  community: { name: string; share: number; beta: Beta }[];
-  differing: number;
-  route: Route;
+  community: CommunityBeta[];
+  closest: { index: number; distance: number } | null;
 }) {
   const [showing, setShowing] = useState<number | null>(null);
   const other = showing !== null ? community[showing] : null;
+  const others = community.length - (closest && closest.distance < 0.3 ? 1 : 0);
 
   return (
     <div className="beta">
@@ -143,7 +149,11 @@ function BetaPanel({
       {community.length > 0 && (
         <div className="beta__community">
           <p className="beta__stat">
-            <b>{differing}%</b> of climbers used a different sequence on {route.name}.
+            {closest && closest.distance < 0.3
+              ? <>Your line is essentially <b>{community[closest.index].name}</b>.</>
+              : <>Your line is not one of the sequences on file.</>}
+            {' '}
+            {others > 0 && <>{others} other{others === 1 ? '' : 's'} also go.</>}
           </p>
           <div className="beta__chips">
             {community.map((c, i) => (
@@ -152,10 +162,14 @@ function BetaPanel({
                 className={`beta__chip${showing === i ? ' is-on' : ''}`}
                 onClick={() => setShowing(showing === i ? null : i)}
               >
-                {c.name} · {Math.round(c.share * 100)}%
+                {c.name}
               </button>
             ))}
           </div>
+          <p className="beta__caveat">
+            Sequences found by the gym's own route-checker. Real climbers' betas
+            arrive when there are real climbers.
+          </p>
         </div>
       )}
     </div>

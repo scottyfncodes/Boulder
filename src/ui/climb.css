@@ -20,8 +20,9 @@
 .climb__top {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(46rem, 100%);
   z-index: 4;
   display: flex;
   align-items: flex-start;
@@ -141,8 +142,9 @@
 
 .limbbar {
   position: absolute;
-  left: 0.6rem;
-  right: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(30rem, calc(100% - 1.2rem));
   bottom: calc(var(--safe-b) + 0.5rem);
   z-index: 4;
   display: grid;
