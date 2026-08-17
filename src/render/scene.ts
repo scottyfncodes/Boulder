@@ -3,6 +3,7 @@ import type { Hold, LimbId, Pose, Route, Vec2 } from '../game/types';
 import { WALL, DECOR } from '../content/wall';
 import { GRADE_COLOR, GYM } from './palette';
 import { contactRadius } from '../game/holds';
+import { HOLD_Z } from './depths';
 import { holdGeometry } from './holdGeometry';
 import { Climber, type Mood } from './climber';
 import type { Outfit } from '../game/awards';
@@ -112,7 +113,7 @@ export class WallScene {
     });
     for (const d of DECOR) {
       const m = new THREE.Mesh(holdGeometry(d.type), decorMat);
-      m.position.set(d.x, d.y, 0);
+      m.position.set(d.x, d.y, HOLD_Z);
       m.scale.setScalar(contactRadius(d.size, d.type));
       m.rotation.z = d.roll;
       m.castShadow = true;
@@ -176,7 +177,7 @@ export class WallScene {
     // Every hold geometry is authored around a unit radius, so scaling by the
     // contact radius makes what you see the same size as what the sim tests
     // against. A hold that looks like a jug is a jug.
-    mesh.position.set(hold.pos.x, hold.pos.y, 0);
+    mesh.position.set(hold.pos.x, hold.pos.y, HOLD_Z);
     mesh.scale.setScalar(contactRadius(hold.size, hold.type));
     // Rails and undercuts are rotated to face the way they are meant to be
     // used, so the shape on screen tells you what the sim already knows.
@@ -232,17 +233,43 @@ export class WallScene {
   private applyCamera(): void {
     const dist = (this.cam.frame / 2) / Math.tan((FOV * Math.PI) / 360);
     const { focusY, orbit } = this.cam;
+
+    // focusY is a height up the wall, and on a pitched wall that is not a
+    // height in the world: the tilt swings it back and down. Aiming the camera
+    // at the raw number leaves the climber crammed into the bottom of frame on
+    // anything steep, so the focus point is carried through the same rotation
+    // the wall gets.
+    const tilt = this.plane.rotation.x;
+    const fy = focusY * Math.cos(tilt);
+    const fz = focusY * Math.sin(tilt);
+
+    // The camera itself stays level and pulls straight back from the climber,
+    // so an overhang reads the way it does from the mat — wall leaning away
+    // overhead — rather than as a view from underneath.
     this.camera.position.set(
       Math.sin(orbit) * dist,
-      focusY + Math.sin(orbit) * 0.1,
-      Math.cos(orbit) * dist,
+      fy + Math.sin(orbit) * 0.1,
+      fz + Math.cos(orbit) * dist,
     );
-    this.camera.lookAt(0, focusY, 0);
+    this.camera.lookAt(0, fy, fz);
     this.camera.updateMatrixWorld();
   }
 
-  /** World point to canvas pixels, for drawing the aiming overlay on top. */
-  project(p: Vec2, z = 0.12): { x: number; y: number; visible: boolean } {
+  /** The mesh for a hold, so a test can check the overlay agrees with it. */
+  holdMeshFor(id: number): THREE.Mesh | undefined {
+    return this.holdMeshes.get(id);
+  }
+
+  /**
+   * Wall point to canvas pixels, for drawing the aiming overlay on top.
+   *
+   * `z` is how far out of the wall the thing being drawn actually sits, and it
+   * matters: holds are anchored at z = 0, so anything marking a hold must be
+   * projected at z = 0 too. Guessing a forward offset here puts the reticle
+   * slightly off the hold even on a flat wall, and once the wall is pitched
+   * that offset rotates into a vertical error that grows with the angle.
+   */
+  project(p: Vec2, z: number = HOLD_Z): { x: number; y: number; visible: boolean } {
     const v = new THREE.Vector3(p.x, p.y, z);
     // Wall-space to world: the same tilt the plane group applies.
     this.plane.updateMatrixWorld();

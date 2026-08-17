@@ -2,6 +2,7 @@ import type { Hold, LimbId, Vec2 } from '../game/types';
 import { LIMB_SHORT, isHand } from '../game/types';
 import { contactRadius, perfectRadius } from '../game/holds';
 import { GRADE_COLOR } from './palette';
+import { ARM_Z, FOOT_Z, HAND_Z, HEAD_Z, HIP_Z, HOLD_Z } from './depths';
 import type { WallScene } from './scene';
 
 /**
@@ -100,8 +101,8 @@ function drawShift(input: OverlayInput): void {
   // the climber's face.
   for (const t of shift.tethers) {
     if (t.strain <= 0.94) continue;
-    const a = scene.project(t.anchor, 0.13);
-    const h = scene.project(t.hold, 0.13);
+    const a = scene.project(t.anchor, ARM_Z);
+    const h = scene.project(t.hold, HOLD_Z);
     ctx.save();
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = 'rgba(255,255,255,0.75)';
@@ -113,8 +114,8 @@ function drawShift(input: OverlayInput): void {
     ctx.restore();
   }
 
-  const from = scene.project(shift.from, 0.15);
-  const to = scene.project(shift.hip, 0.15);
+  const from = scene.project(shift.from, HIP_Z);
+  const to = scene.project(shift.hip, HIP_Z);
   const colour = shift.risky ? AIM_HOT : AIM_TARGET;
 
   if (shift.dragging) {
@@ -150,7 +151,7 @@ function drawShift(input: OverlayInput): void {
 function drawShout({ ctx, scene, shout }: OverlayInput): void {
   if (!shout) return;
   const t = Math.min(shout.age / 1400, 1);
-  const p = scene.project(shout.at, 0.24);
+  const p = scene.project(shout.at, HEAD_Z);
   const rise = -18 - t * 26;
 
   ctx.save();
@@ -171,7 +172,7 @@ function drawShout({ ctx, scene, shout }: OverlayInput): void {
 function drawLimbPips(input: OverlayInput): void {
   const { ctx, scene, limbPositions, contactLimbs, selected, locked } = input;
   for (const limb of ['LF', 'RF', 'LH', 'RH'] as LimbId[]) {
-    const p = scene.project(limbPositions[limb], isHand(limb) ? 0.16 : 0.13);
+    const p = scene.project(limbPositions[limb], isHand(limb) ? HAND_Z : FOOT_Z);
     if (!p.visible) continue;
     const isSel = selected === limb;
     const isLocked = locked.has(limb);
@@ -202,11 +203,11 @@ function drawAim(input: OverlayInput): void {
   const { ctx, scene, aim } = input;
   if (!aim) return;
 
-  const anchor = scene.project(aim.anchor, 0.14);
-  const land = scene.project(aim.landing, 0.14);
+  const anchor = scene.project(aim.anchor, ARM_Z);
+  const land = scene.project(aim.landing, HOLD_Z);
 
   // Reach ring — the hard edge of what this limb can do from here.
-  const edge = scene.project({ x: aim.anchor.x + aim.maxReach, y: aim.anchor.y }, 0.14);
+  const edge = scene.project({ x: aim.anchor.x + aim.maxReach, y: aim.anchor.y }, ARM_Z);
   const ringR = Math.abs(edge.x - anchor.x);
   ctx.save();
   ctx.setLineDash([5, 7]);
@@ -238,12 +239,12 @@ function drawAim(input: OverlayInput): void {
   // What the landing would catch.
   if (aim.targetHold) {
     const h = aim.targetHold;
-    const c = scene.project(h.pos, 0.14);
+    const c = scene.project(h.pos, HOLD_Z);
     const zoneEdge = scene.project(
-      { x: h.pos.x + contactRadius(h.size, h.type), y: h.pos.y }, 0.14,
+      { x: h.pos.x + contactRadius(h.size, h.type), y: h.pos.y }, HOLD_Z,
     );
     const perfEdge = scene.project(
-      { x: h.pos.x + perfectRadius(h.size, h.type), y: h.pos.y }, 0.14,
+      { x: h.pos.x + perfectRadius(h.size, h.type), y: h.pos.y }, HOLD_Z,
     );
     ctx.save();
     ctx.lineWidth = 1.5;

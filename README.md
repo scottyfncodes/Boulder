@@ -21,7 +21,16 @@ npm test           # 102 tests, all logic, no DOM
 npm run typecheck
 npm run build      # -> dist/, static, deploys anywhere as-is
 npm run gen:beta   # regenerates community betas after changing routes or the sim
+
+# Needs a browser and a running dev server, so it is not part of npm test:
+npm run check:overlay   # asserts the 2D overlay agrees with the 3D scene
 ```
+
+`check:overlay` exists because the overlay draws on its own canvas with no depth
+buffer to keep it honest. If it and the renderer disagree about how far a thing
+stands out of the wall, every marker sits slightly off the thing it marks — and
+on a pitched wall that offset rotates into a vertical one that grows with the
+angle. `src/render/depths.ts` is the single set of numbers both sides read.
 
 Mobile-first — it is built for iPhone Safari and works with a mouse, trackpad
 and keyboard on desktop (`Q`/`W` for hands, `A`/`S` for feet, `E` for the body,

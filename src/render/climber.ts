@@ -3,6 +3,7 @@ import type { LimbId, Pose, Vec2 } from '../game/types';
 import { isHand } from '../game/types';
 import { anchorFor, BODY } from '../game/body';
 import { GYM } from './palette';
+import { ARM_Z, FOOT_Z, HAND_Z, HEAD_Z, HIP_Z, LEG_Z, TORSO_Z } from './depths';
 import { type Outfit, awardById } from '../game/awards';
 
 /**
@@ -255,11 +256,11 @@ export class Climber {
     const { hip, shoulder, head } = pose;
 
     const mid = { x: (hip.x + shoulder.x) / 2, y: (hip.y + shoulder.y) / 2 };
-    this.torso.position.set(mid.x, mid.y, 0.16);
+    this.torso.position.set(mid.x, mid.y, TORSO_Z);
     this.torso.rotation.z = -pose.lean;
-    this.hips.position.set(hip.x, hip.y, 0.15);
+    this.hips.position.set(hip.x, hip.y, HIP_Z);
 
-    this.head.position.set(head.x, head.y, 0.2);
+    this.head.position.set(head.x, head.y, HEAD_Z);
     this.head.rotation.z = -pose.lean * 0.7;
 
     for (const limb of ['LH', 'RH', 'LF', 'RF'] as LimbId[]) {
@@ -270,10 +271,10 @@ export class Climber {
       const l1 = hand ? UPPER_ARM : UPPER_LEG;
       const l2 = hand ? LOWER_ARM : LOWER_LEG;
       const joint = twoBoneJoint(anchor, target, l1, l2, hand ? 'down' : 'out', hip.x);
-      const z = hand ? 0.12 : 0.1;
+      const z = hand ? ARM_Z : LEG_Z;
       rig.upper.aim(anchor, joint, z);
       rig.lower.aim(joint, target, z);
-      rig.end.position.set(target.x, target.y, hand ? 0.09 : 0.07);
+      rig.end.position.set(target.x, target.y, hand ? HAND_Z : FOOT_Z);
       rig.end.rotation.z = Math.atan2(target.y - joint.y, target.x - joint.x);
     }
 

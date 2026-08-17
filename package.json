@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:beta": "esbuild scripts/gen-beta.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/gen-beta.mjs --log-level=error && node node_modules/.cache/gen-beta.mjs"
+    "gen:beta": "esbuild scripts/gen-beta.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/gen-beta.mjs --log-level=error && node node_modules/.cache/gen-beta.mjs",
+    "check:overlay": "node scripts/check-overlay.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
