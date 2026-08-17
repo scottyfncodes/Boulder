@@ -46,6 +46,18 @@ it never tells you which one to use.
 landed against a window that shrinks with overreach, bad angles, and a poor
 stance. Failure always says why.
 
+**Endurance is the clock.** One bar, running from the moment you pull on,
+draining faster on a steep route with small holds and faster still when you are
+hanging around with a limb in the air. A bad stance costs more than a good one.
+Rest holds give some back. Run it out and you come off — not because you did
+anything wrong, but because you took too long, which is the honest reason most
+people fall off most problems. It grows as you climb harder things.
+
+**The face is the strain readout.** There are no coloured lines on the wall
+telling you a limb is loaded, because that is not how you read it off another
+climber. Eyes screw shut under load and go wide in alarm, brows drive down into
+a scowl, and the mouth goes from a flat line to a full open yell.
+
 **Body position is a move you make, not a thing that happens to you.** Drag
 your hips and the climber pulls toward that position as far as their limbs
 allow — the tethers on screen redden as each limb runs out of slack, so you can

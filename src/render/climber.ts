@@ -93,7 +93,8 @@ export class Climber {
   private skinParts: THREE.Mesh[] = [];
   private torso: THREE.Mesh;
   private head: THREE.Group;
-  private brow: THREE.Mesh;
+  private brows: THREE.Mesh[] = [];
+  private pupils: THREE.Mesh[] = [];
   private mouth: THREE.Mesh;
   private eyes: THREE.Mesh[] = [];
   private hips: THREE.Mesh;
@@ -118,21 +119,45 @@ export class Climber {
     this.skinParts.push(skull);
     this.head.add(skull);
 
-    const eyeMat = new THREE.MeshBasicMaterial({ color: '#22252c' });
+    // The face is the readout, so the features are cartoon-sized. Small tidy
+    // features read as nothing at all once the head is forty pixels tall on a
+    // phone; these are big enough to act with.
+    const inkMat = new THREE.MeshBasicMaterial({ color: '#22252c' });
+    const whiteMat = new THREE.MeshBasicMaterial({ color: '#fbf7f2' });
+
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.026, 8, 6), eyeMat);
-      eye.position.set(sx * 0.052, 0.024, 0.12);
-      this.eyes.push(eye);
-      this.head.add(eye);
+      const socket = new THREE.Group();
+      socket.position.set(sx * 0.058, 0.022, 0.108);
+
+      const white = new THREE.Mesh(new THREE.SphereGeometry(0.042, 12, 10), whiteMat);
+      white.scale.set(1, 1, 0.42);
+      socket.add(white);
+
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.023, 10, 8), inkMat);
+      pupil.position.set(0, 0, 0.026);
+      pupil.scale.set(1, 1, 0.5);
+      socket.add(pupil);
+
+      this.pupils.push(pupil);
+      this.eyes.push(socket as unknown as THREE.Mesh);
+      this.head.add(socket);
     }
-    this.mouth = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.014, 0.02), eyeMat);
-    this.mouth.position.set(0, -0.052, 0.126);
+
+    // A capsule rather than a bar, so it can go from a thin line to a wide open
+    // yell without looking like a rectangle being stretched.
+    const mouthGeo = new THREE.CapsuleGeometry(0.03, 0.028, 4, 10);
+    mouthGeo.rotateZ(Math.PI / 2);
+    this.mouth = new THREE.Mesh(mouthGeo, inkMat);
+    this.mouth.position.set(0, -0.056, 0.108);
     this.head.add(this.mouth);
 
-    this.brow = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.016, 0.02), eyeMat);
-    this.brow.position.set(0, 0.074, 0.118);
-    this.brow.visible = false;
-    this.head.add(this.brow);
+    // Two brows, so they can angle independently and actually scowl.
+    for (const sx of [-1, 1]) {
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.019, 0.02), inkMat);
+      brow.position.set(sx * 0.058, 0.078, 0.112);
+      this.brows.push(brow);
+      this.head.add(brow);
+    }
 
     this.group.add(this.head);
 
@@ -192,41 +217,67 @@ export class Climber {
   }
 
   /**
-   * The whole emotional range, which is narrow but works hard. Eyes squeeze
-   * shut under load and go wide in panic, the brow drops as effort climbs, and
-   * the mouth does most of the acting. This is the strain readout — there are
-   * no coloured lines on the wall telling you a limb is loaded, because you
-   * read that off a climber's face, not off a diagram.
+   * The whole emotional range, played broadly.
+   *
+   * This is the strain readout — there are no coloured lines on the wall
+   * telling you a limb is loaded, because you read that off a climber's face,
+   * not off a diagram. So the face has to carry it from across the room: eyes
+   * screw shut under load and go saucer-wide in panic, brows drive down into a
+   * scowl or fly up in alarm, and the mouth goes from a flat line to a full
+   * open yell. Subtle would be useless here.
    */
   private setMood(mood: Mood): void {
-    const eyeShape: Record<Mood, number> = {
-      calm: 1, focus: 0.85, working: 0.62, strain: 0.34, gurn: 0.14,
-      panic: 2.1, smug: 0.7, done: 0.2, yell: 1.5,
+    type Face = {
+      /**
+       * Vertical squash of the eyes. 0 is shut, 1 is normal, >1 is wide.
+       * Kept under about 1.5 — past that the eyes grow into the brows and the
+       * mouth and the whole face reads as one dark blob.
+       */
+      eye: number;
+      /** Pupil size multiplier — small is strain, huge is fear. */
+      pupil: number;
+      /** Brow angle, radians. Positive is a scowl. */
+      brow: number;
+      /** Brow height offset, metres. */
+      browY: number;
+      /** Mouth width and height multipliers. */
+      mouth: [number, number];
+      /** Mouth vertical offset, metres. */
+      mouthY: number;
+      /** Whole-head squash, for a proper gurn. */
+      head: [number, number];
     };
-    for (const eye of this.eyes) eye.scale.set(1, eyeShape[mood], 1);
 
-    // Brow angle is the effort gauge: flat when fresh, driven down when fighting.
-    const browAngle: Record<Mood, number> = {
-      calm: 0, focus: 0.06, working: 0.12, strain: 0.2, gurn: 0.3,
-      panic: -0.22, smug: -0.1, done: 0.04, yell: 0.24,
+    const F: Record<Mood, Face> = {
+      calm:    { eye: 1,    pupil: 1,    brow: 0.02,  browY: 0.078, mouth: [1, 1],      mouthY: -0.056, head: [1, 1] },
+      focus:   { eye: 0.8,  pupil: 0.95, brow: 0.16,  browY: 0.07,  mouth: [1.15, 0.7], mouthY: -0.058, head: [1, 1] },
+      working: { eye: 0.55, pupil: 0.85, brow: 0.3,   browY: 0.062, mouth: [1.5, 1.5],  mouthY: -0.06,  head: [1.02, 0.99] },
+      strain:  { eye: 0.24, pupil: 0.7,  brow: 0.46,  browY: 0.05,  mouth: [1.9, 1.9],  mouthY: -0.062, head: [1.06, 0.97] },
+      gurn:    { eye: 0.06, pupil: 0.6,  brow: 0.62,  browY: 0.042, mouth: [2.6, 1.3],  mouthY: -0.056, head: [1.14, 0.94] },
+      panic:   { eye: 1.45, pupil: 1.2,  brow: -0.5,  browY: 0.098, mouth: [1.4, 1.7],  mouthY: -0.075, head: [0.97, 1.05] },
+      yell:    { eye: 1.3,  pupil: 1.1,  brow: -0.36, browY: 0.094, mouth: [1.8, 1.9],  mouthY: -0.078, head: [1.02, 1.08] },
+      smug:    { eye: 0.45, pupil: 0.9,  brow: -0.2,  browY: 0.086, mouth: [1.9, 0.8],  mouthY: -0.05,  head: [1, 1] },
+      done:    { eye: 0.1,  pupil: 0.8,  brow: 0.1,   browY: 0.068, mouth: [1.4, 1.8],  mouthY: -0.06,  head: [1.04, 0.98] },
     };
-    this.brow.visible = mood !== 'calm';
-    this.brow.rotation.z = browAngle[mood];
-    this.brow.position.y = mood === 'panic' ? 0.086 : 0.07 - Math.abs(browAngle[mood]) * 0.1;
+    const f = F[mood];
 
-    const m = this.mouth.scale;
-    switch (mood) {
-      case 'panic': m.set(1.5, 3.4, 1); break;
-      case 'yell': m.set(2.0, 4.4, 1); break;
-      case 'gurn': m.set(2.1, 1.5, 1); break;
-      case 'strain': m.set(1.5, 2.2, 1); break;
-      case 'working': m.set(1.2, 1.5, 1); break;
-      case 'smug': m.set(1.35, 1, 1); break;
-      case 'done': m.set(1.1, 2.4, 1); break;
-      default: m.set(1, 1, 1);
-    }
-    this.mouth.position.y = mood === 'smug' ? -0.046 : -0.056;
-    this.head.scale.setScalar(mood === 'gurn' || mood === 'yell' ? 1.06 : 1);
+    for (const eye of this.eyes) eye.scale.set(1, f.eye, 1);
+    for (const pupil of this.pupils) pupil.scale.set(f.pupil, f.pupil, 0.5);
+
+    // Brows mirror. A positive angle drives the *inner* ends down into a
+    // scowl; a negative one lifts them into alarm. Getting this sign backwards
+    // turns every strain face into a worried one.
+    this.brows.forEach((brow, i) => {
+      const side = i === 0 ? -1 : 1;
+      brow.rotation.z = side * f.brow;
+      brow.position.y = f.browY;
+      // They also crowd toward the nose as the scowl deepens.
+      brow.position.x = side * (0.058 - Math.max(f.brow, 0) * 0.02);
+    });
+
+    this.mouth.scale.set(f.mouth[0], f.mouth[1], 1);
+    this.mouth.position.y = f.mouthY;
+    this.head.scale.set(f.head[0], f.head[1], 1);
   }
 
   /** Dresses the climber. Called when the outfit changes, not per frame. */

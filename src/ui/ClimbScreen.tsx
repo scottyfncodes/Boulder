@@ -88,9 +88,8 @@ export function ClimbScreen({
   const [dyno, setDyno] = useState(false);
   const [, force] = useState(0);
   // Endurance changes every frame; mirroring it into state at 60fps would
-  // re-render React constantly, so the bars are written straight to the DOM.
+  // re-render React constantly, so the bar is written straight to the DOM.
   const baseBarRef = useRef<HTMLDivElement>(null);
-  const gripBarRef = useRef<HTMLDivElement>(null);
   const pumpRef = useRef<HTMLSpanElement>(null);
   const lastTickRef = useRef(0);
   // The climber yells when they come off. Held in a ref so the shout animates
@@ -168,7 +167,8 @@ export function ClimbScreen({
       const dt = lastTickRef.current ? Math.min(now - lastTickRef.current, 100) : 0;
       lastTickRef.current = now;
       if (att.phase === 'climbing' && dt > 0) {
-        // The fast pool only drains while a limb is committed and in the air.
+        // Reaching costs extra: a limb in the air drains the bar faster than
+        // hanging does.
         const reaching = selectedRef.current !== null && selectedRef.current !== 'BODY';
         const ticked = tickEndurance(att, dt, reaching, route);
         attemptRef.current = ticked.attempt;
@@ -176,17 +176,9 @@ export function ClimbScreen({
           setAttempt(ticked.attempt);
           setLastReason('Pumped stupid. Arms opened on their own.');
           onOutcome(ticked.attempt, 'fallen');
-        } else if (ticked.fumbled && selectedRef.current) {
-          // Held a limb in the air too long: it goes back where it came from,
-          // and the attempt carries on minus the endurance.
-          setSelected(null);
-          selectedRef.current = null;
-          setFlash({ grade: 'FUMBLE', reason: 'Held that too long. Put it back.' });
-          window.setTimeout(() => setFlash(null), 1400);
         }
         const e = ticked.attempt.endurance;
         if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${e.base})`;
-        if (gripBarRef.current) gripBarRef.current.style.transform = `scaleX(${e.grip})`;
         if (pumpRef.current) pumpRef.current.textContent = pumpWord(e.base);
       }
 
@@ -636,9 +628,6 @@ export function ClimbScreen({
           </div>
           <div className="stamina__track">
             <div className="stamina__fill" ref={baseBarRef} />
-          </div>
-          <div className="stamina__track stamina__track--grip">
-            <div className="stamina__fill stamina__fill--grip" ref={gripBarRef} />
           </div>
         </div>
       )}

@@ -83,10 +83,8 @@ export function beginAttempt(
 
 export type TickResult = {
   attempt: Attempt;
-  /** The base pool emptied — pumped off the wall. */
+  /** The pool emptied — pumped off the wall. */
   pumped: boolean;
-  /** The grip pool emptied with a limb still in the air. */
-  fumbled: boolean;
 };
 
 /**
@@ -98,7 +96,7 @@ export type TickResult = {
 export function tickEndurance(
   attempt: Attempt, dtMs: number, reaching: boolean, route: Route,
 ): TickResult {
-  if (attempt.phase !== 'climbing') return { attempt, pumped: false, fumbled: false };
+  if (attempt.phase !== 'climbing') return { attempt, pumped: false };
 
   // Resting only counts when you are actually settled on a rest hold, not
   // merely touching one on the way past.
@@ -107,7 +105,7 @@ export function tickEndurance(
     && attempt.state.pose.stability > 0.55
     && attempt.state.contacts.some((c) => restIds.has(c.holdId));
 
-  const { endurance, pumped, fumbled } = drainEndurance({
+  const { endurance, pumped } = drainEndurance({
     endurance: attempt.endurance,
     dtMs,
     drain: attempt.drain,
@@ -124,7 +122,6 @@ export function tickEndurance(
       falls: attempt.falls + (pumped ? 1 : 0),
     },
     pumped,
-    fumbled,
   };
 }
 
