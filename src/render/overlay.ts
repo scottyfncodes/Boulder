@@ -37,6 +37,9 @@ export type ShiftView = {
   dragging: boolean;
 };
 
+/** Something the climber is saying, drawn at their head. */
+export type Shout = { text: string; at: Vec2; age: number };
+
 export type OverlayInput = {
   scene: WallScene;
   ctx: CanvasRenderingContext2D;
@@ -49,10 +52,20 @@ export type OverlayInput = {
   locked: Set<LimbId>;
   aim: AimView | null;
   shift: ShiftView | null;
+  shout: Shout | null;
   accent: string;
   /** Suppresses the limb pips during inspection and animation. */
   showLimbs: boolean;
 };
+
+/**
+ * The aiming furniture is deliberately not the route colour. Rings drawn in the
+ * same hue as the holds read as holds, and on a green route every reticle
+ * looked like somewhere you could put a hand.
+ */
+export const AIM_INK = '#ffffff';
+export const AIM_TARGET = '#00e5ff';
+export const AIM_HOT = '#ff4d3d';
 
 export const LIMB_PIP_RADIUS = 21;
 /** Fingers are wide. The tap target is much bigger than the thing it hits. */
@@ -65,6 +78,7 @@ export function drawOverlay(input: OverlayInput): void {
   if (input.shift) drawShift(input);
   if (input.aim) drawAim(input);
   if (input.showLimbs) drawLimbPips(input);
+  if (input.shout) drawShout(input);
 
   void scene;
 }
@@ -78,19 +92,20 @@ export function drawOverlay(input: OverlayInput): void {
  * can see which one rather than feeling an invisible wall.
  */
 function drawShift(input: OverlayInput): void {
-  const { ctx, scene, shift, accent } = input;
+  const { ctx, scene, shift } = input;
   if (!shift) return;
 
+  // Only the limb that has actually run out of slack is drawn, and only while
+  // the body is being moved. Everything else about how hard this is showing on
+  // the climber's face.
   for (const t of shift.tethers) {
+    if (t.strain <= 0.94) continue;
     const a = scene.project(t.anchor, 0.13);
     const h = scene.project(t.hold, 0.13);
-    const tight = t.strain > 0.94;
     ctx.save();
-    ctx.lineWidth = tight ? 3 : 2;
-    ctx.setLineDash(tight ? [] : [3, 5]);
-    ctx.strokeStyle = tight
-      ? 'rgba(255,107,94,0.95)'
-      : `rgba(255,255,255,${0.16 + t.strain * 0.4})`;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.setLineDash([6, 4]);
     ctx.beginPath();
     ctx.moveTo(h.x, h.y);
     ctx.lineTo(a.x, a.y);
@@ -100,7 +115,7 @@ function drawShift(input: OverlayInput): void {
 
   const from = scene.project(shift.from, 0.15);
   const to = scene.project(shift.hip, 0.15);
-  const colour = shift.risky ? '#ff6b5e' : accent;
+  const colour = shift.risky ? AIM_HOT : AIM_TARGET;
 
   if (shift.dragging) {
     ctx.save();
@@ -128,6 +143,28 @@ function drawShift(input: OverlayInput): void {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('BODY', to.x, to.y + 0.5);
+  ctx.restore();
+}
+
+/** The climber's own commentary. There is only one line and it is "Bruh!". */
+function drawShout({ ctx, scene, shout }: OverlayInput): void {
+  if (!shout) return;
+  const t = Math.min(shout.age / 1400, 1);
+  const p = scene.project(shout.at, 0.24);
+  const rise = -18 - t * 26;
+
+  ctx.save();
+  ctx.globalAlpha = t < 0.12 ? t / 0.12 : 1 - Math.max(0, (t - 0.65) / 0.35);
+  ctx.translate(p.x, p.y + rise);
+  ctx.scale(1 + (1 - Math.min(t * 6, 1)) * 0.4, 1 + (1 - Math.min(t * 6, 1)) * 0.4);
+  ctx.font = '900 30px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = 'rgba(12,14,19,0.92)';
+  ctx.strokeText(shout.text, 0, 0);
+  ctx.fillStyle = '#ff5e4d';
+  ctx.fillText(shout.text, 0, 0);
   ctx.restore();
 }
 
@@ -162,7 +199,7 @@ function drawLimbPips(input: OverlayInput): void {
 }
 
 function drawAim(input: OverlayInput): void {
-  const { ctx, scene, aim, accent } = input;
+  const { ctx, scene, aim } = input;
   if (!aim) return;
 
   const anchor = scene.project(aim.anchor, 0.14);
@@ -183,7 +220,7 @@ function drawAim(input: OverlayInput): void {
   // Trajectory: dotted, arced, and stopping exactly where the limb will.
   ctx.save();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = accent;
+  ctx.strokeStyle = AIM_TARGET;
   ctx.globalAlpha = 0.9;
   ctx.setLineDash([2, 9]);
   ctx.lineCap = 'round';
@@ -214,7 +251,7 @@ function drawAim(input: OverlayInput): void {
     ctx.beginPath();
     ctx.arc(c.x, c.y, Math.abs(zoneEdge.x - c.x), 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = accent;
+    ctx.strokeStyle = AIM_TARGET;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(c.x, c.y, Math.abs(perfEdge.x - c.x), 0, Math.PI * 2);
@@ -230,7 +267,7 @@ function drawAim(input: OverlayInput): void {
   ctx.beginPath();
   ctx.arc(0, 0, 9, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.fillStyle = accent;
+  ctx.fillStyle = AIM_TARGET;
   ctx.beginPath();
   ctx.arc(0, 0, 4, 0, Math.PI * 2);
   ctx.fill();
@@ -242,7 +279,7 @@ function drawAim(input: OverlayInput): void {
   }
   ctx.restore();
 
-  if (aim.dragging) drawPowerMeter(ctx, anchor, land, aim.power, accent);
+  if (aim.dragging) drawPowerMeter(ctx, anchor, land, aim.power, AIM_TARGET);
 }
 
 function drawPowerMeter(
@@ -270,7 +307,7 @@ function drawPowerMeter(
   ctx.fillStyle = 'rgba(10,12,16,0.7)';
   roundRect(ctx, -w / 2, -h / 2, w, h, h / 2);
   ctx.fill();
-  ctx.fillStyle = power > 0.96 ? '#ff6b5e' : accent;
+  ctx.fillStyle = power > 0.96 ? AIM_HOT : accent;
   roundRect(ctx, -w / 2, -h / 2, w * Math.min(power, 1), h, h / 2);
   ctx.fill();
   ctx.restore();

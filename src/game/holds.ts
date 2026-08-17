@@ -10,6 +10,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   jug: {
     type: 'jug',
     label: 'Jug',
+    zones: [
+      { name: 'the incut', at: { x: 0, y: 0.12 }, r: 0.52, quality: 1 },
+      { name: 'the lip', at: { x: 0, y: -0.55 }, r: 0.42, quality: 0.6 },
+    ],
     affinity: 'both',
     zoneScale: 1.0,
     perfectFrac: 0.5,
@@ -22,6 +26,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   crimp: {
     type: 'crimp',
     label: 'Crimp',
+    zones: [
+      { name: 'the edge', at: { x: 0, y: 0.18 }, r: 0.4, quality: 1 },
+      { name: 'the corner', at: { x: -0.62, y: 0.1 }, r: 0.3, quality: 0.62 },
+      { name: 'the corner', at: { x: 0.62, y: 0.1 }, r: 0.3, quality: 0.62 },
+    ],
     affinity: 'hand',
     zoneScale: 0.62,
     perfectFrac: 0.34,
@@ -34,6 +43,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   sloper: {
     type: 'sloper',
     label: 'Sloper',
+    zones: [
+      { name: 'the high point', at: { x: 0, y: 0.34 }, r: 0.38, quality: 1 },
+      { name: 'the slope', at: { x: 0, y: -0.2 }, r: 0.72, quality: 0.42 },
+    ],
     affinity: 'both',
     zoneScale: 1.35,
     perfectFrac: 0.3,
@@ -46,6 +59,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   pinch: {
     type: 'pinch',
     label: 'Pinch',
+    zones: [
+      { name: 'the squeeze', at: { x: 0, y: 0 }, r: 0.44, quality: 1 },
+      { name: 'the flat side', at: { x: 0, y: -0.5 }, r: 0.4, quality: 0.5 },
+    ],
     affinity: 'hand',
     zoneScale: 0.8,
     perfectFrac: 0.38,
@@ -58,6 +75,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   pocket: {
     type: 'pocket',
     label: 'Pocket',
+    zones: [
+      { name: 'two pads in', at: { x: 0, y: 0 }, r: 0.46, quality: 1 },
+      { name: 'the rim', at: { x: 0, y: -0.5 }, r: 0.34, quality: 0.45 },
+    ],
     affinity: 'hand',
     zoneScale: 0.5,
     perfectFrac: 0.42,
@@ -70,6 +91,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   sidepull: {
     type: 'sidepull',
     label: 'Sidepull',
+    zones: [
+      { name: 'the rail', at: { x: 0, y: 0.15 }, r: 0.42, quality: 1 },
+      { name: 'the low end', at: { x: 0, y: -0.6 }, r: 0.36, quality: 0.55 },
+    ],
     affinity: 'hand',
     zoneScale: 0.85,
     perfectFrac: 0.38,
@@ -82,6 +107,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   undercling: {
     type: 'undercling',
     label: 'Undercling',
+    zones: [
+      { name: 'under the lip', at: { x: 0, y: 0.16 }, r: 0.46, quality: 1 },
+      { name: 'the outside', at: { x: 0, y: -0.52 }, r: 0.38, quality: 0.5 },
+    ],
     affinity: 'hand',
     zoneScale: 0.95,
     perfectFrac: 0.4,
@@ -94,6 +123,10 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   gaston: {
     type: 'gaston',
     label: 'Gaston',
+    zones: [
+      { name: 'the rail', at: { x: 0, y: 0.14 }, r: 0.42, quality: 1 },
+      { name: 'the far end', at: { x: 0, y: -0.58 }, r: 0.34, quality: 0.48 },
+    ],
     affinity: 'hand',
     zoneScale: 0.85,
     perfectFrac: 0.36,
@@ -106,6 +139,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   foothold: {
     type: 'foothold',
     label: 'Foothold',
+    zones: [
+      { name: 'the flat', at: { x: 0, y: 0.1 }, r: 0.5, quality: 1 },
+      { name: 'the outside edge', at: { x: 0.58, y: -0.2 }, r: 0.34, quality: 0.55 },
+      { name: 'the inside edge', at: { x: -0.58, y: -0.2 }, r: 0.34, quality: 0.55 },
+    ],
     affinity: 'foot',
     zoneScale: 0.62,
     perfectFrac: 0.4,
@@ -118,6 +156,12 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
   volume: {
     type: 'volume',
     label: 'Volume',
+    zones: [
+      { name: 'the apex', at: { x: 0, y: 0.3 }, r: 0.34, quality: 1 },
+      { name: 'the face', at: { x: -0.42, y: -0.2 }, r: 0.5, quality: 0.52 },
+      { name: 'the face', at: { x: 0.42, y: -0.2 }, r: 0.5, quality: 0.52 },
+      { name: 'the blank part', at: { x: 0, y: -0.66 }, r: 0.44, quality: 0.24 },
+    ],
     affinity: 'both',
     zoneScale: 1.7,
     perfectFrac: 0.26,
@@ -142,6 +186,29 @@ export function contactRadius(size: number, type: HoldType): number {
 export function perfectRadius(size: number, type: HoldType): number {
   const p = HOLD_PROFILES[type];
   return size * p.zoneScale * p.perfectFrac;
+}
+
+/** A hold's landing zones placed in world space, oriented the way it is set. */
+export function worldZones(hold: {
+  pos: Vec2; size: number; type: HoldType; dir: number;
+}): { name: string; pos: Vec2; r: number; quality: number }[] {
+  const p = HOLD_PROFILES[hold.type];
+  const radius = contactRadius(hold.size, hold.type);
+  // Zone offsets are authored against the hold's own "up", which is the
+  // direction it is pulled. Rotating them means a sidepull's rail runs along
+  // the rail, not wherever the authoring happened to put it.
+  const a = hold.dir - Math.PI / 2;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  return p.zones.map((z) => ({
+    name: z.name,
+    r: z.r * radius,
+    quality: z.quality,
+    pos: {
+      x: hold.pos.x + (z.at.x * cos - z.at.y * sin) * radius,
+      y: hold.pos.y + (z.at.x * sin + z.at.y * cos) * radius,
+    },
+  }));
 }
 
 /**

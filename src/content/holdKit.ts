@@ -13,7 +13,7 @@ export const DOWN_RIGHT = deg(-35);
 export const OUT_RIGHT = deg(15);
 export const OUT_LEFT = deg(165);
 
-type Opt = Partial<Pick<Hold, 'dir' | 'hard' | 'roll' | 'finish'>>;
+type Opt = Partial<Pick<Hold, 'dir' | 'hard' | 'roll' | 'finish' | 'rest'>>;
 
 function make(type: HoldType, size: number, defaultDir: number) {
   return (id: number, x: number, y: number, o: Opt = {}): Hold => ({
@@ -25,6 +25,7 @@ function make(type: HoldType, size: number, defaultDir: number) {
     ...(o.hard !== undefined ? { hard: o.hard } : {}),
     ...(o.roll !== undefined ? { roll: o.roll } : {}),
     ...(o.finish ? { finish: true } : {}),
+    ...(o.rest ? { rest: true } : {}),
   });
 }
 

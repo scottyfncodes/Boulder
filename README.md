@@ -1,4 +1,4 @@
-# Boulder
+# Bruh
 
 A browser game about precision bouldering.
 

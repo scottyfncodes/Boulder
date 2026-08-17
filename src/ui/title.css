@@ -40,3 +40,5 @@
   color: var(--ink-faint);
   line-height: 1.5;
 }
+
+.title__kit { margin-top: 0.6rem; }

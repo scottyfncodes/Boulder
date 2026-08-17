@@ -30,7 +30,7 @@ export type LimbMap = Record<LimbId, Vec2>;
 const THROW_MS = 260;
 const SETTLE_MS = 300;
 const FLAIL_MS = 420;
-const FALL_MS = 820;
+const FALL_MS = 2100;
 
 /** Where a limb hangs when it is not holding anything. */
 export function danglePos(limb: LimbId, pose: Pose, t = 0): Vec2 {
@@ -90,9 +90,23 @@ const easeBack = (t: number): number => {
 function moodFor(grade: MoveGrade, fell: boolean, stability: number): Mood {
   if (fell) return 'panic';
   if (grade === 'YEET') return 'panic';
-  if (grade === 'MISS') return 'strain';
+  if (grade === 'MISS') return 'gurn';
   if (grade === 'SCRAPE') return 'strain';
-  return stability < 0.5 ? 'focus' : 'calm';
+  return stability < 0.4 ? 'strain' : stability < 0.62 ? 'working' : 'calm';
+}
+
+/**
+ * The resting face, from how hard the climber is actually working: how solid
+ * the stance is and how much is left in the tank. This is the only strain
+ * readout the game gives — no coloured lines, no bars over the limbs.
+ */
+export function idleMood(stability: number, endurance: number): Mood {
+  const strain = Math.min(1 - stability, 1 - endurance);
+  if (strain > 0.78) return 'gurn';
+  if (strain > 0.6) return 'strain';
+  if (strain > 0.4) return 'working';
+  if (strain > 0.22) return 'focus';
+  return 'calm';
 }
 
 /**
@@ -184,9 +198,11 @@ export class MoveAnimation {
     const afterFlail = afterSettle - (this.flails ? FLAIL_MS : 0);
     if (r.fell && afterFlail < FALL_MS) {
       const t = Math.min(afterFlail / FALL_MS, 1);
-      // Gravity wins, with a slow tip away from the wall on the way down.
-      const drop = 4.9 * (t * 1.15) ** 2 * 0.5;
-      const tip = Math.sin(t * 1.5) * 0.55 * Math.sign(toPose.barnDoor || 1);
+      // Gravity wins, eventually. The fall is deliberately slower than real
+      // gravity and takes a long lazy tumble on the way, because the joke is
+      // the hang time — a fast fall is over before it is funny.
+      const drop = 4.9 * (t * 0.62) ** 2 * 0.5;
+      const tip = Math.sin(t * 2.4) * 0.95 * Math.sign(toPose.barnDoor || 1);
       const floor = 0.42;
       const hipY = Math.max(toPose.hip.y - drop, floor);
       const pose: Pose = {
@@ -206,10 +222,12 @@ export class MoveAnimation {
       const limbs = {} as LimbMap;
       for (const l of LIMBS) {
         const rest = danglePos(l, pose, elapsed);
-        const windmill = Math.sin(t * Math.PI * 3 + (isLeft(l) ? 0 : 2.1)) * 0.3 * (1 - t * 0.6);
-        limbs[l] = { x: rest.x + windmill, y: rest.y + Math.abs(windmill) * 0.5 };
+        // Full windmill. All four, out of phase, for the entire descent.
+        const windmill = Math.sin(t * Math.PI * 6 + (isLeft(l) ? 0 : 2.1) + (isHand(l) ? 0 : 1.1))
+          * 0.42 * (1 - t * 0.35);
+        limbs[l] = { x: rest.x + windmill, y: rest.y + Math.abs(windmill) * 0.55 };
       }
-      return { pose, limbs, mood: t > 0.8 ? 'done' : 'panic', done: false };
+      return { pose, limbs, mood: t > 0.86 ? 'done' : 'yell', done: false };
     }
 
     // --- rest -------------------------------------------------------------

@@ -112,6 +112,28 @@ function enforceRigid(a: Vec2, b: Vec2, target: number): void {
   b.x -= ux; b.y -= uy;
 }
 
+/**
+ * How far the wall leans back over you, in radians from vertical.
+ *
+ * On a vertical wall your weight runs down the surface and your feet can carry
+ * most of it. Tip the wall back and that weight splits: part still runs down
+ * the face, and part pulls you straight off it. The second part has to come out
+ * of your arms and your core, and nothing your feet do will help. This is the
+ * difficulty axis that does not involve making holds smaller — it makes the
+ * same holds cost more.
+ */
+export type Overhang = number;
+
+/** Fraction of body weight the feet can take at a given wall angle. */
+export function footShare(overhang: Overhang): number {
+  return clamp01(Math.cos(overhang));
+}
+
+/** Fraction of body weight that pulls straight off the wall. */
+export function pullOff(overhang: Overhang): number {
+  return clamp01(Math.sin(overhang));
+}
+
 export type BodyInput = {
   contacts: Contact[];
   /** Previous pose, used as the relaxation seed so poses move continuously. */
@@ -119,6 +141,8 @@ export type BodyInput = {
   seedShoulder: Vec2;
   /** True while the climber may still stand on the mat. */
   onMat?: boolean;
+  /** Wall angle past vertical, radians. 0 is a flat wall. */
+  overhang?: Overhang;
   /**
    * Where the player has asked the hips to be. The climber pulls toward it and
    * the limb constraints then have the final say, so a commanded position you
@@ -140,10 +164,23 @@ export function solvePose(input: BodyInput): Pose {
   const feet = input.contacts.filter((c) => !isHand(c.limb));
 
   const shift = input.shift ?? null;
+  const overhang = input.overhang ?? 0;
+  // Feet lose purchase as the wall tips back, and the hips hang out from the
+  // wall rather than sitting over the feet.
+  const footAuthority = footShare(overhang);
+  const hang = pullOff(overhang);
 
   for (let i = 0; i < BODY.iterations; i++) {
     hip.y -= BODY.gravity;
     sh.y -= BODY.gravity;
+
+    // On an overhang the hips swing out from under the hands, so the righting
+    // point moves toward the hands and away from the feet.
+    if (hang > 0 && hands.length > 0) {
+      const hx = hands.reduce((a, c) => a + c.pos.x, 0) / hands.length;
+      hip.x += (hx - hip.x) * RESTORE_STIFFNESS * hang * 1.6;
+      hip.y -= BODY.gravity * hang * 1.5;
+    }
 
     // Gravity rights the body over whatever is holding it up.
     if (input.contacts.length > 0) {
@@ -194,7 +231,7 @@ export function solvePose(input: BodyInput): Pose {
       // a flag or a rockover is a move you have to plan rather than a freebie.
       const spread = Math.abs(target.x - c.pos.x);
       const over = clamp01(1 - Math.max(0, spread - STANCE_WIDTH) / 0.5);
-      const support = clamp(c.grip, 0, 1) * over;
+      const support = clamp(c.grip, 0, 1) * over * footAuthority;
       const stand = BODY.leg * STAND_FRACTION * support;
 
       const d = sub(target, c.pos);
@@ -279,7 +316,7 @@ export function solvePose(input: BodyInput): Pose {
   // Centre of mass sits low in the torso — legs are heavy and usually hanging.
   const com = lerp(hip, sh, 0.34);
 
-  const { tension, stability, barnDoor } = analyseStance(input.contacts, com);
+  const { tension, stability, barnDoor } = analyseStance(input.contacts, com, overhang);
 
   return { hip, shoulder: sh, head, com, lean, tension, stability, barnDoor };
 }
@@ -296,8 +333,10 @@ export type Stance = { tension: number; stability: number; barnDoor: number };
  * second one is the barn door — hold the wall with a left hand and a left foot
  * and your right side swings out into the room.
  */
-export function analyseStance(contacts: Contact[], com: Vec2): Stance {
+export function analyseStance(contacts: Contact[], com: Vec2, overhang: Overhang = 0): Stance {
   if (contacts.length === 0) return { tension: 0, stability: 0, barnDoor: 0 };
+  const footAuthority = footShare(overhang);
+  const hang = pullOff(overhang);
 
   const feet = contacts.filter((c) => !isHand(c.limb));
 
@@ -317,43 +356,47 @@ export function analyseStance(contacts: Contact[], com: Vec2): Stance {
     const fx = feet.reduce((s, c) => s + c.pos.x, 0) / feet.length;
     const fy = feet.reduce((s, c) => s + c.pos.y, 0) / feet.length;
     const over = clamp01(1 - Math.abs(com.x - fx) / 0.75);
-    // Feet above the hips are not standing on anything.
-    const below = clamp01(1 - clamp01((fy - com.y) / 0.5));
+    // A foot above the hips takes less weight, but not none — a high step or a
+    // heel hook is real, it just needs the hips to travel before it does much.
+    const below = clamp01(0.28 + 0.72 * (1 - clamp01((fy - com.y) / 0.62)));
     const grip = feet.reduce((s, c) => s + c.grip, 0) / feet.length;
-    footQ = over * below * grip * (feet.length > 1 ? 1 : 0.82);
+    footQ = over * below * grip * (feet.length > 1 ? 1 : 0.82) * footAuthority;
   }
 
-  // Barn door: how far the centre of mass sits off the contacts' own axis,
-  // amplified when the contacts are nearly in a line to begin with.
+  // Barn door: the body swinging out sideways from a support line that has no
+  // width to resist it. Two contacts stacked vertically and a centre of mass
+  // off to one side is the whole failure; two contacts stacked vertically with
+  // your weight hanging straight below them is just hanging, which is fine and
+  // must not be scored as a barn door.
   const cx = contacts.reduce((s, c) => s + c.pos.x, 0) / contacts.length;
-  const cy = contacts.reduce((s, c) => s + c.pos.y, 0) / contacts.length;
-  let sxx = 0, syy = 0, sxy = 0;
-  for (const c of contacts) {
-    const dx = c.pos.x - cx;
-    const dy = c.pos.y - cy;
-    sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
-  }
-  const n = contacts.length;
-  sxx /= n; syy /= n; sxy /= n;
-  // Principal axis of the contact cloud.
-  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-  const axis = v(Math.cos(theta), Math.sin(theta));
-  const perp = v(-axis.y, axis.x);
-  const spreadPerp = Math.sqrt(
-    Math.max(sxx * perp.x * perp.x + 2 * sxy * perp.x * perp.y + syy * perp.y * perp.y, 0),
-  );
-  const off = (com.x - cx) * perp.x + (com.y - cy) * perp.y;
-  // A wide cloud resists rotation; a colinear one does not.
-  const colinearity = clamp01(1 - spreadPerp / 0.42);
-  const barnDoor = off * colinearity;
+  let sxx = 0;
+  for (const c of contacts) sxx += (c.pos.x - cx) ** 2;
+  const spreadX = Math.sqrt(sxx / contacts.length);
+  // A wide stance resists rotation; a vertical line of holds does not.
+  const colinearity = clamp01(1 - spreadX / 0.42);
+  const barnDoor = (com.x - cx) * colinearity;
 
   const BARN_LIMIT = 0.62;
   const barnPenalty = clamp01(Math.abs(barnDoor) / BARN_LIMIT);
 
-  const countFactor = n >= 4 ? 1 : n === 3 ? 0.94 : n === 2 ? 0.76 : 0.34;
+  const n = contacts.length;
+  const handCount = n - feet.length;
+  // Two hands with the feet cut is a hang, and climbers hang all the time. Two
+  // contacts where one of them is a foot is a different animal — that is the
+  // shape a barn door starts from.
+  const countFactor =
+    n >= 4 ? 1
+    : n === 3 ? 0.94
+    : n === 2 ? (handCount === 2 ? 0.9 : 0.76)
+    : 0.34;
 
+  // Steepness costs some stability, but not much — a climber on a 45 degree
+  // wall is not falling off, they are getting pumped, and endurance is where
+  // that is now paid for. Making steepness an instant-failure term instead
+  // made every overhanging route unclimbable from the start position.
+  const steepCost = 1 - hang * 0.16;
   const stability = clamp01(
-    security * (0.52 + 0.48 * footQ) * (1 - 0.85 * barnPenalty) * countFactor,
+    security * (0.56 + 0.44 * footQ) * (1 - 0.85 * barnPenalty) * countFactor * steepCost,
   );
 
   const tension = clamp01(0.45 * stability + 0.4 * footQ + 0.15 * security);

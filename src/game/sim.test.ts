@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Hold, LimbId } from './types';
-import { initialState, projectLanding, resolveMove, angleQuality, reachQuality } from './move';
-import { anchorFor, solvePose, maxReachOf } from './body';
+import {
+  angleQuality, initialState, limbOrigin, projectLanding, reachQuality, resolveMove,
+} from './move';
+import { solvePose, maxReachOf } from './body';
 import { norm, sub, dist } from './vec';
+import { worldZones } from './holds';
 
 const jug = (id: number, x: number, y: number, extra: Partial<Hold> = {}): Hold => ({
   id, pos: { x, y }, type: 'jug', size: 0.11, dir: -Math.PI / 2, ...extra,
@@ -22,10 +25,10 @@ function ladder(): Hold[] {
 }
 const START = { LH: 1, RH: 2, LF: 3, RF: 4 };
 
+/** Aims the way the game does: from the limb, at the best part of the hold. */
 function aimAt(state: ReturnType<typeof initialState>, limb: LimbId, target: { x: number; y: number }) {
-  const anchor = anchorFor(limb, state.pose.hip, state.pose.shoulder);
-  const d = sub(target, anchor);
-  return { limb, dir: norm(d), power: dist(anchor, target) / maxReachOf(limb) };
+  const from = limbOrigin(state, limb);
+  return { limb, dir: norm(sub(target, from)), power: dist(from, target) / maxReachOf(limb) };
 }
 
 describe('body solver', () => {
@@ -93,7 +96,7 @@ describe('move resolution', () => {
   it('sticks a well-aimed jug within comfortable reach', () => {
     const holds = ladder();
     const s = initialState(holds, START);
-    const r = resolveMove({ state: s, aim: aimAt(s, 'RH', holds[5].pos), holds });
+    const r = resolveMove({ state: s, aim: aimAt(s, 'RH', worldZones(holds[5])[0].pos), holds });
     expect(['PERFECT', 'GOOD']).toContain(r.grade);
     expect(r.holdId).toBe(6);
     expect(r.fell).toBe(false);
@@ -110,8 +113,8 @@ describe('move resolution', () => {
   it('calls a dramatic overshoot a YEET', () => {
     const holds = ladder();
     const s = initialState(holds, START);
-    const anchor = anchorFor('RH', s.pose.hip, s.pose.shoulder);
-    const aim = { limb: 'RH' as LimbId, dir: norm(sub(holds[5].pos, anchor)), power: 1 };
+    const from = limbOrigin(s, 'RH');
+    const aim = { limb: 'RH' as LimbId, dir: norm(sub(holds[5].pos, from)), power: 1 };
     const r = resolveMove({ state: s, aim, holds });
     expect(r.grade).toBe('YEET');
   });
@@ -163,8 +166,8 @@ describe('pose sanity', () => {
   it('never inverts the climber', () => {
     const p = solvePose({
       contacts: [
-        { limb: 'LH', holdId: 1, pos: { x: -0.3, y: 0.4 }, seat: 1, grip: 1, grade: 'GOOD' },
-        { limb: 'RH', holdId: 2, pos: { x: 0.3, y: 0.4 }, seat: 1, grip: 1, grade: 'GOOD' },
+        { limb: 'LH', holdId: 1, pos: { x: -0.3, y: 0.4 }, seat: 1, grip: 1, grade: 'GOOD', zone: 'the incut' },
+        { limb: 'RH', holdId: 2, pos: { x: 0.3, y: 0.4 }, seat: 1, grip: 1, grade: 'GOOD', zone: 'the incut' },
       ],
       seedHip: { x: 0, y: 1 }, seedShoulder: { x: 0, y: 1.5 },
     });

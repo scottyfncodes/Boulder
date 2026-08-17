@@ -3,6 +3,7 @@ import { GRADES, gradeIndex } from '../game/types';
 import type { Beta } from '../game/attempt';
 import type { ScoreCard } from '../game/scoring';
 import type { DailyState } from '../game/daily';
+import { type Outfit, DEFAULT_OUTFIT } from '../game/awards';
 
 /**
  * What the player keeps.
@@ -42,6 +43,12 @@ export type Profile = {
   totalSends: number;
   totalFalls: number;
   points: number;
+  /** Dynos actually stuck, for the awards that care. */
+  totalDynos: number;
+  /** What the climber is wearing. */
+  outfit: Outfit;
+  /** Awards the player has been shown the unlock notice for. */
+  seenAwards: string[];
 };
 
 export function freshProfile(now = Date.now()): Profile {
@@ -55,7 +62,25 @@ export function freshProfile(now = Date.now()): Profile {
     totalSends: 0,
     totalFalls: 0,
     points: 0,
+    totalDynos: 0,
+    outfit: { ...DEFAULT_OUTFIT },
+    seenAwards: [],
   };
+}
+
+export function setOutfit(profile: Profile, outfit: Outfit): Profile {
+  return { ...profile, outfit };
+}
+
+export function markAwardsSeen(profile: Profile, ids: string[]): Profile {
+  const seen = new Set(profile.seenAwards);
+  for (const id of ids) seen.add(id);
+  return { ...profile, seenAwards: [...seen] };
+}
+
+/** How many routes the player has onsighted, for award thresholds. */
+export function onsightCount(profile: Profile): number {
+  return Object.values(profile.records).filter((r) => r.onsighted).length;
 }
 
 export function recordFor(profile: Profile, routeId: string): RouteRecord {

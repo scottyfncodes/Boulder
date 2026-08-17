@@ -11,7 +11,17 @@ export const GRADE_COLOR: Record<Grade, string> = {
   V6: '#8f6ce8',
   V7: '#3f7de0',
   V8: '#20c7c7',
-  V9: '#e8e2d8',
+  V9: '#7ee06a',
+  // Past V9 the tape runs out and the gym starts doubling up, which is why
+  // these repeat hues at higher contrast rather than inventing new ones.
+  V10: '#ffd75e',
+  V11: '#ff9f43',
+  V12: '#ff5e5e',
+  V13: '#d96bff',
+  V14: '#6b8cff',
+  V15: '#2fe0c0',
+  V16: '#f2f3f6',
+  V17: '#b8862b',
 };
 
 export const GYM = {

@@ -54,9 +54,27 @@ export type LimbAffinity = 'hand' | 'foot' | 'both';
  * Static description of a hold type. Instances layer position, size and
  * orientation on top; everything here is what the *shape* is like to hold.
  */
+/**
+ * A distinct place on a hold you can land, in units of the hold's radius and
+ * relative to its own orientation. A jug has a deep incut and a rounded lip; a
+ * sloper has one good high point and a lot of nothing. Landing well is a matter
+ * of finding the right part of the shape, not of being near its centre.
+ */
+export type HoldZone = {
+  name: string;
+  /** Offset from the hold centre, in hold radii, before rotation by `dir`. */
+  at: Vec2;
+  /** Radius of this zone, in hold radii. */
+  r: number;
+  /** How good this part of the shape is, 0..1. */
+  quality: number;
+};
+
 export type HoldProfile = {
   type: HoldType;
   label: string;
+  /** Where you can land on it, best zone first. */
+  zones: HoldZone[];
   /** Who can usefully use it. Feet can smear anything, but badly. */
   affinity: LimbAffinity;
   /** Multiplier on the instance's contact radius. Big shapes forgive more. */
@@ -99,6 +117,11 @@ export type Hold = {
   hard?: number;
   /** Marks the hold as part of the route's finish. */
   finish?: boolean;
+  /**
+   * A hold good enough to shake out on. Standing on it gives endurance back,
+   * which is what makes a route a shape rather than a uniform grind.
+   */
+  rest?: boolean;
 };
 
 /** Outcome tiers for a single limb move. */
@@ -131,6 +154,8 @@ export type Contact = {
   grip: number;
   /** The landing tier that produced this contact. */
   grade: Exclude<MoveGrade, 'MISS' | 'YEET'>;
+  /** Which part of the shape the limb found. */
+  zone: string;
 };
 
 /** Full body pose produced by the solver. */
@@ -151,11 +176,13 @@ export type Pose = {
 };
 
 export type Grade =
-  | 'V0' | 'V1' | 'V2' | 'V3' | 'V4'
-  | 'V5' | 'V6' | 'V7' | 'V8' | 'V9';
+  | 'V0' | 'V1' | 'V2' | 'V3' | 'V4' | 'V5'
+  | 'V6' | 'V7' | 'V8' | 'V9' | 'V10' | 'V11'
+  | 'V12' | 'V13' | 'V14' | 'V15' | 'V16' | 'V17';
 
 export const GRADES: readonly Grade[] = [
-  'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9',
+  'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8',
+  'V9', 'V10', 'V11', 'V12', 'V13', 'V14', 'V15', 'V16', 'V17',
 ] as const;
 
 export function gradeIndex(g: Grade): number {
@@ -181,6 +208,12 @@ export type Route = {
   par: number;
   /** Dry one-liner shown on the route card. */
   tagline?: string;
+  /**
+   * How far the wall leans back over the climber, in degrees past vertical.
+   * Steepness is a difficulty axis in its own right: it does not shrink the
+   * holds, it makes the same holds cost more to hang off.
+   */
+  overhang?: number;
   /** Set for generated routes so they can be rebuilt rather than stored. */
   seed?: number;
 };

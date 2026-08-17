@@ -138,59 +138,11 @@
   100% { opacity: 0; }
 }
 
-/* --- limb bar --- */
-
-.limbbar {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(30rem, calc(100% - 1.2rem));
-  bottom: calc(var(--safe-b) + 0.5rem);
-  z-index: 4;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 0.4rem;
-}
-.limbbar__btn {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: rgba(18, 20, 26, 0.82);
-  border-radius: var(--r-md);
-  padding: 0.45rem 0.2rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  min-height: 2.5rem;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-}
-.limbbar__btn.is-on {
-  background: var(--accent);
-  border-color: transparent;
-  color: #11141a;
-  font-weight: 800;
-}
-.limbbar__btn:disabled { opacity: 0.28; }
-.limbbar__btn--body { font-size: 0.66rem; }
-
-.climb__held {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(18, 20, 26, 0.72);
-  border-radius: 1rem;
-  padding: 0.12rem 0.5rem;
-  font-size: 0.68rem;
-  color: var(--accent);
-  cursor: pointer;
-  pointer-events: auto;
-}
-.climb__held b { color: var(--ink); }
-
 .climb__hint {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(var(--safe-b) + 3.4rem);
+  bottom: calc(var(--safe-b) + 1rem);
   z-index: 4;
   text-align: center;
   font-size: 0.75rem;
@@ -235,10 +187,16 @@
   animation: fadeIn 0.35s ease;
 }
 .falloff__word {
-  font-size: 3.4rem;
+  font-size: 4.2rem;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: -0.02em;
   color: var(--bad);
+  animation: bruh 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes bruh {
+  0% { transform: scale(0.4) rotate(-7deg); opacity: 0; }
+  60% { transform: scale(1.12) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); }
 }
 .falloff__reason {
   font-size: 0.92rem;
@@ -250,3 +208,94 @@
 .falloff__row { display: flex; gap: 0.6rem; margin-top: 1.4rem; }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* --- endurance --- */
+
+.stamina {
+  position: absolute;
+  top: calc(var(--safe-t) + 3.5rem);
+  right: 0.85rem;
+  z-index: 4;
+  width: min(11rem, 42vw);
+  pointer-events: none;
+}
+.stamina__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+.stamina__label {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.stamina__word {
+  font-size: 0.66rem;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.stamina__track {
+  height: 0.5rem;
+  border-radius: 0.3rem;
+  background: rgba(10, 12, 16, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+.stamina__track--grip { height: 0.28rem; margin-top: 0.2rem; }
+.stamina__fill {
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #ff5e4d, #f2c249 45%, #5fd1a0);
+  transition: none;
+}
+.stamina__fill--grip { background: #00e5ff; }
+
+/* --- dyno --- */
+
+.dyno {
+  position: absolute;
+  right: 0.85rem;
+  bottom: calc(var(--safe-b) + 3.2rem);
+  z-index: 4;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(18, 20, 26, 0.82);
+  color: var(--ink);
+  border-radius: 1.4rem;
+  padding: 0.7rem 1.05rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  min-height: 2.9rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.dyno.is-on {
+  background: #00e5ff;
+  border-color: transparent;
+  color: #08111a;
+}
+.dyno:disabled { opacity: 0.3; }
+
+.flash--fumble .flash__grade { color: #ff8f3c; }
+
+.climb__top-note {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--safe-b) + 3.1rem);
+  z-index: 4;
+  padding: 0.45rem 0.85rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.94);
+  color: #11141a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.45);
+}

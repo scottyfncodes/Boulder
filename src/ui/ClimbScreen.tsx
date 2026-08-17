@@ -1,18 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LimbId, Route, Vec2 } from '../game/types';
-import { LIMBS, LIMB_LABEL, LIMB_SHORT, isHand } from '../game/types';
+import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor, maxReachOf, reachOf } from '../game/body';
 import { type Aim, previewShift, projectLanding } from '../game/move';
 import { contactRadius } from '../game/holds';
 import {
   type Attempt, type AttemptMode, type StepOutcome,
-  beginAttempt, pullOn, retry, shiftStep, step,
+  beginAttempt, dynoStep, overhangOf, pullOn, retry, shiftStep, step, tickEndurance,
 } from '../game/attempt';
+import { pumpWord } from '../game/endurance';
+import { DYNO_RANGE } from '../game/move';
+import { dynoLanding, limbOrigin } from '../game/move';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
-import { MoveAnimation, type Frame, limbsFor } from '../render/animator';
-import { drawOverlay, type AimView, type ShiftView, LIMB_TOUCH_RADIUS } from '../render/overlay';
+import { MoveAnimation, type Frame, idleMood, limbsFor } from '../render/animator';
+import {
+  drawOverlay, type AimView, type ShiftView, type Shout, LIMB_TOUCH_RADIUS,
+} from '../render/overlay';
 import { GRADE_COLOR } from '../render/palette';
 import { setterOf } from '../content/setters';
+import type { Outfit } from '../game/awards';
 import { HoldInspector } from './HoldInspector';
 import './climb.css';
 
@@ -50,19 +56,27 @@ type Drag = {
 export type ClimbScreenProps = {
   route: Route;
   mode: AttemptMode;
+  /** What the climber is wearing. */
+  outfit: Outfit;
+  /** Endurance capacity this player has earned. */
+  capacity: number;
   onExit: () => void;
   onOutcome: (attempt: Attempt, outcome: 'sent' | 'fallen') => void;
   /** Shown in the corner so the daily can say how many goes are left. */
   attemptsNote?: string;
 };
 
-export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: ClimbScreenProps) {
+export function ClimbScreen({
+  route, mode, outfit, capacity, onExit, onOutcome, attemptsNote,
+}: ClimbScreenProps) {
   const glRef = useRef<HTMLCanvasElement>(null);
   const uiRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<WallScene | null>(null);
   const rafRef = useRef(0);
 
-  const [attempt, setAttempt] = useState<Attempt>(() => beginAttempt(route, mode));
+  const [attempt, setAttempt] = useState<Attempt>(
+    () => beginAttempt(route, mode, Date.now(), capacity),
+  );
   const [selected, setSelected] = useState<Selection | null>(null);
   const [flash, setFlash] = useState<{ grade: string; reason: string } | null>(null);
   // The flash fades after a second and a half, but the fall animation runs
@@ -71,7 +85,19 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
   const [lastReason, setLastReason] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [inspectHold, setInspectHold] = useState<number | null>(null);
+  const [dyno, setDyno] = useState(false);
   const [, force] = useState(0);
+  // Endurance changes every frame; mirroring it into state at 60fps would
+  // re-render React constantly, so the bars are written straight to the DOM.
+  const baseBarRef = useRef<HTMLDivElement>(null);
+  const gripBarRef = useRef<HTMLDivElement>(null);
+  const pumpRef = useRef<HTMLSpanElement>(null);
+  const lastTickRef = useRef(0);
+  // The climber yells when they come off. Held in a ref so the shout animates
+  // on the canvas without dragging React through sixty renders a second.
+  const shoutRef = useRef<{ at: { x: number; y: number }; start: number } | null>(null);
+  const dynoRef = useRef(false);
+  dynoRef.current = dyno;
 
   // Refs the animation loop reads. React state drives the words on screen;
   // these drive the pixels.
@@ -99,6 +125,8 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
     const scene = new WallScene(gl);
     sceneRef.current = scene;
     scene.setRoute(route);
+    scene.setOutfit(outfit);
+    scene.setOverhang(overhangOf(route));
     scene.resize();
 
     const onResize = () => {
@@ -122,7 +150,7 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       scene.dispose();
       sceneRef.current = null;
     };
-  }, [route]);
+  }, [route, outfit]);
 
   // --- the frame loop ----------------------------------------------------
 
@@ -135,6 +163,32 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
 
       const att = attemptRef.current;
       let frame: Frame;
+
+      // --- endurance ---
+      const dt = lastTickRef.current ? Math.min(now - lastTickRef.current, 100) : 0;
+      lastTickRef.current = now;
+      if (att.phase === 'climbing' && dt > 0) {
+        // The fast pool only drains while a limb is committed and in the air.
+        const reaching = selectedRef.current !== null && selectedRef.current !== 'BODY';
+        const ticked = tickEndurance(att, dt, reaching, route);
+        attemptRef.current = ticked.attempt;
+        if (ticked.pumped) {
+          setAttempt(ticked.attempt);
+          setLastReason('Pumped stupid. Arms opened on their own.');
+          onOutcome(ticked.attempt, 'fallen');
+        } else if (ticked.fumbled && selectedRef.current) {
+          // Held a limb in the air too long: it goes back where it came from,
+          // and the attempt carries on minus the endurance.
+          setSelected(null);
+          selectedRef.current = null;
+          setFlash({ grade: 'FUMBLE', reason: 'Held that too long. Put it back.' });
+          window.setTimeout(() => setFlash(null), 1400);
+        }
+        const e = ticked.attempt.endurance;
+        if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${e.base})`;
+        if (gripBarRef.current) gripBarRef.current.style.transform = `scaleX(${e.grip})`;
+        if (pumpRef.current) pumpRef.current.textContent = pumpWord(e.base);
+      }
 
       const playing = animRef.current;
       if (playing) {
@@ -150,7 +204,9 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         frame = {
           pose: att.state.pose,
           limbs: limbsFor(att.state.contacts, att.state.pose, now),
-          mood: att.phase === 'sent' ? 'smug' : att.state.pose.stability < 0.45 ? 'strain' : 'calm',
+          mood: att.phase === 'sent'
+            ? 'smug'
+            : idleMood(att.state.pose.stability, att.endurance.base),
           done: true,
         };
       }
@@ -161,6 +217,11 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         const want = clamp(frame.pose.com.y + 0.62, 1.7, 3.6);
         cam.focusY += (want - cam.focusY) * 0.07;
       }
+      if (shoutRef.current) {
+        if (now - shoutRef.current.start > 1400) shoutRef.current = null;
+        else shoutRef.current.at = { ...frame.pose.head };
+      }
+
       scene.setCamera(cam);
       const previewing = selectedRef.current === 'BODY' && att.phase === 'climbing' && !playing;
       if (!previewing) scene.setClimber(frame.pose, frame.limbs, frame.mood);
@@ -208,12 +269,17 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
 
         if (sel && sel !== 'BODY' && att.phase === 'climbing' && !playing) {
           const aim = aimFromDrag(sel, drag, rect.width, rect.height);
-          const { landing } = projectLanding(att.state, aim);
+          // An armed dyno throws the whole body, so the preview has to show
+          // where the hands arrive, not where one limb would have reached.
+          const armed = dynoRef.current;
+          const landing = armed
+            ? dynoLanding(att.state, aim).hands
+            : projectLanding(att.state, aim).landing;
           aimView = {
             limb: sel,
-            anchor: anchorFor(sel, att.state.pose.hip, att.state.pose.shoulder),
+            anchor: armed ? att.state.pose.hip : limbOrigin(att.state, sel),
             landing,
-            maxReach: maxReachOf(sel),
+            maxReach: armed ? DYNO_RANGE : maxReachOf(sel),
             power: aim.power,
             targetHold: holdAt(landing, route, att) ?? null,
             dragging: drag?.kind === 'aim',
@@ -229,6 +295,13 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
           locked: lockedLimbs(att),
           aim: aimView,
           shift: shiftView,
+          shout: shoutRef.current
+            ? {
+                text: 'Bruh!',
+                at: shoutRef.current.at,
+                age: now - shoutRef.current.start,
+              } as Shout
+            : null,
           accent,
           showLimbs: att.phase === 'climbing' && !playing,
         });
@@ -321,12 +394,10 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       };
       return;
     }
-    if (selectedRef.current) {
-      const body = selectedRef.current === 'BODY';
+    if (selectedRef.current && selectedRef.current !== 'BODY') {
       dragRef.current = {
-        kind: body ? 'body' : 'aim', startX: x, startY: y, x, y,
+        kind: 'aim', startX: x, startY: y, x, y,
         camFocus: cam.focusY, camOrbit: cam.orbit,
-        ...(body ? { hipFrom: { ...att.state.pose.hip } } : {}),
       };
       return;
     }
@@ -374,6 +445,9 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
     setSelected(null);
     selectedRef.current = null;
     followRef.current = true;
+    if (outcome.result.fell) {
+      shoutRef.current = { at: { ...att.state.pose.head }, start: performance.now() + 620 };
+    }
     setFlash({ grade: outcome.result.grade, reason: outcome.result.reason });
     setLastReason(outcome.result.reason);
     window.setTimeout(() => setFlash(null), 1500);
@@ -397,6 +471,46 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
     }
   }, [route, onOutcome]);
 
+  const commitDyno = useCallback((aim: Aim) => {
+    const att = attemptRef.current;
+    if (att.phase !== 'climbing') return;
+    const fromPose = att.state.pose;
+    const fromLimbs = limbsFor(att.state.contacts, fromPose, performance.now());
+    const outcome = dynoStep(att, route, aim);
+    const asMove: StepOutcome = {
+      attempt: outcome.attempt,
+      result: {
+        grade: outcome.result.grade,
+        landing: outcome.result.landing,
+        holdId: outcome.result.caught[0]?.holdId ?? null,
+        travel: 0,
+        reason: outcome.result.reason,
+        popped: [],
+        fell: outcome.result.fell,
+        next: outcome.result.next,
+        detail: {
+          angleQ: 1, reachQ: 1, tensionQ: 1, affinityQ: 1, windowScale: 1,
+          offset: 0, zone: 0, zoneName: null, zoneQuality: 0, momentum: 1,
+          stabilityBefore: fromPose.stability,
+          stabilityAfter: outcome.result.next.pose.stability,
+        },
+      },
+      ended: outcome.ended,
+    };
+    animRef.current = {
+      anim: new MoveAnimation(fromPose, fromLimbs, 'RH', asMove.result),
+      start: performance.now(),
+      outcome: asMove,
+    };
+    setBusy(true);
+    setDyno(false);
+    setSelected(null);
+    selectedRef.current = null;
+    setFlash({ grade: outcome.result.grade, reason: outcome.result.reason });
+    setLastReason(outcome.result.reason);
+    window.setTimeout(() => setFlash(null), 1600);
+  }, [route]);
+
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;
     dragRef.current = null;
@@ -416,6 +530,13 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       return;
     }
     if (drag.kind !== 'aim' || sel === 'BODY') return;
+    if (dynoRef.current) {
+      const rect0 = e.currentTarget.getBoundingClientRect();
+      const dAim = aimFromDrag(sel, drag, rect0.width, rect0.height);
+      if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < 8) return;
+      commitDyno(dAim);
+      return;
+    }
 
     const rect = e.currentTarget.getBoundingClientRect();
     const aim = aimFromDrag(sel, drag, rect.width, rect.height);
@@ -449,7 +570,6 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       if (limb && !lockedLimbs(att).has(limb)) {
         setSelected((cur) => (cur === limb ? null : limb));
       }
-      if (e.key === 'e' || e.key === 'E') setSelected((cur) => (cur === 'BODY' ? null : 'BODY'));
       if (e.key === 'Escape') setSelected(null);
     };
     window.addEventListener('keydown', onKey);
@@ -458,8 +578,12 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
 
   // --- derived UI --------------------------------------------------------
 
-  const locked = lockedLimbs(attempt);
   const inspecting = attempt.phase === 'inspect';
+  // Only mention the topout once the climber is actually up there.
+  const finishY = Math.min(
+    ...route.holds.filter((h) => route.finish.includes(h.id)).map((h) => h.pos.y),
+  );
+  const nearTop = attempt.state.pose.shoulder.y > finishY - 1.3;
   const holdToInspect = inspectHold !== null ? holdsById.get(inspectHold) ?? null : null;
 
   const startClimb = () => {
@@ -504,6 +628,31 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         </div>
       </header>
 
+      {attempt.phase === 'climbing' && (
+        <div className="stamina">
+          <div className="stamina__row">
+            <span className="stamina__label">Endurance</span>
+            <span className="stamina__word" ref={pumpRef}>fresh</span>
+          </div>
+          <div className="stamina__track">
+            <div className="stamina__fill" ref={baseBarRef} />
+          </div>
+          <div className="stamina__track stamina__track--grip">
+            <div className="stamina__fill stamina__fill--grip" ref={gripBarRef} />
+          </div>
+        </div>
+      )}
+
+      {attempt.phase === 'climbing' && !busy && (
+        <button
+          className={`dyno${dyno ? ' is-on' : ''}`}
+          onClick={() => setDyno((d) => !d)}
+          disabled={!selected || selected === 'BODY'}
+        >
+          {dyno ? 'DYNO ARMED' : 'DYNO'}
+        </button>
+      )}
+
       <div className="climb__stats">
         <span><b>{attempt.moves.length}</b> moves</span>
         <span className="climb__par">par {route.par}</span>
@@ -537,52 +686,29 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         </div>
       )}
 
-      {attempt.phase === 'climbing' && (
-        <div className="limbbar">
-          {LIMBS.map((limb) => {
-            const isLocked = locked.has(limb);
-            return (
-              <button
-                key={limb}
-                className={`limbbar__btn${selected === limb ? ' is-on' : ''}`}
-                disabled={isLocked || busy}
-                aria-label={LIMB_LABEL[limb]}
-                onClick={() => setSelected((cur) => (cur === limb ? null : limb))}
-              >
-                {LIMB_SHORT[limb]}
-              </button>
-            );
-          })}
-          <button
-            className={`limbbar__btn limbbar__btn--body${selected === 'BODY' ? ' is-on' : ''}`}
-            disabled={busy}
-            aria-label="Shift your weight"
-            onClick={() => setSelected((cur) => (cur === 'BODY' ? null : 'BODY'))}
-          >
-            BODY
-          </button>
+      {attempt.phase === 'climbing' && !busy && nearTop && (
+        <div className="climb__top-note">
+          Match <b>both hands</b> on the white hold to finish.
         </div>
       )}
 
       {attempt.phase === 'climbing' && !busy && (
         <div className="climb__hint">
           {selected === 'BODY'
-            ? 'Drag to move your weight. Watch which limb runs out of slack.'
+            ? 'Drag to move your weight.'
             : selected
               ? `Drag away from the target to aim ${LIMB_LABEL[selected].toLowerCase()}, then let go.`
-              : 'Tap a limb to move it, or your hips to shift your weight.'}
+              : 'Tap a limb to throw it. Hold your hips to move your weight.'}
         </div>
       )}
 
       {attempt.phase === 'fallen' && !busy && (
         <div className="falloff">
-          <div className="falloff__word">OFF</div>
+          <div className="falloff__word">Bruh!</div>
           <div className="falloff__reason">{lastReason ?? 'You are on the mat.'}</div>
           <div className="falloff__row">
             <button className="btn" onClick={onExit}>Leave it</button>
-            <button className="btn btn--primary" onClick={restart}>
-              {attempt.mode === 'onsight' ? 'Project it' : 'Again'}
-            </button>
+            <button className="btn btn--primary" onClick={restart}>Try again</button>
           </div>
         </div>
       )}

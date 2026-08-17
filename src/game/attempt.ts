@@ -1,9 +1,12 @@
 import type { Grade, LimbId, MoveGrade, Route, Vec2 } from './types';
 import { isHand } from './types';
 import {
-  type Aim, type ClimbState, type MoveResult, type ShiftResult,
-  initialState, resolveMove, shiftBody,
+  type Aim, type ClimbState, type DynoResult, type MoveResult, type ShiftResult,
+  initialState, resolveDyno, resolveMove, shiftBody,
 } from './move';
+import {
+  type Endurance, capacityFor, drainEndurance, freshEndurance, isRest, routeDrain,
+} from './endurance';
 
 /**
  * One go on a route, from pulling on to either topping out or hitting the mat.
@@ -18,6 +21,8 @@ export type AttemptPhase = 'inspect' | 'climbing' | 'fallen' | 'sent';
 
 /** One entry in a beta: which limb went where, and how well. */
 export type BetaMove = {
+  /** True when this entry was a dyno rather than a single limb placement. */
+  dyno?: boolean;
   limb: LimbId;
   /** Null when the limb caught nothing. */
   holdId: number | null;
@@ -47,20 +52,79 @@ export type Attempt = {
   startedAt: number;
   /** Furthest move index reached across this session's attempts on the route. */
   highWater: number;
+  /** What is left in the tank. */
+  endurance: Endurance;
+  /** Route difficulty multiplier, cached so the tick stays cheap. */
+  drain: number;
 };
 
-export function beginAttempt(route: Route, mode: AttemptMode, now = Date.now()): Attempt {
+export function overhangOf(route: Route): number {
+  return ((route.overhang ?? 0) * Math.PI) / 180;
+}
+
+export function beginAttempt(
+  route: Route, mode: AttemptMode, now = Date.now(), capacity = capacityFor(null, 0),
+): Attempt {
   return {
     routeId: route.id,
     mode,
     phase: 'inspect',
-    state: initialState(route.holds, route.start),
+    state: initialState(route.holds, route.start, overhangOf(route)),
     moves: [],
     shifts: [],
     falls: 0,
     elapsedMs: 0,
     startedAt: now,
     highWater: 0,
+    endurance: freshEndurance(capacity),
+    drain: routeDrain(route),
+  };
+}
+
+export type TickResult = {
+  attempt: Attempt;
+  /** The base pool emptied — pumped off the wall. */
+  pumped: boolean;
+  /** The grip pool emptied with a limb still in the air. */
+  fumbled: boolean;
+};
+
+/**
+ * Advances endurance. Called every frame while climbing.
+ *
+ * `reaching` is true from the moment a limb is committed to a move until it
+ * finds a hold, which is the only time the fast pool moves.
+ */
+export function tickEndurance(
+  attempt: Attempt, dtMs: number, reaching: boolean, route: Route,
+): TickResult {
+  if (attempt.phase !== 'climbing') return { attempt, pumped: false, fumbled: false };
+
+  // Resting only counts when you are actually settled on a rest hold, not
+  // merely touching one on the way past.
+  const restIds = new Set(route.holds.filter(isRest).map((h) => h.id));
+  const resting = !reaching
+    && attempt.state.pose.stability > 0.55
+    && attempt.state.contacts.some((c) => restIds.has(c.holdId));
+
+  const { endurance, pumped, fumbled } = drainEndurance({
+    endurance: attempt.endurance,
+    dtMs,
+    drain: attempt.drain,
+    stability: attempt.state.pose.stability,
+    reaching,
+    resting,
+  });
+
+  return {
+    attempt: {
+      ...attempt,
+      endurance,
+      phase: pumped ? 'fallen' : attempt.phase,
+      falls: attempt.falls + (pumped ? 1 : 0),
+    },
+    pumped,
+    fumbled,
   };
 }
 
@@ -140,15 +204,45 @@ export function retry(attempt: Attempt, route: Route, now = Date.now()): Attempt
     ...attempt,
     mode: 'project',
     phase: 'inspect',
-    state: initialState(route.holds, route.start),
+    state: initialState(route.holds, route.start, overhangOf(route)),
     moves: [],
     shifts: [],
     elapsedMs: 0,
     startedAt: now,
+    endurance: freshEndurance(attempt.endurance.capacity),
   };
 }
 
 /** The stored form of a beta: limb and hold only, aim dropped. */
+export type DynoOutcome = {
+  attempt: Attempt;
+  result: DynoResult;
+  ended: 'sent' | 'fallen' | null;
+};
+
+/** Commits a dyno. Everything leaves the wall; the hands sort it out. */
+export function dynoStep(attempt: Attempt, route: Route, aim: Aim, now = Date.now()): DynoOutcome {
+  const result = resolveDyno(attempt.state, aim, route.holds);
+  const moves = [...attempt.moves, {
+    limb: aim.limb, holdId: result.caught[0]?.holdId ?? null, grade: result.grade, aim, dyno: true,
+  }];
+  const sent = !result.fell && isSent(result.next, route);
+  const phase: AttemptPhase = sent ? 'sent' : result.fell ? 'fallen' : 'climbing';
+  return {
+    attempt: {
+      ...attempt,
+      phase,
+      state: result.next,
+      moves,
+      falls: attempt.falls + (result.fell ? 1 : 0),
+      elapsedMs: now - attempt.startedAt,
+      highWater: Math.max(attempt.highWater, moves.length),
+    },
+    result,
+    ended: sent ? 'sent' : result.fell ? 'fallen' : null,
+  };
+}
+
 export type Beta = { limb: LimbId; holdId: number }[];
 
 export function toBeta(moves: BetaMove[]): Beta {

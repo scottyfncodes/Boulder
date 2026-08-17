@@ -85,9 +85,14 @@ export function scoreAttempt(attempt: Attempt, route: Route, now = Date.now()): 
     * fallFactor(attempt.falls);
 
   const efficiency = Math.max(0, Math.min(1, eff));
-  const gradeWeight = 100 + gradeIndex(route.grade) * 55;
+  // Completing the route is the achievement, and the grade is what says how
+  // much of an achievement it was. Efficiency shapes the score around that
+  // rather than dominating it, and an onsight is a bonus on top rather than a
+  // different game — you came here to get to the top.
+  const gradeWeight = 100 + gradeIndex(route.grade) * 85;
   const onsight = attempt.mode === 'onsight' && attempt.falls === 0;
-  const points = Math.round(efficiency * gradeWeight * (onsight ? 1.25 : 1));
+  const completion = 0.62 + 0.38 * efficiency;
+  const points = Math.round(completion * gradeWeight * (onsight ? 1.15 : 1));
 
   return {
     routeId: route.id,
@@ -108,7 +113,7 @@ export function scoreAttempt(attempt: Attempt, route: Route, now = Date.now()): 
 /** Dry one-liner for the send screen. Not a grade, an opinion. */
 export function verdict(card: ScoreCard): string {
   if (card.onsight && card.efficiency > 0.9) return 'Flashed it. Insufferable.';
-  if (card.onsight) return 'Onsight. First go, no notes.';
+  if (card.onsight) return 'Onsight. First go.';
   if (card.efficiency > 0.88) return 'Clean. Genuinely clean.';
   if (card.efficiency > 0.72) return 'Solid. A bit of scrabbling.';
   if (card.falls > 6) return 'Sent. Eventually. Loudly.';

@@ -1,7 +1,10 @@
 import type { Hold, LimbId, Route, Vec2 } from './types';
 import { LIMBS, isHand } from './types';
 import { anchorFor, maxReachOf } from './body';
-import { type Aim, type ClimbState, blockedFor, initialState, resolveMove } from './move';
+import {
+  type Aim, type ClimbState, blockedFor, initialState, limbOrigin, resolveMove,
+} from './move';
+import { worldZones } from './holds';
 import { dist, norm, sub } from './vec';
 import { rng } from './rng';
 
@@ -28,19 +31,31 @@ export type Solution = {
   explored: number;
 };
 
-/** Perfect aim at the centre of a hold for a given limb. */
+/**
+ * Perfect aim at the best part of a hold. The throw starts where the limb
+ * actually is, not at the shoulder, because that is where the player throws
+ * from and the solver has to play the same game they do.
+ */
 export function aimAtHold(state: ClimbState, limb: LimbId, hold: Hold): Aim {
-  const anchor = anchorFor(limb, state.pose.hip, state.pose.shoulder);
-  const d = sub(hold.pos, anchor);
-  return { limb, dir: norm(d), power: Math.min(dist(hold.pos, anchor) / maxReachOf(limb), 1) };
+  const from = limbOrigin(state, limb);
+  const target = worldZones(hold)[0].pos;
+  const d = sub(target, from);
+  return { limb, dir: norm(d), power: Math.min(dist(target, from) / maxReachOf(limb), 1) };
 }
 
 /** Holds a limb could physically arrive at from the current pose. */
 export function reachableHolds(state: ClimbState, limb: LimbId, holds: Hold[]): Hold[] {
   const anchor = anchorFor(limb, state.pose.hip, state.pose.shoulder);
+  const from = limbOrigin(state, limb);
   const max = maxReachOf(limb);
   const taken = blockedFor(state.contacts.filter((c) => c.limb !== limb), holds);
-  return holds.filter((h) => !taken.has(h.id) && dist(anchor, h.pos) <= max);
+  // Two limits, and both bite: the limb has to end up within its own length of
+  // the shoulder or hip, and the throw itself cannot travel further than that.
+  return holds.filter((h) => {
+    if (taken.has(h.id)) return false;
+    const target = worldZones(h)[0].pos;
+    return dist(anchor, target) <= max && dist(from, target) <= max;
+  });
 }
 
 function key(state: ClimbState): string {
@@ -102,7 +117,7 @@ export function solveRoute(
       }
     : { x: 0, y: 4 };
 
-  const start = initialState(holds, route.start);
+  const start = initialState(holds, route.start, ((route.overhang ?? 0) * Math.PI) / 180);
   let frontier: Node[] = [
     { state: start, moves: [], grades: [], minStability: start.pose.stability, score: 0 },
   ];

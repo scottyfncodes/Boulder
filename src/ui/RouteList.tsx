@@ -22,9 +22,12 @@ export type RouteListProps = {
   onClimb: (route: Route, opts: { daily?: boolean }) => void;
   onToggleProject: (routeId: string) => void;
   onStandings: () => void;
+  onWardrobe: () => void;
 };
 
-export function RouteList({ profile, daily, onClimb, onToggleProject, onStandings }: RouteListProps) {
+export function RouteList({
+  profile, daily, onClimb, onToggleProject, onStandings, onWardrobe,
+}: RouteListProps) {
   const [tab, setTab] = useState<'board' | 'projects'>('board');
 
   const byGrade = useMemo(() => {
@@ -138,6 +141,10 @@ export function RouteList({ profile, daily, onClimb, onToggleProject, onStanding
           );
         })
       )}
+
+      <button className="board__kit" onClick={onWardrobe}>
+        Wardrobe &amp; climber
+      </button>
 
       <footer className="board__foot">
         Read the route. Plan your beta. Throw your limbs at the wall.

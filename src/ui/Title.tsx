@@ -4,18 +4,25 @@ import './title.css';
 /**
  * The front door. One button, one joke, no menu tree.
  */
-export function Title({ profile, onStart }: { profile: Profile; onStart: () => void }) {
+export function Title({ profile, onStart, onCustomise }: {
+  profile: Profile;
+  onStart: () => void;
+  onCustomise: () => void;
+}) {
   const returning = profile.totalSends > 0 || profile.totalFalls > 0;
   return (
     <div className="title">
       <div className="title__inner">
-        <div className="title__mark">BOULDER</div>
+        <div className="title__mark">BRUH</div>
         <p className="title__tag">
           Read the route. Plan your beta. Throw your limbs at the wall.
           Somehow send it.
         </p>
         <button className="btn btn--primary title__go" onClick={onStart}>
           {returning ? 'Back to the wall' : 'Start climbing'}
+        </button>
+        <button className="btn btn--ghost title__go title__kit" onClick={onCustomise}>
+          Build your climber
         </button>
         {returning && (
           <div className="title__stats">

@@ -16,6 +16,9 @@ import { RouteList } from './ui/RouteList';
 import { Breakthrough } from './ui/Breakthrough';
 import { Title } from './ui/Title';
 import { Standings } from './ui/Standings';
+import { Wardrobe } from './ui/Wardrobe';
+import { capacityFor } from './game/endurance';
+import { setOutfit } from './state/progress';
 import './app.css';
 
 /**
@@ -26,6 +29,7 @@ type Screen =
   | { kind: 'title' }
   | { kind: 'board' }
   | { kind: 'standings' }
+  | { kind: 'wardrobe' }
   | { kind: 'climb'; route: Route; mode: AttemptMode; daily: boolean }
   | { kind: 'result'; route: Route; attempt: Attempt; card: ScoreCard; best: ScoreCard | null }
   | { kind: 'breakthrough'; data: BreakthroughData; unlocked: number };
@@ -56,12 +60,13 @@ export default function App() {
       return;
     }
 
+    const dynos = attempt.moves.filter((m) => m.dyno && m.holdId !== null).length;
     const card = scoreAttempt(attempt, route);
     const previousBest = recordFor(profile, route.id).best;
 
     update((p) => {
       const { profile: withSend, breakthrough } = applySend(p, route, card, toBeta(attempt.moves));
-      let next = withSend;
+      let next = { ...withSend, totalDynos: withSend.totalDynos + dynos };
       if (screenIsDaily(attempt, daily.routeId)) {
         next = {
           ...next,
@@ -100,7 +105,13 @@ export default function App() {
 
   switch (screen.kind) {
     case 'title':
-      return <Title profile={profile} onStart={() => setScreen({ kind: 'board' })} />;
+      return (
+        <Title
+          profile={profile}
+          onStart={() => setScreen({ kind: 'board' })}
+          onCustomise={() => setScreen({ kind: 'wardrobe' })}
+        />
+      );
 
     case 'board':
       return (
@@ -110,11 +121,21 @@ export default function App() {
           onClimb={startClimb}
           onToggleProject={(id) => update((p) => toggleProject(p, id))}
           onStandings={() => setScreen({ kind: 'standings' })}
+          onWardrobe={() => setScreen({ kind: 'wardrobe' })}
         />
       );
 
     case 'standings':
       return <Standings profile={profile} onBack={() => setScreen({ kind: 'board' })} />;
+
+    case 'wardrobe':
+      return (
+        <Wardrobe
+          profile={profile}
+          onChange={(outfit) => update((p) => setOutfit(p, outfit))}
+          onClose={() => setScreen({ kind: 'board' })}
+        />
+      );
 
     case 'climb': {
       const left = attemptsRemaining(daily);
@@ -123,6 +144,8 @@ export default function App() {
           key={`${screen.route.id}:${screen.mode}`}
           route={screen.route}
           mode={screen.mode}
+          outfit={profile.outfit}
+          capacity={capacityFor(profile.topGrade, profile.totalSends)}
           onExit={() => setScreen({ kind: 'board' })}
           onOutcome={handleOutcome}
           attemptsNote={screen.daily ? `daily · ${left} left` : undefined}

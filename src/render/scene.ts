@@ -5,6 +5,7 @@ import { GRADE_COLOR, GYM } from './palette';
 import { contactRadius } from '../game/holds';
 import { holdGeometry } from './holdGeometry';
 import { Climber, type Mood } from './climber';
+import type { Outfit } from '../game/awards';
 
 /**
  * The gym, rendered.
@@ -33,11 +34,19 @@ const FOV = 42;
 
 export class WallScene {
   readonly scene = new THREE.Scene();
+  /**
+   * Everything that belongs to the wall plane — panels, holds and the climber —
+   * lives under one group that gets tilted. The sim stays flat and works in
+   * wall coordinates; only the view knows the wall leans.
+   */
+  private plane = new THREE.Group();
   readonly camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private climber = new Climber();
   private holdGroup = new THREE.Group();
   private holdMeshes = new Map<number, THREE.Mesh>();
+  /** Wall furniture that tilts with the plane. */
+  private panels: THREE.Object3D[] = [];
   private canvas: HTMLCanvasElement;
   private cam: CameraState = { ...DEFAULT_CAMERA };
   private disposed = false;
@@ -52,7 +61,8 @@ export class WallScene {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 40);
-    this.scene.add(this.holdGroup, this.climber.group);
+    this.plane.add(this.holdGroup, this.climber.group);
+    this.scene.add(this.plane);
     this.buildEnvironment();
     this.applyCamera();
   }
@@ -72,7 +82,7 @@ export class WallScene {
     );
     wall.position.set(cx, h / 2 - 0.6, -0.15);
     wall.receiveShadow = true;
-    this.scene.add(wall);
+    this.plane.add(wall);
 
     // Panel seams. Purely visual, but they give the eye a scale reference,
     // which matters when you are judging whether a move is 30cm or 60cm.
@@ -80,12 +90,12 @@ export class WallScene {
     for (let y = 0.2; y < WALL.maxY + 2.4; y += 1.22) {
       const seam = new THREE.Mesh(new THREE.BoxGeometry(w, 0.014, 0.01), seamMat);
       seam.position.set(cx, y, 0.006);
-      this.scene.add(seam);
+      this.plane.add(seam);
     }
     for (const x of [WALL.minX - 0.05, cx, WALL.maxX + 0.05]) {
       const seam = new THREE.Mesh(new THREE.BoxGeometry(0.014, h, 0.01), seamMat);
       seam.position.set(x, h / 2 - 0.6, 0.006);
-      this.scene.add(seam);
+      this.plane.add(seam);
     }
 
     const mat = new THREE.Mesh(
@@ -106,7 +116,7 @@ export class WallScene {
       m.scale.setScalar(contactRadius(d.size, d.type));
       m.rotation.z = d.roll;
       m.castShadow = true;
-      this.scene.add(m);
+      this.plane.add(m);
     }
 
     this.scene.add(new THREE.HemisphereLight('#f2efe8', '#3a3f52', 1.5));
@@ -142,11 +152,17 @@ export class WallScene {
 
     const color = GRADE_COLOR[route.grade];
     for (const hold of route.holds) {
+      const isFinish = route.finish.includes(hold.id);
       const mesh = new THREE.Mesh(
         holdGeometry(hold.type),
         new THREE.MeshStandardMaterial({
-          color, roughness: 0.62, metalness: 0.04,
-          emissive: color, emissiveIntensity: 0,
+          // The finish is not the route colour. A player who reaches the top of
+          // a route should never have to wonder whether they are done.
+          color: isFinish ? '#ffffff' : color,
+          roughness: isFinish ? 0.4 : 0.62,
+          metalness: 0.04,
+          emissive: isFinish ? '#ffffff' : color,
+          emissiveIntensity: 0,
         }),
       );
       this.placeHold(mesh, hold);
@@ -174,7 +190,7 @@ export class WallScene {
       const isFinish = finish.includes(id);
       m.emissiveIntensity =
         id === selected ? 0.55
-        : isFinish ? 0.3
+        : isFinish ? 0.42 + Math.sin(performance.now() / 420) * 0.18
         : reachable.has(id) ? 0.14
         : 0;
     }
@@ -186,11 +202,21 @@ export class WallScene {
     this.climber.setPose(pose, limbs, mood);
   }
 
+  setOutfit(outfit: Outfit): void {
+    this.climber.setOutfit(outfit);
+  }
+
   setClimberVisible(visible: boolean): void {
     this.climber.group.visible = visible;
   }
 
   // --- camera ------------------------------------------------------------
+
+  /** Leans the wall back by `radians`, pivoting about the foot of the wall. */
+  setOverhang(radians: number): void {
+    this.plane.rotation.x = radians;
+    for (const m of this.panels) m.rotation.x = radians;
+  }
 
   setCamera(next: Partial<CameraState>): void {
     this.cam = { ...this.cam, ...next };
@@ -217,7 +243,11 @@ export class WallScene {
 
   /** World point to canvas pixels, for drawing the aiming overlay on top. */
   project(p: Vec2, z = 0.12): { x: number; y: number; visible: boolean } {
-    const v = new THREE.Vector3(p.x, p.y, z).project(this.camera);
+    const v = new THREE.Vector3(p.x, p.y, z);
+    // Wall-space to world: the same tilt the plane group applies.
+    this.plane.updateMatrixWorld();
+    v.applyMatrix4(this.plane.matrixWorld);
+    v.project(this.camera);
     const rect = this.canvas.getBoundingClientRect();
     return {
       x: (v.x * 0.5 + 0.5) * rect.width,

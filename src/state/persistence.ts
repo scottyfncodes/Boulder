@@ -8,9 +8,9 @@ import { type Profile, SAVE_VERSION, freshProfile } from './progress';
  * posting this object rather than reworking it.
  */
 
-const KEY = 'boulder.profile.v1';
-/** The game was called SEND before it was called Boulder. Saves outlive names. */
-const LEGACY_KEYS = ['send.profile.v1'];
+const KEY = 'bruh.profile.v1';
+/** The game has been called SEND and Boulder. Saves outlive names. */
+const LEGACY_KEYS = ['boulder.profile.v1', 'send.profile.v1'];
 
 export function loadProfile(): Profile {
   if (typeof localStorage === 'undefined') return freshProfile();
