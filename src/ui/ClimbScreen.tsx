@@ -59,6 +59,10 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
   const [attempt, setAttempt] = useState<Attempt>(() => beginAttempt(route, mode));
   const [selected, setSelected] = useState<LimbId | null>(null);
   const [flash, setFlash] = useState<{ grade: string; reason: string } | null>(null);
+  // The flash fades after a second and a half, but the fall animation runs
+  // longer than that — so the reason the climber came off is kept separately
+  // rather than being gone by the time there is a screen to show it on.
+  const [lastReason, setLastReason] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [inspectHold, setInspectHold] = useState<number | null>(null);
   const [, force] = useState(0);
@@ -313,6 +317,7 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
     selectedRef.current = null;
     followRef.current = true;
     setFlash({ grade: outcome.result.grade, reason: outcome.result.reason });
+    setLastReason(outcome.result.reason);
     window.setTimeout(() => setFlash(null), 1500);
   }, [route]);
 
@@ -382,6 +387,7 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
   const restart = () => {
     setAttempt(retry(attempt, route));
     setSelected(null);
+    setLastReason(null);
     camRef.current = { ...DEFAULT_CAMERA };
     followRef.current = true;
   };
@@ -470,7 +476,7 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       {attempt.phase === 'fallen' && !busy && (
         <div className="falloff">
           <div className="falloff__word">OFF</div>
-          <div className="falloff__reason">{flash?.reason ?? 'You are on the mat.'}</div>
+          <div className="falloff__reason">{lastReason ?? 'You are on the mat.'}</div>
           <div className="falloff__row">
             <button className="btn" onClick={onExit}>Leave it</button>
             <button className="btn btn--primary" onClick={restart}>
