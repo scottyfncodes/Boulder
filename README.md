@@ -53,6 +53,13 @@ Rest holds give some back. Run it out and you come off — not because you did
 anything wrong, but because you took too long, which is the honest reason most
 people fall off most problems. It grows as you climb harder things.
 
+**He faces the wall; his head does not.** What the camera sees is a climber's
+back — chalk bag, shoulder yoke, toes pointing into the wall — with the head
+turned back over the shoulder so the face stays readable. A quarter turn reads
+as looking round; pointing it straight out would read as a head mounted
+backwards. When something actually happens the head snaps most of the way to
+camera, which is where the joke lives.
+
 **The face is the strain readout.** There are no coloured lines on the wall
 telling you a limb is loaded, because that is not how you read it off another
 climber. There is no anger in it and no misery — the worse things get, the more

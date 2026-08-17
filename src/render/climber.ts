@@ -33,6 +33,19 @@ export type Mood =
   | 'calm' | 'keen' | 'impressed' | 'surprised' | 'astonished'
   | 'shocked' | 'whooping' | 'delighted' | 'dazed';
 
+/**
+ * How far the head is turned back toward the camera, radians.
+ *
+ * Zero would put the face flat to the camera, which on a body facing the wall
+ * reads as a head mounted backwards. A little under a quarter turn keeps the
+ * whole face visible while still showing some of the side and back of the
+ * skull, so it reads as a climber looking round rather than as a mistake.
+ */
+const HEAD_TURN = -0.62;
+
+/** How far round he snaps when something actually happens. */
+const HEAD_TURN_ALERT = -0.24;
+
 const UPPER_ARM = BODY.arm * 0.5;
 const LOWER_ARM = BODY.arm * 0.5;
 const UPPER_LEG = BODY.leg * 0.5;
@@ -174,7 +187,42 @@ export class Climber {
       this.head.add(brow);
     }
 
+    // The climber faces the wall, so what the camera sees is his back. The head
+    // is turned to look back over his shoulder, which is the only reason any of
+    // the face is visible at all. A quarter turn reads as "looking round";
+    // pointing it straight out would read as a head on backwards.
+    this.head.rotation.y = HEAD_TURN;
     this.group.add(this.head);
+
+    // Cues that say back rather than front, so the turned head reads as a turn
+    // rather than as the whole body facing out. A chalk bag at the waist is the
+    // single most recognisable thing about a climber seen from behind.
+    const chalkBag = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.062, 0.055, 0.09, 10),
+      limbMaterial('#6b5a44'),
+    );
+    chalkBag.position.set(0.09, -0.03, 0.13);
+    chalkBag.castShadow = true;
+    this.hips.add(chalkBag);
+
+    const bagRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.058, 0.012, 6, 12),
+      limbMaterial('#d8cfc0'),
+    );
+    bagRim.rotation.x = Math.PI / 2;
+    bagRim.position.set(0.09, 0.014, 0.13);
+    this.hips.add(bagRim);
+
+    // A yoke seam across the shoulder blades. Semi-transparent black rather
+    // than a fixed colour, so it darkens whatever shirt is underneath instead
+    // of fighting it — an eight-digit hex is not a colour three.js understands,
+    // and the first attempt came out as a bright white stripe.
+    const yoke = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.013, 0.02),
+      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.16 }),
+    );
+    yoke.position.set(0, BODY.torso * 0.22, 0.125);
+    this.torso.add(yoke);
 
     const mk = (limb: LimbId) => {
       const hand = isHand(limb);
@@ -183,10 +231,11 @@ export class Climber {
       const lower = new Bone(hand ? 0.044 : 0.055, skin.clone());
       if (hand) { this.skinParts.push(upper.mesh, lower.mesh); }
       else this.skinParts.push(lower.mesh);
+      const footGeo = new THREE.BoxGeometry(0.1, 0.058, 0.17);
+      // Shift the shoe forward of the ankle so the toe points at the wall.
+      footGeo.translate(0, 0, -0.045);
       const end = new THREE.Mesh(
-        hand
-          ? new THREE.SphereGeometry(0.056, 8, 6)
-          : new THREE.BoxGeometry(0.11, 0.06, 0.15),
+        hand ? new THREE.SphereGeometry(0.056, 8, 6) : footGeo,
         hand ? skin.clone() : limbMaterial('#2f3542'),
       );
       end.castShadow = true;
@@ -293,6 +342,11 @@ export class Climber {
       brow.position.y = f.browY;
       brow.position.x = side * 0.058;
     });
+
+    // He looks further round when something is happening — the whole head
+    // snaps to camera for a whoop, which is where the joke lives.
+    const alert = mood === 'shocked' || mood === 'whooping' || mood === 'astonished';
+    this.head.rotation.y = alert ? HEAD_TURN_ALERT : HEAD_TURN;
 
     this.mouth.visible = !f.grin;
     this.smile.visible = f.grin;
