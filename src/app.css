@@ -1,0 +1,89 @@
+/**
+ * Base tokens.
+ *
+ * Dark chrome around a bright wall: the 3D scene is the only place colour is
+ * allowed to shout, and the accent is always the current route's grade colour.
+ */
+
+:root {
+  --bg: #12141a;
+  --bg-raised: #191c24;
+  --bg-sunk: #0d0f14;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --ink: #f2f3f6;
+  --ink-dim: rgba(242, 243, 246, 0.62);
+  --ink-faint: rgba(242, 243, 246, 0.36);
+  --accent: #5fd1a0;
+  --good: #5fd1a0;
+  --warn: #f2c249;
+  --bad: #e8564f;
+  --r-sm: 0.5rem;
+  --r-md: 0.75rem;
+  --r-lg: 1.1rem;
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  /* The whole game is drag-driven; the page itself must never move. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root { display: flex; flex-direction: column; }
+
+button { font: inherit; color: inherit; }
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-raised);
+  color: var(--ink);
+  border-radius: var(--r-md);
+  padding: 0.85rem 1.15rem;
+  font-size: 0.94rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 2.9rem;
+  transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.btn:active { transform: scale(0.975); }
+.btn:disabled { opacity: 0.35; cursor: default; }
+.btn--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #11141a;
+}
+.btn--ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--ink-dim);
+}
+
+.label {
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

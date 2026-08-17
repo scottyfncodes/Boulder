@@ -1,0 +1,42 @@
+.title {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem;
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(95, 209, 160, 0.16), transparent 62%),
+    var(--bg);
+}
+.title__inner { text-align: center; max-width: 26rem; }
+.title__mark {
+  font-size: clamp(4rem, 22vw, 7rem);
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  line-height: 0.95;
+  margin-right: -0.16em;
+  background: linear-gradient(170deg, #f2f3f6, #8fb8a8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.title__tag {
+  margin: 1.1rem auto 0;
+  max-width: 21rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.title__go { width: min(20rem, 100%); margin-top: 2rem; }
+.title__stats {
+  margin-top: 0.9rem;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.title__foot {
+  margin-top: 2.6rem;
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}

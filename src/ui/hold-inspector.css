@@ -1,0 +1,62 @@
+.holdinfo {
+  position: absolute;
+  left: 50%;
+  bottom: 6.5rem;
+  transform: translateX(-50%);
+  width: min(21rem, calc(100vw - 2rem));
+  padding: 0.9rem 1rem 1rem;
+  background: rgba(20, 23, 30, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.9rem;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1.4rem 3rem rgba(0, 0, 0, 0.5);
+  z-index: 6;
+}
+.holdinfo__close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.5rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.holdinfo__type {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+.holdinfo__note {
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.66);
+  line-height: 1.35;
+}
+.holdinfo__facts {
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.holdinfo__facts > div {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+}
+.holdinfo__facts dt {
+  width: 3.6rem;
+  flex: none;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  padding-top: 0.1rem;
+}
+.holdinfo__facts dd {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.86);
+}
