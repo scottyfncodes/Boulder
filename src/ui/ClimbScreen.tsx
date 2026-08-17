@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LimbId, Route, Vec2 } from '../game/types';
-import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
-import { anchorFor, maxReachOf } from '../game/body';
-import { type Aim, projectLanding } from '../game/move';
+import { LIMBS, LIMB_LABEL, LIMB_SHORT, isHand } from '../game/types';
+import { anchorFor, maxReachOf, reachOf } from '../game/body';
+import { type Aim, previewShift, projectLanding } from '../game/move';
 import { contactRadius } from '../game/holds';
 import {
-  type Attempt, type AttemptMode, type StepOutcome, beginAttempt, pullOn, retry, step,
+  type Attempt, type AttemptMode, type StepOutcome,
+  beginAttempt, pullOn, retry, shiftStep, step,
 } from '../game/attempt';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
 import { MoveAnimation, type Frame, limbsFor } from '../render/animator';
-import { drawOverlay, type AimView, LIMB_TOUCH_RADIUS } from '../render/overlay';
+import { drawOverlay, type AimView, type ShiftView, LIMB_TOUCH_RADIUS } from '../render/overlay';
 import { GRADE_COLOR } from '../render/palette';
 import { setterOf } from '../content/setters';
 import { HoldInspector } from './HoldInspector';
@@ -31,14 +32,19 @@ function maxDragPx(w: number, h: number): number {
 /** Below this the throw is treated as a cancelled drag rather than a move. */
 const MIN_POWER = 0.06;
 
+/** The body is selected and dragged like a limb, so it shares the selection. */
+export type Selection = LimbId | 'BODY';
+
 type Drag = {
-  kind: 'aim' | 'look';
+  kind: 'aim' | 'look' | 'body';
   startX: number;
   startY: number;
   x: number;
   y: number;
   camFocus: number;
   camOrbit: number;
+  /** Hip position when a body drag began, in world space. */
+  hipFrom?: Vec2;
 };
 
 export type ClimbScreenProps = {
@@ -57,7 +63,7 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
   const rafRef = useRef(0);
 
   const [attempt, setAttempt] = useState<Attempt>(() => beginAttempt(route, mode));
-  const [selected, setSelected] = useState<LimbId | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [flash, setFlash] = useState<{ grade: string; reason: string } | null>(null);
   // The flash fades after a second and a half, but the fall animation runs
   // longer than that — so the reason the climber came off is kept separately
@@ -156,8 +162,8 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         cam.focusY += (want - cam.focusY) * 0.07;
       }
       scene.setCamera(cam);
-      scene.setClimber(frame.pose, frame.limbs, frame.mood);
-      scene.render();
+      const previewing = selectedRef.current === 'BODY' && att.phase === 'climbing' && !playing;
+      if (!previewing) scene.setClimber(frame.pose, frame.limbs, frame.mood);
 
       // --- overlay ---
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -169,7 +175,38 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         const drag = dragRef.current;
 
         let aimView: AimView | null = null;
-        if (sel && att.phase === 'climbing' && !playing) {
+        let shiftView: ShiftView | null = null;
+
+        if (sel === 'BODY' && att.phase === 'climbing' && !playing) {
+          // Preview the commanded position live, so the pose on screen is the
+          // pose that will be committed when the finger comes up.
+          const target = drag?.kind === 'body' && drag.hipFrom
+            ? bodyTarget(drag, scene, att)
+            : att.state.shift;
+          const preview = previewShift(att.state, target, route.holds);
+          frame = {
+            ...frame,
+            pose: preview.pose,
+            limbs: limbsFor(att.state.contacts, preview.pose, now),
+          };
+          scene.setClimber(frame.pose, frame.limbs, preview.risky ? 'strain' : 'focus');
+          shiftView = {
+            hip: preview.pose.hip,
+            from: drag?.hipFrom ?? att.state.pose.hip,
+            risky: preview.risky,
+            dragging: drag?.kind === 'body',
+            tethers: att.state.contacts.map((c) => {
+              const anchor = anchorFor(c.limb, preview.pose.hip, preview.pose.shoulder);
+              return {
+                anchor,
+                hold: c.pos,
+                strain: Math.hypot(anchor.x - c.pos.x, anchor.y - c.pos.y) / reachOf(c.limb),
+              };
+            }),
+          };
+        }
+
+        if (sel && sel !== 'BODY' && att.phase === 'climbing' && !playing) {
           const aim = aimFromDrag(sel, drag, rect.width, rect.height);
           const { landing } = projectLanding(att.state, aim);
           aimView = {
@@ -188,13 +225,16 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
           width: rect.width, height: rect.height,
           limbPositions: frame.limbs,
           contactLimbs: new Set(att.state.contacts.map((c) => c.limb)),
-          selected: sel,
+          selected: sel === 'BODY' ? null : sel,
           locked: lockedLimbs(att),
           aim: aimView,
+          shift: shiftView,
           accent,
           showLimbs: att.phase === 'climbing' && !playing,
         });
       }
+
+      scene.render();
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
@@ -253,6 +293,22 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
     }
     if (att.phase !== 'climbing') return;
 
+    // The hips are a tap target too, and they sit where the body actually is.
+    const scene = sceneRef.current;
+    if (scene) {
+      const hipPt = scene.project(att.state.pose.hip, 0.15);
+      if (Math.hypot(hipPt.x - x, hipPt.y - y) < LIMB_TOUCH_RADIUS) {
+        setSelected('BODY');
+        selectedRef.current = 'BODY';
+        dragRef.current = {
+          kind: 'body', startX: x, startY: y, x, y,
+          camFocus: cam.focusY, camOrbit: cam.orbit,
+          hipFrom: { ...att.state.pose.hip },
+        };
+        return;
+      }
+    }
+
     const hit = limbAtPoint(x, y);
     if (hit && !lockedLimbs(att).has(hit)) {
       // Press straight onto a limb and drag in one gesture, or tap to select
@@ -266,9 +322,11 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       return;
     }
     if (selectedRef.current) {
+      const body = selectedRef.current === 'BODY';
       dragRef.current = {
-        kind: 'aim', startX: x, startY: y, x, y,
+        kind: body ? 'body' : 'aim', startX: x, startY: y, x, y,
         camFocus: cam.focusY, camOrbit: cam.orbit,
+        ...(body ? { hipFrom: { ...att.state.pose.hip } } : {}),
       };
       return;
     }
@@ -321,17 +379,43 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
     window.setTimeout(() => setFlash(null), 1500);
   }, [route]);
 
+  const commitShift = useCallback((target: Vec2 | null) => {
+    const att = attemptRef.current;
+    if (att.phase !== 'climbing') return;
+    const outcome = shiftStep(att, route, target);
+    setAttempt(outcome.attempt);
+    if (outcome.result.fell) {
+      setLastReason(outcome.result.reason);
+      setFlash({ grade: 'OFF', reason: outcome.result.reason });
+      window.setTimeout(() => setFlash(null), 1500);
+      setSelected(null);
+      selectedRef.current = null;
+      onOutcome(outcome.attempt, 'fallen');
+    } else if (outcome.result.popped.length) {
+      setFlash({ grade: 'SLIP', reason: outcome.result.reason });
+      window.setTimeout(() => setFlash(null), 1500);
+    }
+  }, [route, onOutcome]);
+
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
 
-    if (drag.kind !== 'aim') return;
     const scene = sceneRef.current;
     const att = attemptRef.current;
     const sel = selectedRef.current;
     if (!scene || !sel || att.phase !== 'climbing') return;
+
+    if (drag.kind === 'body') {
+      if (!drag.hipFrom) return;
+      const moved = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
+      if (moved < 6) return; // a tap just picks the body up
+      commitShift(bodyTarget(drag, scene, att));
+      return;
+    }
+    if (drag.kind !== 'aim' || sel === 'BODY') return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const aim = aimFromDrag(sel, drag, rect.width, rect.height);
@@ -365,6 +449,7 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
       if (limb && !lockedLimbs(att).has(limb)) {
         setSelected((cur) => (cur === limb ? null : limb));
       }
+      if (e.key === 'e' || e.key === 'E') setSelected((cur) => (cur === 'BODY' ? null : 'BODY'));
       if (e.key === 'Escape') setSelected(null);
     };
     window.addEventListener('keydown', onKey);
@@ -423,6 +508,11 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
         <span><b>{attempt.moves.length}</b> moves</span>
         <span className="climb__par">par {route.par}</span>
         {attemptsNote && <span className="climb__note">{attemptsNote}</span>}
+        {attempt.state.shift && attempt.phase === 'climbing' && (
+          <button className="climb__held" onClick={() => commitShift(null)}>
+            weight held · <b>let go</b>
+          </button>
+        )}
       </div>
 
       {flash && (
@@ -456,20 +546,31 @@ export function ClimbScreen({ route, mode, onExit, onOutcome, attemptsNote }: Cl
                 key={limb}
                 className={`limbbar__btn${selected === limb ? ' is-on' : ''}`}
                 disabled={isLocked || busy}
+                aria-label={LIMB_LABEL[limb]}
                 onClick={() => setSelected((cur) => (cur === limb ? null : limb))}
               >
-                {LIMB_LABEL[limb]}
+                {LIMB_SHORT[limb]}
               </button>
             );
           })}
+          <button
+            className={`limbbar__btn limbbar__btn--body${selected === 'BODY' ? ' is-on' : ''}`}
+            disabled={busy}
+            aria-label="Shift your weight"
+            onClick={() => setSelected((cur) => (cur === 'BODY' ? null : 'BODY'))}
+          >
+            BODY
+          </button>
         </div>
       )}
 
       {attempt.phase === 'climbing' && !busy && (
         <div className="climb__hint">
-          {selected
-            ? `Drag away from the target to aim ${LIMB_LABEL[selected].toLowerCase()}, then let go.`
-            : 'Tap a limb to move it.'}
+          {selected === 'BODY'
+            ? 'Drag to move your weight. Watch which limb runs out of slack.'
+            : selected
+              ? `Drag away from the target to aim ${LIMB_LABEL[selected].toLowerCase()}, then let go.`
+              : 'Tap a limb to move it, or your hips to shift your weight.'}
         </div>
       )}
 
@@ -508,6 +609,22 @@ export function lockedLimbs(attempt: Attempt): Set<LimbId> {
     if (!attempt.state.contacts.some((c) => c.limb === limb)) locked.delete(limb);
   }
   return locked;
+}
+
+/**
+ * Where a body drag is asking the hips to go.
+ *
+ * Unlike a throw, this one tracks the finger directly rather than pulling back.
+ * Throwing a limb is a shot you line up and release; moving your weight is a
+ * thing you do with your hips, and having it run backwards would be perverse.
+ */
+function bodyTarget(drag: Drag, scene: WallScene, attempt: Attempt): Vec2 {
+  const mpp = scene.metresPerPixel();
+  const from = drag.hipFrom ?? attempt.state.pose.hip;
+  return {
+    x: from.x + (drag.x - drag.startX) * mpp,
+    y: from.y - (drag.y - drag.startY) * mpp,
+  };
 }
 
 /**

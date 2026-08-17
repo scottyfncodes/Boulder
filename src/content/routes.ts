@@ -21,7 +21,7 @@ export const ROUTES: Route[] = [
     setter: 'house',
     wall: 'main',
     tagline: 'It says warmup on the tag.',
-    par: 13,
+    par: 12,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [20],
     holds: [
@@ -45,7 +45,7 @@ export const ROUTES: Route[] = [
     setter: 'house',
     wall: 'main',
     tagline: 'The hands are a formality.',
-    par: 14,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [22],
     holds: [
@@ -70,7 +70,7 @@ export const ROUTES: Route[] = [
     setter: 'chad',
     wall: 'main',
     tagline: 'Chad is 6‑4.',
-    par: 13,
+    par: 12,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [19],
     holds: [
@@ -93,7 +93,7 @@ export const ROUTES: Route[] = [
     setter: 'house',
     wall: 'main',
     tagline: 'Methodical. Joyless. Sends.',
-    par: 13,
+    par: 11,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -117,7 +117,7 @@ export const ROUTES: Route[] = [
     setter: 'house',
     wall: 'main',
     tagline: 'Long moves between diminishing rewards.',
-    par: 13,
+    par: 12,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [20],
     holds: [
@@ -141,7 +141,7 @@ export const ROUTES: Route[] = [
     setter: 'melissa',
     wall: 'main',
     tagline: 'There is a foothold. You will not like where.',
-    par: 13,
+    par: 12,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -165,7 +165,7 @@ export const ROUTES: Route[] = [
     setter: 'melissa',
     wall: 'main',
     tagline: 'Underclings. Get your hips up first.',
-    par: 14,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -189,7 +189,7 @@ export const ROUTES: Route[] = [
     setter: 'kevin',
     wall: 'main',
     tagline: 'Kevin found the volumes again.',
-    par: 15,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [19],
     holds: [
@@ -212,7 +212,7 @@ export const ROUTES: Route[] = [
     setter: 'dave',
     wall: 'main',
     tagline: 'Dave has one idea and it is this route.',
-    par: 16,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [17],
     holds: [
@@ -234,7 +234,7 @@ export const ROUTES: Route[] = [
     setter: 'sadist',
     wall: 'main',
     tagline: 'Everything you need is on the wall.',
-    par: 14,
+    par: 11,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -258,7 +258,7 @@ export const ROUTES: Route[] = [
     setter: 'sadist',
     wall: 'main',
     tagline: 'Set with whatever was left in the bucket.',
-    par: 17,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -282,7 +282,7 @@ export const ROUTES: Route[] = [
     setter: 'chad',
     wall: 'main',
     tagline: 'Chad put this next to the V0s.',
-    par: 16,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [19],
     holds: [
@@ -305,7 +305,7 @@ export const ROUTES: Route[] = [
     setter: 'sadist',
     wall: 'main',
     tagline: 'Attendance is not optional. Neither is the heel hook.',
-    par: 16,
+    par: 12,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -329,7 +329,7 @@ export const ROUTES: Route[] = [
     setter: 'melissa',
     wall: 'main',
     tagline: 'Every hold works. From exactly one position.',
-    par: 16,
+    par: 13,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [

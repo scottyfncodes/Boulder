@@ -27,6 +27,12 @@ export type ClimbState = {
   contacts: Contact[];
   pose: Pose;
   onMat: boolean;
+  /**
+   * Where the player is holding their hips, if they have taken over. Persists
+   * until they move it or let go, because a body position you have to re-set
+   * after every move is a chore rather than a decision.
+   */
+  shift: Vec2 | null;
 };
 
 export type Aim = {
@@ -143,6 +149,42 @@ export function recomputeGrips(contacts: Contact[], holds: Map<number, Hold>, co
 
 function holdMap(holds: Hold[]): Map<number, Hold> {
   return new Map(holds.map((h) => [h.id, h]));
+}
+
+/**
+ * Settles a pose and its grips against each other.
+ *
+ * The two depend on each other: how well a foot is placed decides how much
+ * weight the leg can hold up, and where the body ends up decides how well that
+ * foot is loaded. Solving once leaves the answer depending on whichever grip
+ * values happened to arrive, which is how history leaks into a pose that is
+ * meant to be a function of the contacts. A few passes reach the fixed point,
+ * and every caller goes through here so they all agree on what settled means.
+ */
+function settle(
+  contacts: Contact[],
+  seed: { hip: Vec2; shoulder: Vec2 },
+  map: Map<number, Hold>,
+  onMat: boolean,
+  shift: Vec2 | null,
+): { pose: Pose; contacts: Contact[] } {
+  let pose = solvePose({
+    contacts, seedHip: seed.hip, seedShoulder: seed.shoulder, onMat, shift,
+  });
+  let live = recomputeGrips(contacts, map, pose.com);
+  for (let pass = 0; pass < 3; pass++) {
+    pose = solvePose({
+      contacts: live, seedHip: seed.hip, seedShoulder: seed.shoulder, onMat, shift,
+    });
+    const next = recomputeGrips(live, map, pose.com);
+    // Usually converged after one pass. Stopping early matters because the
+    // route validator runs this tens of thousands of times per test run.
+    let moved = 0;
+    for (let i = 0; i < next.length; i++) moved = Math.max(moved, Math.abs(next[i].grip - live[i].grip));
+    live = next;
+    if (moved < 1e-4) break;
+  }
+  return { pose, contacts: live };
 }
 
 /** Holds this limb cannot arrive on, because something else is already there. */
@@ -297,29 +339,23 @@ export function resolveMove({ state, aim, holds }: ResolveInput): MoveResult {
   const seedHip = add(state.pose.hip, scale(dirUnit, kick * 0.65));
   const seedShoulder = add(state.pose.shoulder, scale(dirUnit, kick));
 
-  let pose = solvePose({
-    contacts: nextContacts,
-    seedHip,
-    seedShoulder,
-    onMat: state.onMat,
-  });
+  let settled = settle(
+    nextContacts, { hip: seedHip, shoulder: seedShoulder }, map, state.onMat, state.shift,
+  );
+  let pose = settled.pose;
+  let live = settled.contacts;
 
-  // Settle: re-grip against the new pose, drop anything that has come off,
-  // and re-solve. A pop can cascade, which is exactly how it goes in real life.
-  let live = recomputeGrips(nextContacts, map, pose.com);
+  // Drop anything that has come off and settle again. A pop can cascade, which
+  // is exactly how it goes in real life.
   const popped: LimbId[] = [];
   for (let pass = 0; pass < 4; pass++) {
     const survivors = live.filter((c) => c.grip >= POP_THRESHOLD);
     if (survivors.length === live.length) break;
     for (const c of live) if (c.grip < POP_THRESHOLD) popped.push(c.limb);
     live = survivors;
-    pose = solvePose({
-      contacts: live,
-      seedHip: pose.hip,
-      seedShoulder: pose.shoulder,
-      onMat: state.onMat,
-    });
-    live = recomputeGrips(live, map, pose.com);
+    settled = settle(live, { hip: pose.hip, shoulder: pose.shoulder }, map, state.onMat, state.shift);
+    pose = settled.pose;
+    live = settled.contacts;
   }
 
   const stance = analyseStance(live, pose.com);
@@ -344,7 +380,7 @@ export function resolveMove({ state, aim, holds }: ResolveInput): MoveResult {
     reason,
     popped,
     fell,
-    next: { contacts: live, pose, onMat: state.onMat && pose.hip.y < 1.4 },
+    next: { contacts: live, pose, onMat: state.onMat && pose.hip.y < 1.4, shift: state.shift },
     detail: {
       angleQ, reachQ, tensionQ, affinityQ, windowScale,
       offset, zone,
@@ -382,6 +418,90 @@ function labelOf(limb: LimbId): string {
 }
 
 /**
+ * Resolves a body position without committing it, for the drag preview. Skips
+ * the pop cascade — mid-drag is the wrong moment to start tearing limbs off the
+ * wall — but reports the stability so the interface can warn before the player
+ * lets go rather than surprising them after.
+ */
+export function previewShift(
+  state: ClimbState, target: Vec2 | null, holds: Hold[],
+): { pose: Pose; risky: boolean } {
+  const map = holdMap(holds);
+  const { pose, contacts: live } = settle(state.contacts, shiftSeed(state, target), map, state.onMat, target);
+  const stance = analyseStance(live, pose.com);
+  const weakest = live.reduce((m, c) => Math.min(m, c.grip), 1);
+  return {
+    pose: { ...pose, ...stance },
+    risky: stance.stability < FALL_THRESHOLD * 1.35 || weakest < POP_THRESHOLD * 1.35,
+  };
+}
+
+/**
+ * Letting go relaxes from the canonical seed rather than from wherever the body
+ * currently is, so the neutral hang depends only on the contacts. Release has
+ * to mean the same thing twice or the player cannot use it to undo anything.
+ */
+function shiftSeed(state: ClimbState, target: Vec2 | null): { hip: Vec2; shoulder: Vec2 } {
+  return target
+    ? { hip: state.pose.hip, shoulder: state.pose.shoulder }
+    : seedPoseFor(state.contacts);
+}
+
+export type ShiftResult = {
+  next: ClimbState;
+  /** Contacts that came off because the new position unloaded them. */
+  popped: LimbId[];
+  fell: boolean;
+  reason: string;
+};
+
+/**
+ * Moves the body without moving a limb.
+ *
+ * The commanded position is a request, not a teleport: the climber pulls toward
+ * it and the limb constraints decide how much is actually reachable, so asking
+ * for something your arms cannot support resolves to the nearest position they
+ * can. What it costs is honest — dragging your weight off your feet is exactly
+ * how a barn door starts — and what it buys is reach and better angles on the
+ * holds you are already on, which is what body positioning is for.
+ *
+ * Pass null to stop holding a position and hang naturally again.
+ */
+export function shiftBody(state: ClimbState, target: Vec2 | null, holds: Hold[]): ShiftResult {
+  const map = holdMap(holds);
+  let settled = settle(state.contacts, shiftSeed(state, target), map, state.onMat, target);
+  let pose = settled.pose;
+  let live = settled.contacts;
+
+  const popped: LimbId[] = [];
+  for (let pass = 0; pass < 4; pass++) {
+    const survivors = live.filter((c) => c.grip >= POP_THRESHOLD);
+    if (survivors.length === live.length) break;
+    for (const c of live) if (c.grip < POP_THRESHOLD) popped.push(c.limb);
+    live = survivors;
+    settled = settle(live, { hip: pose.hip, shoulder: pose.shoulder }, map, state.onMat, target);
+    pose = settled.pose;
+    live = settled.contacts;
+  }
+
+  const stance = analyseStance(live, pose.com);
+  pose = { ...pose, ...stance };
+  const handsOn = live.some((c) => isHand(c.limb));
+  const fell = live.length === 0 || !handsOn || pose.stability < FALL_THRESHOLD;
+
+  return {
+    next: { contacts: live, pose, onMat: state.onMat, shift: target },
+    popped,
+    fell,
+    reason: popped.length
+      ? `Shifted the weight off ${labelOf(popped[0]).toLowerCase()}.`
+      : fell
+        ? 'Moved out over nothing and the wall let go.'
+        : '',
+  };
+}
+
+/**
  * Builds the state a route starts in: limbs on their start holds, body settled,
  * grips resolved.
  */
@@ -397,14 +517,7 @@ export function initialState(holds: Hold[], start: Partial<Record<LimbId, number
       limb, holdId: id, pos: { ...hold.pos }, seat: 0.9, grip: 0.9, grade: 'GOOD',
     });
   }
-  const seed = seedPoseFor(seeded);
-  const pose0 = solvePose({
-    contacts: seeded,
-    seedHip: seed.hip,
-    seedShoulder: seed.shoulder,
-    onMat: true,
-  });
-  const live = recomputeGrips(seeded, map, pose0.com);
+  const { pose: pose0, contacts: live } = settle(seeded, seedPoseFor(seeded), map, true, null);
   const stance = analyseStance(live, pose0.com);
-  return { contacts: live, pose: { ...pose0, ...stance }, onMat: true };
+  return { contacts: live, pose: { ...pose0, ...stance }, onMat: true, shift: null };
 }

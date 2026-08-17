@@ -148,7 +148,7 @@
   bottom: calc(var(--safe-b) + 0.5rem);
   z-index: 4;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0.4rem;
 }
 .limbbar__btn {
@@ -157,8 +157,9 @@
   background: rgba(18, 20, 26, 0.82);
   border-radius: var(--r-md);
   padding: 0.45rem 0.2rem;
-  font-size: 0.68rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   min-height: 2.5rem;
   cursor: pointer;
   backdrop-filter: blur(6px);
@@ -170,6 +171,20 @@
   font-weight: 800;
 }
 .limbbar__btn:disabled { opacity: 0.28; }
+.limbbar__btn--body { font-size: 0.66rem; }
+
+.climb__held {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(18, 20, 26, 0.72);
+  border-radius: 1rem;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.68rem;
+  color: var(--accent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.climb__held b { color: var(--ink); }
 
 .climb__hint {
   position: absolute;

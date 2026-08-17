@@ -6,7 +6,9 @@ Read the route. Plan your beta. Throw your limbs at the wall. Somehow send it.
 
 You control four limbs, one at a time. Select one, drag away from where you
 want it to go, and let go. The limb travels exactly where you aimed it, and
-then your body has to deal with the consequences. Fourteen handcrafted routes
+then your body has to deal with the consequences. You can also grab your own
+hips and move your weight around, which is usually the difference between a
+hold being out of reach and being on it. Fourteen handcrafted routes
 from V0 to V7, five route setters with strong opinions and poor judgement, and
 a climber who is technically cooperating.
 
@@ -22,8 +24,8 @@ npm run gen:beta   # regenerates community betas after changing routes or the si
 ```
 
 Mobile-first — it is built for iPhone Safari and works with a mouse, trackpad
-and keyboard on desktop (`Q`/`W` for hands, `A`/`S` for feet, `space` to pull
-on). Nothing is fetched at runtime and there is no backend; progress lives in
+and keyboard on desktop (`Q`/`W` for hands, `A`/`S` for feet, `E` for the body,
+`space` to pull on). Nothing is fetched at runtime and there is no backend; progress lives in
 local storage.
 
 ## How the game works
@@ -43,6 +45,14 @@ it never tells you which one to use.
 **Moves are graded** PERFECT / GOOD / SCRAPE / MISS / YEET, on where the limb
 landed against a window that shrinks with overreach, bad angles, and a poor
 stance. Failure always says why.
+
+**Body position is a move you make, not a thing that happens to you.** Drag
+your hips and the climber pulls toward that position as far as their limbs
+allow — the tethers on screen redden as each limb runs out of slack, so you can
+see which one is stopping you. Shifting up buys about 40cm of vertical reach
+and costs you lateral; shifting out over a foot makes it solid and shifting off
+one starts a barn door. Shifts cost no moves and are not scored, because they
+are not placements. They will absolutely put you on the mat.
 
 **Falling is informative.** A whiffed limb visibly travels to where you actually
 aimed it before the flailing starts, so a spectacular failure still shows you
@@ -85,7 +95,9 @@ Nothing in `src/game/` knows any route exists. Adding a hundred more means a
 hundred more entries in `src/content/routes.ts` and no game code changes.
 
 Every shipped route is verified climbable at test time by a headless beam-search
-climber (`src/game/autoplay.ts`). That solver also sets par — par is what it
+climber (`src/game/autoplay.ts`) that never shifts its weight — so every route
+is provably climbable on limb placements alone, and body positioning is how you
+climb it *better* rather than something par quietly depends on. That solver also sets par — par is what it
 found, plus room for a human — and generates the alternative betas the send
 screen compares you against. It caught seven unclimbable routes and two real
 sim bugs during the build, which is most of why it exists.
@@ -106,6 +118,9 @@ sim bugs during the build, which is most of why it exists.
 ```
 src/game/sim.test.ts       the body solver and move resolution, including
                            determinism, reach, hold directionality and barn door
+src/game/shift.test.ts     weight shifts: determinism, that they cannot exceed
+                           what the limbs allow, that they buy reach, and that
+                           they cost stability when the weight leaves the feet
 src/content/routes.test.ts every route: valid data, inside the wall, a start
                            that stands up, a finish near the top, actually
                            climbable, and a par a clean climb could hit

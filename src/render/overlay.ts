@@ -26,6 +26,17 @@ export type AimView = {
   dragging: boolean;
 };
 
+/** Body-positioning state, drawn instead of the aim when the hips are selected. */
+export type ShiftView = {
+  hip: Vec2;
+  /** Where the hips were before this drag started. */
+  from: Vec2;
+  /** Contacts, so the player can see which limb is running out of slack. */
+  tethers: { anchor: Vec2; hold: Vec2; strain: number }[];
+  risky: boolean;
+  dragging: boolean;
+};
+
 export type OverlayInput = {
   scene: WallScene;
   ctx: CanvasRenderingContext2D;
@@ -37,6 +48,7 @@ export type OverlayInput = {
   /** Limbs that cannot be moved right now, with the reason. */
   locked: Set<LimbId>;
   aim: AimView | null;
+  shift: ShiftView | null;
   accent: string;
   /** Suppresses the limb pips during inspection and animation. */
   showLimbs: boolean;
@@ -50,10 +62,73 @@ export function drawOverlay(input: OverlayInput): void {
   const { ctx, width, height, scene } = input;
   ctx.clearRect(0, 0, width, height);
 
+  if (input.shift) drawShift(input);
   if (input.aim) drawAim(input);
   if (input.showLimbs) drawLimbPips(input);
 
   void scene;
+}
+
+/**
+ * Body positioning.
+ *
+ * The tethers are the point of this drawing: each one runs from a hold to the
+ * limb holding it, and reddens as that limb runs out of slack. When the drag
+ * stops moving the body it is because one of these went tight, and the player
+ * can see which one rather than feeling an invisible wall.
+ */
+function drawShift(input: OverlayInput): void {
+  const { ctx, scene, shift, accent } = input;
+  if (!shift) return;
+
+  for (const t of shift.tethers) {
+    const a = scene.project(t.anchor, 0.13);
+    const h = scene.project(t.hold, 0.13);
+    const tight = t.strain > 0.94;
+    ctx.save();
+    ctx.lineWidth = tight ? 3 : 2;
+    ctx.setLineDash(tight ? [] : [3, 5]);
+    ctx.strokeStyle = tight
+      ? 'rgba(255,107,94,0.95)'
+      : `rgba(255,255,255,${0.16 + t.strain * 0.4})`;
+    ctx.beginPath();
+    ctx.moveTo(h.x, h.y);
+    ctx.lineTo(a.x, a.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const from = scene.project(shift.from, 0.15);
+  const to = scene.project(shift.hip, 0.15);
+  const colour = shift.risky ? '#ff6b5e' : accent;
+
+  if (shift.dragging) {
+    ctx.save();
+    ctx.setLineDash([2, 7]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // The hips themselves.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(to.x, to.y, 23, 0, Math.PI * 2);
+  ctx.fillStyle = colour;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+  ctx.fillStyle = '#11141a';
+  ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('BODY', to.x, to.y + 0.5);
+  ctx.restore();
 }
 
 function drawLimbPips(input: OverlayInput): void {

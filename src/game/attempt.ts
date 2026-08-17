@@ -1,6 +1,9 @@
-import type { Grade, LimbId, MoveGrade, Route } from './types';
+import type { Grade, LimbId, MoveGrade, Route, Vec2 } from './types';
 import { isHand } from './types';
-import { type Aim, type ClimbState, type MoveResult, initialState, resolveMove } from './move';
+import {
+  type Aim, type ClimbState, type MoveResult, type ShiftResult,
+  initialState, resolveMove, shiftBody,
+} from './move';
 
 /**
  * One go on a route, from pulling on to either topping out or hitting the mat.
@@ -23,12 +26,21 @@ export type BetaMove = {
   aim: Aim;
 };
 
+/**
+ * A weight shift, pinned to the point in the sequence it happened at, so a
+ * recorded attempt can be replayed exactly without shifts having to pretend
+ * to be moves.
+ */
+export type ShiftRecord = { afterMove: number; to: Vec2 | null };
+
 export type Attempt = {
   routeId: string;
   mode: AttemptMode;
   phase: AttemptPhase;
   state: ClimbState;
   moves: BetaMove[];
+  /** Body positioning, in sequence order. Not moves, and not scored as moves. */
+  shifts: ShiftRecord[];
   falls: number;
   /** Wall-clock ms spent climbing, excluding inspection. */
   elapsedMs: number;
@@ -44,11 +56,38 @@ export function beginAttempt(route: Route, mode: AttemptMode, now = Date.now()):
     phase: 'inspect',
     state: initialState(route.holds, route.start),
     moves: [],
+    shifts: [],
     falls: 0,
     elapsedMs: 0,
     startedAt: now,
     highWater: 0,
   };
+}
+
+export type ShiftOutcome = {
+  attempt: Attempt;
+  result: ShiftResult;
+  ended: 'fallen' | null;
+};
+
+/**
+ * Commands a new body position. Costs no move — this is not a placement, and
+ * scoring counts placements — but it can absolutely put you on the mat, which
+ * is the whole tension of moving your weight around on small holds.
+ */
+export function shiftStep(
+  attempt: Attempt, route: Route, target: Vec2 | null, now = Date.now(),
+): ShiftOutcome {
+  const result = shiftBody(attempt.state, target, route.holds);
+  const next: Attempt = {
+    ...attempt,
+    phase: result.fell ? 'fallen' : attempt.phase,
+    state: result.next,
+    shifts: [...attempt.shifts, { afterMove: attempt.moves.length, to: target }],
+    falls: attempt.falls + (result.fell ? 1 : 0),
+    elapsedMs: now - attempt.startedAt,
+  };
+  return { attempt: next, result, ended: result.fell ? 'fallen' : null };
 }
 
 export function pullOn(attempt: Attempt, now = Date.now()): Attempt {
@@ -103,6 +142,7 @@ export function retry(attempt: Attempt, route: Route, now = Date.now()): Attempt
     phase: 'inspect',
     state: initialState(route.holds, route.start),
     moves: [],
+    shifts: [],
     elapsedMs: 0,
     startedAt: now,
   };

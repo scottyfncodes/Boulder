@@ -38,10 +38,27 @@ export const OVERREACH = 1.12;
 const STAND_FRACTION = 0.9;
 /** How hard the leg pushes back. Comfortably beats gravity, so feet win. */
 const STAND_STIFFNESS = 0.55;
+/**
+ * How hard the climber pulls toward a commanded hip position. Beats gravity —
+ * you can haul your hips up and across if your arms and feet allow it — but
+ * stays below the limb constraints, which are not negotiable.
+ */
+const SHIFT_STIFFNESS = 0.16;
+/**
+ * Gravity's righting moment. A body hanging or standing off to one side of its
+ * support gets pulled back over it — a slack arm has no tension to hold you out
+ * there, and weight out past your feet either comes back or takes you off the
+ * wall. Without this the model treats every displaced position as a free
+ * equilibrium, so letting go of a shift would leave the climber hanging out in
+ * space with nothing holding them there.
+ */
+const RESTORE_STIFFNESS = 0.055;
 /** Sideways offset a foot can carry weight from without the hips moving over. */
 const STANCE_WIDTH = 0.42;
 /** Furthest the torso tips from vertical, radians. */
 const MAX_LEAN = 0.7;
+/** Constraint-only passes run after the main relaxation to guarantee feasibility. */
+const SETTLE_ITERATIONS = 10;
 
 const FLOOR_Y = 0;
 
@@ -102,6 +119,13 @@ export type BodyInput = {
   seedShoulder: Vec2;
   /** True while the climber may still stand on the mat. */
   onMat?: boolean;
+  /**
+   * Where the player has asked the hips to be. The climber pulls toward it and
+   * the limb constraints then have the final say, so a commanded position you
+   * cannot physically hold simply resolves to the closest one you can.
+   * Null means hang wherever gravity and the contacts put you.
+   */
+  shift?: Vec2 | null;
 };
 
 /**
@@ -115,9 +139,33 @@ export function solvePose(input: BodyInput): Pose {
   const hands = input.contacts.filter((c) => isHand(c.limb));
   const feet = input.contacts.filter((c) => !isHand(c.limb));
 
+  const shift = input.shift ?? null;
+
   for (let i = 0; i < BODY.iterations; i++) {
     hip.y -= BODY.gravity;
     sh.y -= BODY.gravity;
+
+    // Gravity rights the body over whatever is holding it up.
+    if (input.contacts.length > 0) {
+      let sx = 0;
+      let sw = 0;
+      for (const c of input.contacts) {
+        const w = isHand(c.limb) ? 1 : 1.4; // feet define the base you stand on
+        sx += c.pos.x * w;
+        sw += w;
+      }
+      const restore = (sx / sw - hip.x) * RESTORE_STIFFNESS;
+      hip.x += restore;
+      sh.x += restore * 0.7;
+    }
+
+    // Pull toward the commanded position before the constraints run, so the
+    // limbs get the last word on how much of it is actually achievable.
+    if (shift) {
+      hip.x += (shift.x - hip.x) * SHIFT_STIFFNESS;
+      hip.y += (shift.y - hip.y) * SHIFT_STIFFNESS;
+      sh.x += (shift.x - sh.x) * SHIFT_STIFFNESS * 0.5;
+    }
 
     // Feet on the mat stop the hip sinking through the floor.
     if (input.onMat && feet.length === 0) {
@@ -199,6 +247,30 @@ export function solvePose(input: BodyInput): Pose {
       hip.x = mid.x - dx / 2; hip.y = mid.y - dy / 2;
       sh.x = mid.x + dx / 2; sh.y = mid.y + dy / 2;
     }
+  }
+
+  // The rigid torso and the lean clamp both run after the limb constraints and
+  // can nudge the body back out of range, so the pose is settled against the
+  // constraints alone at the end. Without this a hard enough shift command can
+  // out-pull an arm and leave a hand further from its hold than an arm is long.
+  for (let i = 0; i < SETTLE_ITERATIONS; i++) {
+    for (const c of feet) {
+      const a = anchorFor(c.limb, hip, sh);
+      const off = sub(a, hip);
+      const target: Vec2 = { x: a.x, y: a.y };
+      constrainMax(target, c.pos, BODY.leg, 1);
+      hip.x += target.x - off.x - hip.x;
+      hip.y += target.y - off.y - hip.y;
+    }
+    for (const c of hands) {
+      const a = anchorFor(c.limb, hip, sh);
+      const off = sub(a, sh);
+      const target: Vec2 = { x: a.x, y: a.y };
+      constrainMax(target, c.pos, BODY.arm, 1);
+      sh.x += target.x - off.x - sh.x;
+      sh.y += target.y - off.y - sh.y;
+    }
+    enforceRigid(hip, sh, BODY.torso);
   }
 
   const axis = norm(sub(sh, hip));
