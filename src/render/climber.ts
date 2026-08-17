@@ -136,7 +136,7 @@ export class Climber {
     const skin = limbMaterial(BERNIE.skin);
 
     const torsoGeo = new THREE.CapsuleGeometry(0.125, BODY.torso * 0.66, 4, 10);
-    this.torso = new THREE.Mesh(torsoGeo, limbMaterial(BERNIE.shirt));
+    this.torso = new THREE.Mesh(torsoGeo, limbMaterial(BERNIE.jacket));
     this.torso.castShadow = true;
     this.group.add(this.torso);
 
@@ -329,6 +329,18 @@ export class Climber {
     hair.castShadow = true;
     this.head.add(hair);
 
+    // The moustache. With the eyes behind opaque lenses this and the brows are
+    // what make him identifiable at all.
+    const tash = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.026, 0.03), inkMat);
+    tash.position.set(0, -0.028, 0.116);
+    this.head.add(tash);
+    for (const sx of [-1, 1]) {
+      const end = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.028), inkMat);
+      end.position.set(sx * 0.052, -0.034, 0.114);
+      end.rotation.z = sx * -0.3;
+      this.head.add(end);
+    }
+
     // Sideburns, because it is that kind of decade.
     for (const sx of [-1, 1]) {
       const burn = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.055, 0.05), hairMat);
@@ -357,37 +369,38 @@ export class Climber {
     glasses.add(bridge);
     this.head.add(glasses);
 
-    // The shirt. Approximated rather than textured: scattered blooms and leaves
-    // stuck to the torso, which at this scale reads as a pattern and costs one
-    // draw call per petal instead of an image to load.
-    const bloom = new THREE.MeshStandardMaterial({ color: BERNIE.shirtPattern, roughness: 0.85 });
-    const leaf = new THREE.MeshStandardMaterial({ color: BERNIE.shirtLeaf, roughness: 0.85 });
-    const spots: [number, number, number, THREE.Material][] = [
-      [-0.075, 0.15, 0.05, bloom], [0.08, 0.06, 0.042, leaf],
-      [-0.06, -0.05, 0.045, bloom], [0.07, -0.16, 0.04, bloom],
-      [-0.085, -0.2, 0.036, leaf], [0.02, 0.21, 0.038, leaf],
-      [0.095, -0.05, 0.03, bloom], [-0.02, -0.12, 0.032, leaf],
-    ];
-    for (const [x, y, r, mat] of spots) {
-      const petal = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), mat);
-      // Pushed onto the surface of the torso capsule and flattened into it.
-      petal.position.set(x, y, 0.105);
-      petal.scale.set(1, 1, 0.22);
-      this.torso.add(petal);
+    // Seen from behind he is mostly jacket, so the striped shirt shows the way
+    // it actually would: an untucked tail below the hem, and a bit at the neck.
+    const shirtMat = new THREE.MeshStandardMaterial({ color: BERNIE.shirt, roughness: 0.85 });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: BERNIE.stripe, roughness: 0.85 });
+
+    const tail = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.128, 0.122, 0.16, 14, 1, true),
+      shirtMat,
+    );
+    tail.position.y = -BODY.torso * 0.4;
+    this.torso.add(tail);
+    for (let i = -1; i <= 1; i++) {
+      const stripe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1295, 0.1295, 0.032, 14, 1, true),
+        stripeMat,
+      );
+      stripe.position.y = -BODY.torso * 0.4 + i * 0.05;
+      this.torso.add(stripe);
     }
 
-    // Short sleeves: the upper arm is simply shirt-coloured. A separate sleeve
-    // mesh would be a child of a bone that gets scaled to its own length every
-    // frame, and would stretch and slide with it.
-    for (const limb of ['LH', 'RH'] as LimbId[]) {
-      const mat = this.bones[limb].upper.mesh.material as THREE.MeshStandardMaterial;
-      mat.color.set(BERNIE.shirt);
-    }
+    // A band of shirt at the neck, above the jacket collar.
+    const neckBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.108, 0.112, 0.05, 12, 1, true),
+      shirtMat,
+    );
+    neckBand.position.y = BODY.torso * 0.4;
+    this.torso.add(neckBand);
 
     // Collar.
     const collar = new THREE.Mesh(
-      new THREE.TorusGeometry(0.115, 0.02, 6, 14),
-      new THREE.MeshStandardMaterial({ color: BERNIE.shirt, roughness: 0.85 }),
+      new THREE.TorusGeometry(0.118, 0.022, 6, 14),
+      new THREE.MeshStandardMaterial({ color: BERNIE.jacket, roughness: 0.82 }),
     );
     collar.rotation.x = Math.PI / 2;
     collar.position.set(0, BODY.torso * 0.42, 0.02);

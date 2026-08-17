@@ -33,14 +33,16 @@ export const GRADE_COLOR: Record<Grade, string> = {
  * dead — he is just extremely relaxed about the whole thing.
  */
 export const BERNIE = {
-  shirt: '#e8574f',
-  shirtPattern: '#f7efe2',
-  shirtLeaf: '#2fa88a',
+  /** The striped shirt under the jacket. */
+  shirt: '#f2efe6',
+  stripe: '#2b3f6b',
+  /** The teal jacket over it. */
+  jacket: '#2fa9a5',
   slacks: '#efe7d6',
-  shades: '#12141a',
-  hair: '#d8d4cc',
+  shades: '#0d0f14',
+  hair: '#3a2a20',
   skin: '#e0b48f',
-  shoe: '#8a8f9c',
+  shoe: '#a8845c',
   chalkBag: '#6b5a44',
 } as const;
 

@@ -586,6 +586,32 @@ export function shiftBody(state: ClimbState, target: Vec2 | null, holds: Hold[])
   };
 }
 
+/**
+ * Builds the result of simply coming off the wall, with nothing thrown.
+ *
+ * Running out of endurance is a fall like any other and has to look like one:
+ * without a result to animate, pumping out just snapped the climber into the
+ * fallen state with no tumble at all.
+ */
+export function fallOffResult(state: ClimbState, reason: string): MoveResult {
+  const pose = { ...state.pose, stability: 0 };
+  return {
+    grade: 'YEET',
+    landing: { ...state.pose.com },
+    holdId: null,
+    travel: 0,
+    reason,
+    popped: state.contacts.map((c) => c.limb),
+    fell: true,
+    next: { ...state, contacts: [], pose },
+    detail: {
+      angleQ: 0, reachQ: 0, tensionQ: 0, affinityQ: 0, windowScale: 0,
+      offset: 0, zone: 0, zoneName: null, zoneQuality: 0, momentum: 0,
+      stabilityBefore: state.pose.stability, stabilityAfter: 0,
+    },
+  };
+}
+
 /** Furthest a dyno can carry the body, metres of hip travel. */
 export const DYNO_RANGE = 1.15;
 

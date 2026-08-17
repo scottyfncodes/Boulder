@@ -60,10 +60,11 @@ draining faster on a steep route with small holds and faster still when you are
 hanging around with a limb in the air. A bad stance costs more than a good one.
 Rest holds give some back. Run it out and you come off — not because you did
 anything wrong, but because you took too long, which is the honest reason most
-people fall off most problems. It grows as you climb harder things.
+people fall off most problems. It plays as a proper fall, with the tumble and
+the noise, because it is one. It grows as you climb harder things.
 
-**The climber is Bernie.** A man in a very loud shirt who is technically
-present, which is the same joke the original brief wanted from the Weekend at
+**The climber is Bernie.** Teal jacket, striped shirt, cream slacks, moustache,
+and sunglasses he is not taking off. Technically present, which is the same joke the original brief wanted from the Weekend at
 Bernie's reference: a body being hauled up a wall that it is not especially
 invested in. He is not dead, he is just extremely relaxed about all of this.
 There is no character customisation — he is who he is.

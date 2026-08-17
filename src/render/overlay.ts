@@ -147,18 +147,31 @@ function drawShift(input: OverlayInput): void {
   ctx.restore();
 }
 
-/** The climber's own commentary. There is only one line and it is "Bruh!". */
+/** How long the shout hangs in the air. Matches the fall, which is unhurried. */
+export const SHOUT_MS = 2000;
+
+/**
+ * The climber's own commentary. There is one line and it is "Bruh!", except
+ * that it stretches the whole way down — the vowel grows as he falls, so a long
+ * fall earns a longer Bruuuuuuh than a short one.
+ */
+export function shoutText(age: number): string {
+  const t = Math.min(Math.max(age, 0) / SHOUT_MS, 1);
+  return `Br${'u'.repeat(1 + Math.floor(t * 8))}h!`;
+}
+
 function drawShout({ ctx, scene, shout }: OverlayInput): void {
   if (!shout) return;
-  const t = Math.min(shout.age / 1400, 1);
+  const t = Math.min(shout.age / SHOUT_MS, 1);
   const p = scene.project(shout.at, HEAD_Z);
-  const rise = -18 - t * 26;
+  const rise = -18 - t * 34;
 
   ctx.save();
-  ctx.globalAlpha = t < 0.12 ? t / 0.12 : 1 - Math.max(0, (t - 0.65) / 0.35);
+  ctx.globalAlpha = t < 0.09 ? t / 0.09 : 1 - Math.max(0, (t - 0.78) / 0.22);
   ctx.translate(p.x, p.y + rise);
   ctx.scale(1 + (1 - Math.min(t * 6, 1)) * 0.4, 1 + (1 - Math.min(t * 6, 1)) * 0.4);
-  ctx.font = '900 30px ui-sans-serif, system-ui, sans-serif';
+  // Grows a little as the vowel does, so the shout swells on the way down.
+  ctx.font = `900 ${Math.round(28 + t * 10)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 7;

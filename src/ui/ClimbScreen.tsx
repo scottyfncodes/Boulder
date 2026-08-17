@@ -10,11 +10,12 @@ import {
 } from '../game/attempt';
 import { pumpWord } from '../game/endurance';
 import { DYNO_RANGE } from '../game/move';
-import { dynoLanding, limbOrigin } from '../game/move';
+import { dynoLanding, fallOffResult, limbOrigin } from '../game/move';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
 import { MoveAnimation, type Frame, idleMood, limbsFor } from '../render/animator';
 import {
-  drawOverlay, type AimView, type ShiftView, type Shout, LIMB_TOUCH_RADIUS,
+  drawOverlay, shoutText, type AimView, type ShiftView, type Shout,
+  LIMB_TOUCH_RADIUS, SHOUT_MS,
 } from '../render/overlay';
 import { GRADE_COLOR } from '../render/palette';
 import { setterOf } from '../content/setters';
@@ -169,9 +170,27 @@ export function ClimbScreen({
         const ticked = tickEndurance(att, dt, reaching, route);
         attemptRef.current = ticked.attempt;
         if (ticked.pumped) {
-          setAttempt(ticked.attempt);
-          setLastReason('Pumped stupid. Arms opened on their own.');
-          onOutcome(ticked.attempt, 'fallen');
+          // Pumping out is a fall, so play one. Ending the attempt without an
+          // animation snapped him straight to the mat with no tumble.
+          const reason = 'Pumped stupid. Arms opened on their own.';
+          const result = fallOffResult(att.state, reason);
+          animRef.current = {
+            anim: new MoveAnimation(
+              att.state.pose,
+              limbsFor(att.state.contacts, att.state.pose, now),
+              'RH',
+              result,
+            ),
+            start: now,
+            outcome: { attempt: ticked.attempt, result, ended: 'fallen' },
+          };
+          shoutRef.current = { at: { ...att.state.pose.head }, start: now + 420 };
+          setBusy(true);
+          setSelected(null);
+          selectedRef.current = null;
+          setLastReason(reason);
+          setFlash({ grade: 'PUMPED', reason });
+          window.setTimeout(() => setFlash(null), 1600);
         }
         const e = ticked.attempt.endurance;
         if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${e.base})`;
@@ -206,7 +225,7 @@ export function ClimbScreen({
         cam.focusY += (want - cam.focusY) * 0.07;
       }
       if (shoutRef.current) {
-        if (now - shoutRef.current.start > 1400) shoutRef.current = null;
+        if (now - shoutRef.current.start > SHOUT_MS) shoutRef.current = null;
         else shoutRef.current.at = { ...frame.pose.head };
       }
 
@@ -285,7 +304,7 @@ export function ClimbScreen({
           shift: shiftView,
           shout: shoutRef.current
             ? {
-                text: 'Bruh!',
+                text: shoutText(now - shoutRef.current.start),
                 at: shoutRef.current.at,
                 age: now - shoutRef.current.start,
               } as Shout
@@ -694,7 +713,7 @@ export function ClimbScreen({
 
       {attempt.phase === 'fallen' && !busy && (
         <div className="falloff">
-          <div className="falloff__word">Bruh!</div>
+          <div className="falloff__word">Bruuuuuuh!</div>
           <div className="falloff__reason">{lastReason ?? 'You are on the mat.'}</div>
           <div className="falloff__row">
             <button className="btn" onClick={onExit}>Leave it</button>
