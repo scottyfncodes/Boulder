@@ -1,4 +1,4 @@
-# SEND
+# Boulder
 
 A browser game about precision bouldering.
 

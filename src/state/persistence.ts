@@ -8,12 +8,20 @@ import { type Profile, SAVE_VERSION, freshProfile } from './progress';
  * posting this object rather than reworking it.
  */
 
-const KEY = 'send.profile.v1';
+const KEY = 'boulder.profile.v1';
+/** The game was called SEND before it was called Boulder. Saves outlive names. */
+const LEGACY_KEYS = ['send.profile.v1'];
 
 export function loadProfile(): Profile {
   if (typeof localStorage === 'undefined') return freshProfile();
   try {
-    const raw = localStorage.getItem(KEY);
+    let raw = localStorage.getItem(KEY);
+    if (!raw) {
+      for (const old of LEGACY_KEYS) {
+        raw = localStorage.getItem(old);
+        if (raw) break;
+      }
+    }
     if (!raw) return freshProfile();
     const parsed = JSON.parse(raw) as Partial<Profile>;
     if (parsed.version !== SAVE_VERSION) return freshProfile();

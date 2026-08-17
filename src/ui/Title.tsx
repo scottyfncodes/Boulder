@@ -9,7 +9,7 @@ export function Title({ profile, onStart }: { profile: Profile; onStart: () => v
   return (
     <div className="title">
       <div className="title__inner">
-        <div className="title__mark">SEND</div>
+        <div className="title__mark">BOULDER</div>
         <p className="title__tag">
           Read the route. Plan your beta. Throw your limbs at the wall.
           Somehow send it.

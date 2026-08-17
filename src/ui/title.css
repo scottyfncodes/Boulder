@@ -10,11 +10,11 @@
 }
 .title__inner { text-align: center; max-width: 26rem; }
 .title__mark {
-  font-size: clamp(4rem, 22vw, 7rem);
+  font-size: clamp(2.4rem, 15vw, 5.2rem);
   font-weight: 900;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.11em;
   line-height: 0.95;
-  margin-right: -0.16em;
+  margin-right: -0.11em;
   background: linear-gradient(170deg, #f2f3f6, #8fb8a8);
   -webkit-background-clip: text;
   background-clip: text;
