@@ -18,7 +18,6 @@ import {
 } from '../render/overlay';
 import { GRADE_COLOR } from '../render/palette';
 import { setterOf } from '../content/setters';
-import type { Outfit } from '../game/awards';
 import { HoldInspector } from './HoldInspector';
 import './climb.css';
 
@@ -56,8 +55,6 @@ type Drag = {
 export type ClimbScreenProps = {
   route: Route;
   mode: AttemptMode;
-  /** What the climber is wearing. */
-  outfit: Outfit;
   /** Endurance capacity this player has earned. */
   capacity: number;
   onExit: () => void;
@@ -67,7 +64,7 @@ export type ClimbScreenProps = {
 };
 
 export function ClimbScreen({
-  route, mode, outfit, capacity, onExit, onOutcome, attemptsNote,
+  route, mode, capacity, onExit, onOutcome, attemptsNote,
 }: ClimbScreenProps) {
   const glRef = useRef<HTMLCanvasElement>(null);
   const uiRef = useRef<HTMLCanvasElement>(null);
@@ -124,7 +121,6 @@ export function ClimbScreen({
     const scene = new WallScene(gl);
     sceneRef.current = scene;
     scene.setRoute(route);
-    scene.setOutfit(outfit);
     scene.setOverhang(overhangOf(route));
     scene.resize();
 
@@ -149,7 +145,7 @@ export function ClimbScreen({
       scene.dispose();
       sceneRef.current = null;
     };
-  }, [route, outfit]);
+  }, [route]);
 
   // --- the frame loop ----------------------------------------------------
 

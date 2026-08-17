@@ -2,9 +2,8 @@ import * as THREE from 'three';
 import type { LimbId, Pose, Vec2 } from '../game/types';
 import { isHand } from '../game/types';
 import { anchorFor, BODY } from '../game/body';
-import { GYM } from './palette';
+import { BERNIE } from './palette';
 import { ARM_Z, FOOT_Z, HAND_Z, HEAD_Z, HIP_Z, LEG_Z, TORSO_Z } from './depths';
-import { type Outfit, awardById } from '../game/awards';
 
 /**
  * The climber.
@@ -109,7 +108,6 @@ class Bone {
 export class Climber {
   readonly group = new THREE.Group();
 
-  private hat: THREE.Group | null = null;
   private skinParts: THREE.Mesh[] = [];
   private torso: THREE.Mesh;
   private head: THREE.Group;
@@ -122,14 +120,14 @@ export class Climber {
   private bones: Record<LimbId, { upper: Bone; lower: Bone; end: THREE.Mesh }>;
 
   constructor() {
-    const skin = limbMaterial(GYM.skin);
+    const skin = limbMaterial(BERNIE.skin);
 
     const torsoGeo = new THREE.CapsuleGeometry(0.125, BODY.torso * 0.66, 4, 10);
-    this.torso = new THREE.Mesh(torsoGeo, limbMaterial(GYM.shirt));
+    this.torso = new THREE.Mesh(torsoGeo, limbMaterial(BERNIE.shirt));
     this.torso.castShadow = true;
     this.group.add(this.torso);
 
-    this.hips = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), limbMaterial(GYM.shorts));
+    this.hips = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), limbMaterial(BERNIE.slacks));
     this.hips.castShadow = true;
     this.group.add(this.hips);
 
@@ -214,30 +212,20 @@ export class Climber {
     bagRim.position.set(0.09, 0.014, 0.13);
     this.hips.add(bagRim);
 
-    // A yoke seam across the shoulder blades. Semi-transparent black rather
-    // than a fixed colour, so it darkens whatever shirt is underneath instead
-    // of fighting it — an eight-digit hex is not a colour three.js understands,
-    // and the first attempt came out as a bright white stripe.
-    const yoke = new THREE.Mesh(
-      new THREE.BoxGeometry(0.2, 0.013, 0.02),
-      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.16 }),
-    );
-    yoke.position.set(0, BODY.torso * 0.22, 0.125);
-    this.torso.add(yoke);
+
 
     const mk = (limb: LimbId) => {
       const hand = isHand(limb);
-      const mat = hand ? skin : limbMaterial(GYM.shorts);
+      const mat = hand ? skin : limbMaterial(BERNIE.slacks);
       const upper = new Bone(hand ? 0.052 : 0.068, hand ? mat.clone() : mat);
-      const lower = new Bone(hand ? 0.044 : 0.055, skin.clone());
-      if (hand) { this.skinParts.push(upper.mesh, lower.mesh); }
-      else this.skinParts.push(lower.mesh);
+      const lower = new Bone(hand ? 0.044 : 0.055, hand ? skin.clone() : limbMaterial(BERNIE.slacks));
+      if (hand) this.skinParts.push(upper.mesh, lower.mesh);
       const footGeo = new THREE.BoxGeometry(0.1, 0.058, 0.17);
       // Shift the shoe forward of the ankle so the toe points at the wall.
       footGeo.translate(0, 0, -0.045);
       const end = new THREE.Mesh(
         hand ? new THREE.SphereGeometry(0.056, 8, 6) : footGeo,
-        hand ? skin.clone() : limbMaterial('#2f3542'),
+        hand ? skin.clone() : limbMaterial(BERNIE.shoe),
       );
       end.castShadow = true;
       if (hand) this.skinParts.push(end);
@@ -245,6 +233,9 @@ export class Climber {
       return { upper, lower, end };
     };
     this.bones = { LH: mk('LH'), RH: mk('RH'), LF: mk('LF'), RF: mk('RF') };
+
+    // Last, because the sleeves attach to arms that have to exist first.
+    this.dressAsBernie(inkMat);
   }
 
   /**
@@ -291,6 +282,95 @@ export class Climber {
    * scowl or fly up in alarm, and the mouth goes from a flat line to a full
    * open yell. Subtle would be useless here.
    */
+  /**
+   * The Bernie kit: greying hair, sunglasses he never takes off, and a shirt
+   * loud enough to see from the café.
+   *
+   * The shades are the whole problem with this look, because the eyes are how
+   * effort is read. So the lenses are dark but translucent: they read as
+   * sunglasses from any distance and the eyes still show through them. Solid
+   * black lenses would have cost the face half its range.
+   */
+  private dressAsBernie(inkMat: THREE.Material): void {
+    // Hair: grey, over the back and sides, sitting well back off the forehead.
+    // Bringing it any further forward turns it into a swim cap and buries the
+    // brows, which are half the expression.
+    const hairMat = new THREE.MeshStandardMaterial({ color: BERNIE.hair, roughness: 0.9 });
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.139, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.44),
+      hairMat,
+    );
+    hair.position.set(0, 0.026, -0.03);
+    hair.rotation.x = -0.22;
+    hair.castShadow = true;
+    this.head.add(hair);
+
+    // Sideburns, because it is that kind of decade.
+    for (const sx of [-1, 1]) {
+      const burn = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.055, 0.05), hairMat);
+      burn.position.set(sx * 0.125, 0.01, 0.01);
+      this.head.add(burn);
+    }
+
+    // Sunglasses: two lenses, a bridge, and arms going back over the ears.
+    // Unlit rather than standard: a lit lens catches a highlight and reads as
+    // silver instead of as a dark lens with an eye behind it.
+    const lensMat = new THREE.MeshBasicMaterial({
+      color: BERNIE.shades, transparent: true, opacity: 0.72,
+    });
+    const glasses = new THREE.Group();
+    for (const sx of [-1, 1]) {
+      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.062, 0.014), lensMat);
+      // In front of the eyeball's front face (~0.126), or the eye renders
+      // through the lens and the shades read as pale reading glasses.
+      lens.position.set(sx * 0.058, 0.022, 0.138);
+      glasses.add(lens);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.011, 0.1), inkMat);
+      arm.position.set(sx * 0.1, 0.03, 0.07);
+      glasses.add(arm);
+    }
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.011, 0.012), inkMat);
+    bridge.position.set(0, 0.03, 0.138);
+    glasses.add(bridge);
+    this.head.add(glasses);
+
+    // The shirt. Approximated rather than textured: scattered blooms and leaves
+    // stuck to the torso, which at this scale reads as a pattern and costs one
+    // draw call per petal instead of an image to load.
+    const bloom = new THREE.MeshStandardMaterial({ color: BERNIE.shirtPattern, roughness: 0.85 });
+    const leaf = new THREE.MeshStandardMaterial({ color: BERNIE.shirtLeaf, roughness: 0.85 });
+    const spots: [number, number, number, THREE.Material][] = [
+      [-0.075, 0.15, 0.05, bloom], [0.08, 0.06, 0.042, leaf],
+      [-0.06, -0.05, 0.045, bloom], [0.07, -0.16, 0.04, bloom],
+      [-0.085, -0.2, 0.036, leaf], [0.02, 0.21, 0.038, leaf],
+      [0.095, -0.05, 0.03, bloom], [-0.02, -0.12, 0.032, leaf],
+    ];
+    for (const [x, y, r, mat] of spots) {
+      const petal = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), mat);
+      // Pushed onto the surface of the torso capsule and flattened into it.
+      petal.position.set(x, y, 0.105);
+      petal.scale.set(1, 1, 0.22);
+      this.torso.add(petal);
+    }
+
+    // Short sleeves: the upper arm is simply shirt-coloured. A separate sleeve
+    // mesh would be a child of a bone that gets scaled to its own length every
+    // frame, and would stretch and slide with it.
+    for (const limb of ['LH', 'RH'] as LimbId[]) {
+      const mat = this.bones[limb].upper.mesh.material as THREE.MeshStandardMaterial;
+      mat.color.set(BERNIE.shirt);
+    }
+
+    // Collar.
+    const collar = new THREE.Mesh(
+      new THREE.TorusGeometry(0.115, 0.02, 6, 14),
+      new THREE.MeshStandardMaterial({ color: BERNIE.shirt, roughness: 0.85 }),
+    );
+    collar.rotation.x = Math.PI / 2;
+    collar.position.set(0, BODY.torso * 0.42, 0.02);
+    this.torso.add(collar);
+  }
+
   private setMood(mood: Mood): void {
     type Face = {
       /**
@@ -356,84 +436,6 @@ export class Climber {
     active.position.y = f.mouthY;
 
     this.head.scale.set(f.head[0], f.head[1], 1);
-  }
-
-  /** Dresses the climber. Called when the outfit changes, not per frame. */
-  setOutfit(outfit: Outfit): void {
-    const top = awardById(outfit.top)?.color ?? GYM.shirt;
-    const legs = awardById(outfit.legs)?.color ?? GYM.shorts;
-    (this.torso.material as THREE.MeshStandardMaterial).color.set(top);
-    (this.hips.material as THREE.MeshStandardMaterial).color.set(legs);
-    for (const limb of ['LF', 'RF'] as LimbId[]) {
-      (this.bones[limb].upper.mesh.material as THREE.MeshStandardMaterial).color.set(legs);
-    }
-    for (const part of this.skinParts) {
-      (part.material as THREE.MeshStandardMaterial).color.set(outfit.skin);
-    }
-    this.setHat(outfit.hat);
-  }
-
-  /** Builds the hat mesh. Rebuilt on change; there is only ever one. */
-  private setHat(id: string | null): void {
-    if (this.hat) {
-      this.head.remove(this.hat);
-      this.hat.traverse((o) => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
-      this.hat = null;
-    }
-    if (!id) return;
-    const award = awardById(id);
-    if (!award?.shape) return;
-    const mat = new THREE.MeshStandardMaterial({ color: award.color, roughness: 0.8 });
-    const g = new THREE.Group();
-    const add = (geo: THREE.BufferGeometry, y: number, z = 0) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(0, y, z);
-      m.castShadow = true;
-      g.add(m);
-      return m;
-    };
-    switch (award.shape) {
-      case 'headband': add(new THREE.TorusGeometry(0.128, 0.022, 6, 14), 0.04); break;
-      case 'beanie': {
-        const b = add(new THREE.SphereGeometry(0.142, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), 0.03);
-        b.rotation.x = Math.PI;
-        add(new THREE.SphereGeometry(0.034, 8, 6), 0.17);
-        break;
-      }
-      case 'cap': {
-        const c = add(new THREE.SphereGeometry(0.138, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), 0.035);
-        c.rotation.x = Math.PI;
-        add(new THREE.BoxGeometry(0.15, 0.016, 0.11), 0.045, -0.15);
-        break;
-      }
-      case 'bucket': {
-        add(new THREE.CylinderGeometry(0.125, 0.135, 0.1, 12), 0.09);
-        add(new THREE.CylinderGeometry(0.135, 0.2, 0.018, 14), 0.04);
-        break;
-      }
-      case 'cowboy': {
-        add(new THREE.CylinderGeometry(0.1, 0.125, 0.11, 12), 0.1);
-        add(new THREE.CylinderGeometry(0.135, 0.24, 0.014, 16), 0.045).rotation.z = 0.06;
-        break;
-      }
-      case 'traffic-cone': {
-        add(new THREE.ConeGeometry(0.125, 0.26, 12), 0.16);
-        add(new THREE.BoxGeometry(0.24, 0.014, 0.24), 0.035);
-        break;
-      }
-      case 'helmet': {
-        const h = add(new THREE.SphereGeometry(0.152, 12, 9, 0, Math.PI * 2, 0, Math.PI * 0.6), 0.02);
-        h.rotation.x = Math.PI;
-        break;
-      }
-      case 'crown': {
-        add(new THREE.CylinderGeometry(0.125, 0.125, 0.05, 5, 1, true), 0.11);
-        add(new THREE.ConeGeometry(0.128, 0.07, 5), 0.17);
-        break;
-      }
-    }
-    this.hat = g;
-    this.head.add(g);
   }
 
   dispose(): void {

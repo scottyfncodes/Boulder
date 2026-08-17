@@ -24,6 +24,25 @@ export const GRADE_COLOR: Record<Grade, string> = {
   V17: '#b8862b',
 };
 
+/**
+ * Bernie.
+ *
+ * A man in a loud shirt who is technically present. The look does the same job
+ * the original brief wanted from the Weekend at Bernie's reference: a body
+ * being puppeteered up a wall that it is not especially invested in. He is not
+ * dead — he is just extremely relaxed about the whole thing.
+ */
+export const BERNIE = {
+  shirt: '#e8574f',
+  shirtPattern: '#f7efe2',
+  shirtLeaf: '#2fa88a',
+  slacks: '#efe7d6',
+  shades: '#12141a',
+  hair: '#d8d4cc',
+  skin: '#e0b48f',
+  shoe: '#8a8f9c',
+} as const;
+
 export const GYM = {
   wall: '#dcd8cd',
   wallDark: '#c4bfb1',

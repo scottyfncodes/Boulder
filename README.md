@@ -62,6 +62,16 @@ Rest holds give some back. Run it out and you come off — not because you did
 anything wrong, but because you took too long, which is the honest reason most
 people fall off most problems. It grows as you climb harder things.
 
+**The climber is Bernie.** A man in a very loud shirt who is technically
+present, which is the same joke the original brief wanted from the Weekend at
+Bernie's reference: a body being hauled up a wall that it is not especially
+invested in. He is not dead, he is just extremely relaxed about all of this.
+There is no character customisation — he is who he is.
+
+The sunglasses were the one real problem, because the eyes are how effort gets
+read. The lenses are dark but translucent, so they read as shades from any
+distance and the eyes still show through them.
+
 **He faces the wall; his head does not.** What the camera sees is a climber's
 back — chalk bag, shoulder yoke, toes pointing into the wall — with the head
 turned back over the shoulder so the face stays readable. A quarter turn reads

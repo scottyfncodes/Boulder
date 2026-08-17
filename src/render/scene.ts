@@ -6,7 +6,6 @@ import { contactRadius } from '../game/holds';
 import { HOLD_Z } from './depths';
 import { holdGeometry } from './holdGeometry';
 import { Climber, type Mood } from './climber';
-import type { Outfit } from '../game/awards';
 
 /**
  * The gym, rendered.
@@ -203,9 +202,6 @@ export class WallScene {
     this.climber.setPose(pose, limbs, mood);
   }
 
-  setOutfit(outfit: Outfit): void {
-    this.climber.setOutfit(outfit);
-  }
 
   setClimberVisible(visible: boolean): void {
     this.climber.group.visible = visible;
