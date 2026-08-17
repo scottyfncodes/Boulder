@@ -68,9 +68,15 @@ Bernie's reference: a body being hauled up a wall that it is not especially
 invested in. He is not dead, he is just extremely relaxed about all of this.
 There is no character customisation — he is who he is.
 
-The sunglasses were the one real problem, because the eyes are how effort gets
-read. The lenses are dark but translucent, so they read as shades from any
-distance and the eyes still show through them.
+The sunglasses are opaque. You never see his eyes, which means the brows and
+the mouth carry every bit of the expression on their own — the ranges are wider
+than they would otherwise be, and one brow raised higher than the other is
+doing a lot of the work.
+
+He hangs like cargo. Limbs off the wall dangle at nearly full length and swing
+on their own slow pendulum, the head lolls on a spring that lags whatever the
+body just did and keeps going after it stops, and a fall is a tumble with all
+four limbs trailing rather than a climber trying to land.
 
 **He faces the wall; his head does not.** What the camera sees is a climber's
 back — chalk bag, shoulder yoke, toes pointing into the wall — with the head

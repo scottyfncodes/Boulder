@@ -46,6 +46,17 @@ const HEAD_TURN = -0.62;
 /** How far round he snaps when something actually happens. */
 const HEAD_TURN_ALERT = -0.24;
 
+/** How hard the neck pulls the head back upright. Low, because it is Bernie. */
+const LOLL_SPRING = 0.055;
+/** How much of the swing survives each frame. High, so it keeps going. */
+const LOLL_DAMPING = 0.93;
+/** Furthest the head lolls, radians. */
+const LOLL_LIMIT = 0.55;
+
+function clamp(n: number, lo: number, hi: number): number {
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
 const UPPER_ARM = BODY.arm * 0.5;
 const LOWER_ARM = BODY.arm * 0.5;
 const UPPER_LEG = BODY.leg * 0.5;
@@ -112,10 +123,12 @@ export class Climber {
   private torso: THREE.Mesh;
   private head: THREE.Group;
   private brows: THREE.Mesh[] = [];
-  private pupils: THREE.Mesh[] = [];
+  /** Where the head is lolling, and how fast. Lags the body on purpose. */
+  private loll = 0;
+  private lollVel = 0;
+  private lastHip: Vec2 | null = null;
   private mouth: THREE.Mesh;
   private smile: THREE.Mesh;
-  private eyes: THREE.Mesh[] = [];
   private hips: THREE.Mesh;
   private bones: Record<LimbId, { upper: Bone; lower: Bone; end: THREE.Mesh }>;
 
@@ -142,25 +155,6 @@ export class Climber {
     // features read as nothing at all once the head is forty pixels tall on a
     // phone; these are big enough to act with.
     const inkMat = new THREE.MeshBasicMaterial({ color: '#22252c' });
-    const whiteMat = new THREE.MeshBasicMaterial({ color: '#fbf7f2' });
-
-    for (const sx of [-1, 1]) {
-      const socket = new THREE.Group();
-      socket.position.set(sx * 0.058, 0.022, 0.108);
-
-      const white = new THREE.Mesh(new THREE.SphereGeometry(0.042, 12, 10), whiteMat);
-      white.scale.set(1, 1, 0.42);
-      socket.add(white);
-
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.023, 10, 8), inkMat);
-      pupil.position.set(0, 0, 0.026);
-      pupil.scale.set(1, 1, 0.5);
-      socket.add(pupil);
-
-      this.pupils.push(pupil);
-      this.eyes.push(socket as unknown as THREE.Mesh);
-      this.head.add(socket);
-    }
 
     // Two mouths, because one shape cannot both gape and grin. The capsule is
     // every open-mouthed expression; the arc is every closed-mouthed smile.
@@ -180,7 +174,7 @@ export class Climber {
 
     // Two brows, so they can angle independently and actually scowl.
     for (const sx of [-1, 1]) {
-      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.019, 0.02), inkMat);
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.024, 0.02), inkMat);
       brow.position.set(sx * 0.058, 0.078, 0.112);
       this.brows.push(brow);
       this.head.add(brow);
@@ -196,21 +190,40 @@ export class Climber {
     // Cues that say back rather than front, so the turned head reads as a turn
     // rather than as the whole body facing out. A chalk bag at the waist is the
     // single most recognisable thing about a climber seen from behind.
-    const chalkBag = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.062, 0.055, 0.09, 10),
-      limbMaterial('#6b5a44'),
-    );
-    chalkBag.position.set(0.09, -0.03, 0.13);
-    chalkBag.castShadow = true;
-    this.hips.add(chalkBag);
+    const bagMat = limbMaterial(BERNIE.chalkBag);
+    const bag = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.072, 0.135, 12), bagMat);
+    bag.position.set(0.055, -0.055, 0.155);
+    bag.castShadow = true;
+    this.hips.add(bag);
 
-    const bagRim = new THREE.Mesh(
-      new THREE.TorusGeometry(0.058, 0.012, 6, 12),
-      limbMaterial('#d8cfc0'),
+    // Chalky rim, because a used chalk bag is never clean.
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.08, 0.017, 6, 14),
+      limbMaterial('#efe9de'),
     );
-    bagRim.rotation.x = Math.PI / 2;
-    bagRim.position.set(0.09, 0.014, 0.13);
-    this.hips.add(bagRim);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(0.055, 0.012, 0.155);
+    this.hips.add(rim);
+
+    // The belt it hangs off, right around the waist.
+    const belt = new THREE.Mesh(
+      new THREE.TorusGeometry(0.125, 0.014, 6, 18),
+      limbMaterial('#3c3227'),
+    );
+    belt.rotation.x = Math.PI / 2;
+    belt.position.set(0, 0.03, 0.02);
+    this.hips.add(belt);
+
+    // Drawstring, with the two ends hanging.
+    for (const sx of [-1, 1]) {
+      const cord = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.006, 0.006, 0.07, 5),
+        limbMaterial('#efe9de'),
+      );
+      cord.position.set(0.055 + sx * 0.045, -0.02, 0.235);
+      cord.rotation.z = sx * 0.35;
+      this.hips.add(cord);
+    }
 
 
 
@@ -252,7 +265,18 @@ export class Climber {
     this.hips.position.set(hip.x, hip.y, HIP_Z);
 
     this.head.position.set(head.x, head.y, HEAD_Z);
-    this.head.rotation.z = -pose.lean * 0.7;
+
+    // The head is along for the ride. It swings when the body moves, keeps
+    // swinging after the body stops, and settles slowly — a neck that is not
+    // being held. This is most of what makes him read as cargo rather than as
+    // a climber.
+    const dx = this.lastHip ? hip.x - this.lastHip.x : 0;
+    const dy = this.lastHip ? hip.y - this.lastHip.y : 0;
+    this.lastHip = { x: hip.x, y: hip.y };
+    this.lollVel += -dx * 2.6 - Math.abs(dy) * 0.5 - this.loll * LOLL_SPRING;
+    this.lollVel *= LOLL_DAMPING;
+    this.loll = clamp(this.loll + this.lollVel, -LOLL_LIMIT, LOLL_LIMIT);
+    this.head.rotation.z = -pose.lean * 0.7 + this.loll;
 
     for (const limb of ['LH', 'RH', 'LF', 'RF'] as LimbId[]) {
       const rig = this.bones[limb];
@@ -313,14 +337,13 @@ export class Climber {
     }
 
     // Sunglasses: two lenses, a bridge, and arms going back over the ears.
-    // Unlit rather than standard: a lit lens catches a highlight and reads as
-    // silver instead of as a dark lens with an eye behind it.
-    const lensMat = new THREE.MeshBasicMaterial({
-      color: BERNIE.shades, transparent: true, opacity: 0.72,
-    });
+    // Fully opaque, and unlit so no highlight softens them. You cannot see his
+    // eyes at all, which is the point of the character and the reason the brows
+    // and the mouth have to do every bit of the expression on their own.
+    const lensMat = new THREE.MeshBasicMaterial({ color: BERNIE.shades });
     const glasses = new THREE.Group();
     for (const sx of [-1, 1]) {
-      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.062, 0.014), lensMat);
+      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.092, 0.07, 0.014), lensMat);
       // In front of the eyeball's front face (~0.126), or the eye renders
       // through the lens and the shades read as pale reading glasses.
       lens.position.set(sx * 0.058, 0.022, 0.138);
@@ -374,20 +397,22 @@ export class Climber {
   private setMood(mood: Mood): void {
     type Face = {
       /**
-       * Vertical squash of the eyes. 0 is shut, 1 is normal, >1 is wide.
-       * Kept under about 1.5 — past that the eyes grow into the brows and the
-       * mouth and the whole face reads as one dark blob.
-       */
-      eye: number;
-      /** Pupil size multiplier. Big pupils are delight, not fear. */
-      pupil: number;
-      /**
        * Brow angle, radians. Never positive: a positive angle drives the inner
        * ends down into a scowl, and this character does not scowl.
        */
       brow: number;
-      /** Brow height offset, metres. Higher is more amazed. */
+      /**
+       * Brow height. Higher is more amazed, but it has to stay between the top
+       * of the lenses and the hairline — above that the brow disappears into
+       * the hair and the face loses its only working half.
+       */
       browY: number;
+      /**
+       * Difference between the two brows. One up and one down is worth more
+       * than both together — it is the whole quizzical register, and with the
+       * eyes behind opaque lenses it is most of what is left.
+       */
+      browSkew: number;
       /** True for a closed-mouth grin, false for an open mouth. */
       grin: boolean;
       /** Width and height multipliers for whichever mouth is showing. */
@@ -398,36 +423,30 @@ export class Climber {
       head: [number, number];
     };
 
-    // Effort runs left to right as pleasure and amazement, never as anger.
+    // Every bit of this is brows and mouth. There are no eyes to help — the
+    // lenses are opaque — so the ranges are wider than they would otherwise be
+    // and the asymmetry is doing real work.
     const F: Record<Mood, Face> = {
-      calm:       { eye: 1,    pupil: 1,    brow: 0,     browY: 0.078, grin: true,  mouth: [1, 1],      mouthY: -0.038, head: [1, 1] },
-      keen:       { eye: 1.08, pupil: 1.05, brow: -0.1,  browY: 0.084, grin: true,  mouth: [1.2, 1.15], mouthY: -0.04,  head: [1, 1] },
-      impressed:  { eye: 1.2,  pupil: 1.12, brow: -0.22, browY: 0.092, grin: true,  mouth: [1.5, 1.5],  mouthY: -0.042, head: [1.01, 1.01] },
-      surprised:  { eye: 1.34, pupil: 1.2,  brow: -0.32, browY: 0.099, grin: false, mouth: [1.15, 1.5], mouthY: -0.062, head: [1.01, 1.03] },
-      astonished: { eye: 1.44, pupil: 1.26, brow: -0.42, browY: 0.105, grin: false, mouth: [1.35, 1.9], mouthY: -0.07,  head: [1.02, 1.05] },
-      shocked:    { eye: 1.48, pupil: 1.3,  brow: -0.5,  browY: 0.11,  grin: false, mouth: [1.45, 1.8], mouthY: -0.075, head: [0.99, 1.06] },
-      whooping:   { eye: 1.26, pupil: 1.16, brow: -0.46, browY: 0.106, grin: false, mouth: [1.85, 1.95], mouthY: -0.078, head: [1.03, 1.07] },
-      delighted:  { eye: 0.42, pupil: 0.95, brow: -0.14, browY: 0.09,  grin: true,  mouth: [1.75, 1.45], mouthY: -0.036, head: [1, 1] },
-      dazed:      { eye: 0.3,  pupil: 0.9,  brow: -0.06, browY: 0.086, grin: true,  mouth: [1.7, 0.9],  mouthY: -0.034, head: [1.04, 0.98] },
+      calm:       { brow: 0,     browY: 0.072, browSkew: 0,     grin: true,  mouth: [1, 1],       mouthY: -0.038, head: [1, 1] },
+      keen:       { brow: -0.12, browY: 0.079, browSkew: 0.012, grin: true,  mouth: [1.3, 1.2],   mouthY: -0.04,  head: [1, 1] },
+      impressed:  { brow: -0.28, browY: 0.086, browSkew: 0.022, grin: true,  mouth: [1.7, 1.6],   mouthY: -0.042, head: [1.01, 1.01] },
+      surprised:  { brow: -0.42, browY: 0.092, browSkew: 0.03,  grin: false, mouth: [1.25, 1.7],  mouthY: -0.064, head: [1.01, 1.03] },
+      astonished: { brow: -0.56, browY: 0.098, browSkew: 0.036, grin: false, mouth: [1.5, 2.15],  mouthY: -0.072, head: [1.02, 1.05] },
+      shocked:    { brow: -0.68, browY: 0.104, browSkew: 0.014, grin: false, mouth: [1.6, 2.05],  mouthY: -0.078, head: [0.99, 1.06] },
+      whooping:   { brow: -0.62, browY: 0.101, browSkew: 0,     grin: false, mouth: [2.0, 2.25],  mouthY: -0.082, head: [1.03, 1.07] },
+      delighted:  { brow: -0.2,  browY: 0.088, browSkew: 0.04,  grin: true,  mouth: [2.0, 1.65],  mouthY: -0.036, head: [1, 1] },
+      dazed:      { brow: -0.04, browY: 0.076, browSkew: 0.05,  grin: true,  mouth: [1.6, 0.85],  mouthY: -0.034, head: [1.04, 0.98] },
     };
     const f = F[mood];
-
-    for (const eye of this.eyes) eye.scale.set(1, f.eye, 1);
-    for (const pupil of this.pupils) pupil.scale.set(f.pupil, f.pupil, 0.5);
 
     // Brows mirror. Negative angles lift the inner ends, which is the only
     // direction this face goes.
     this.brows.forEach((brow, i) => {
       const side = i === 0 ? -1 : 1;
       brow.rotation.z = side * f.brow;
-      brow.position.y = f.browY;
+      brow.position.y = f.browY + side * f.browSkew;
       brow.position.x = side * 0.058;
     });
-
-    // He looks further round when something is happening — the whole head
-    // snaps to camera for a whoop, which is where the joke lives.
-    const alert = mood === 'shocked' || mood === 'whooping' || mood === 'astonished';
-    this.head.rotation.y = alert ? HEAD_TURN_ALERT : HEAD_TURN;
 
     this.mouth.visible = !f.grin;
     this.smile.visible = f.grin;
@@ -436,6 +455,9 @@ export class Climber {
     active.position.y = f.mouthY;
 
     this.head.scale.set(f.head[0], f.head[1], 1);
+
+    const alert = mood === 'shocked' || mood === 'whooping' || mood === 'astonished';
+    this.head.rotation.y = alert ? HEAD_TURN_ALERT : HEAD_TURN;
   }
 
   dispose(): void {

@@ -41,6 +41,7 @@ export const BERNIE = {
   hair: '#d8d4cc',
   skin: '#e0b48f',
   shoe: '#8a8f9c',
+  chalkBag: '#6b5a44',
 } as const;
 
 export const GYM = {

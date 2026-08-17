@@ -32,14 +32,23 @@ const SETTLE_MS = 300;
 const FLAIL_MS = 420;
 const FALL_MS = 2100;
 
-/** Where a limb hangs when it is not holding anything. */
+/**
+ * Where a limb hangs when it is not holding anything.
+ *
+ * Dead weight. A limb off the wall is not held anywhere, it is not tucked in
+ * and it is not braced — it hangs from the shoulder or hip at almost full
+ * length, points at the floor, and swings on its own slow pendulum. The player
+ * is dragging this body up the wall; it is not helping.
+ */
 export function danglePos(limb: LimbId, pose: Pose, t = 0): Vec2 {
   const anchor = anchorFor(limb, pose.hip, pose.shoulder);
-  const length = (isHand(limb) ? BODY.arm * 0.72 : BODY.leg * 0.86);
+  // Nearly straight, because nothing is holding it bent.
+  const length = (isHand(limb) ? BODY.arm : BODY.leg) * 0.96;
   const side = isLeft(limb) ? -1 : 1;
-  // A loose limb hangs down and drifts a little, because bodies do.
-  const sway = Math.sin(t * 0.0042 + (isLeft(limb) ? 0 : 1.7)) * 0.06;
-  const outward = side * (isHand(limb) ? 0.2 : 0.26) + sway;
+  // Two swings of different periods, so it never looks like it is on a timer.
+  const sway = Math.sin(t * 0.0026 + (isLeft(limb) ? 0 : 1.7)) * 0.13
+    + Math.sin(t * 0.0071 + (isHand(limb) ? 0 : 2.3)) * 0.05;
+  const outward = side * (isHand(limb) ? 0.1 : 0.14) + sway;
   const angle = -Math.PI / 2 + outward;
   return {
     x: anchor.x + Math.cos(angle) * length,
@@ -203,7 +212,8 @@ export class MoveAnimation {
       // gravity and takes a long lazy tumble on the way, because the joke is
       // the hang time — a fast fall is over before it is funny.
       const drop = 4.9 * (t * 0.62) ** 2 * 0.5;
-      const tip = Math.sin(t * 2.4) * 0.95 * Math.sign(toPose.barnDoor || 1);
+      // Tumbling, not toppling. Nothing is trying to land this.
+      const tip = Math.sin(t * 3.1) * 1.25 * Math.sign(toPose.barnDoor || 1);
       const floor = 0.42;
       const hipY = Math.max(toPose.hip.y - drop, floor);
       const pose: Pose = {
@@ -224,9 +234,12 @@ export class MoveAnimation {
       for (const l of LIMBS) {
         const rest = danglePos(l, pose, elapsed);
         // Full windmill. All four, out of phase, for the entire descent.
-        const windmill = Math.sin(t * Math.PI * 6 + (isLeft(l) ? 0 : 2.1) + (isHand(l) ? 0 : 1.1))
-          * 0.42 * (1 - t * 0.35);
-        limbs[l] = { x: rest.x + windmill, y: rest.y + Math.abs(windmill) * 0.55 };
+        // All four trail behind the body rather than windmilling under their
+        // own power — the difference between a climber falling and a mannequin
+        // being dropped.
+        const trail = Math.sin(t * Math.PI * 4.2 + (isLeft(l) ? 0 : 2.1) + (isHand(l) ? 0 : 1.1))
+          * 0.5 * (1 - t * 0.25);
+        limbs[l] = { x: rest.x + trail, y: rest.y + Math.abs(trail) * 0.3 + t * 0.22 };
       }
       return { pose, limbs, mood: t > 0.86 ? 'dazed' : 'whooping', done: false };
     }

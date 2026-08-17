@@ -361,6 +361,10 @@ export function ClimbScreen({
       if (Math.hypot(hipPt.x - x, hipPt.y - y) < LIMB_TOUCH_RADIUS) {
         setSelected('BODY');
         selectedRef.current = 'BODY';
+        // Panning away parks the camera. Reaching for a limb or the hips means
+        // you are climbing again, so it comes back to the climber — otherwise
+        // a look around can strand you with him off screen and no way back.
+        followRef.current = true;
         dragRef.current = {
           kind: 'body', startX: x, startY: y, x, y,
           camFocus: cam.focusY, camOrbit: cam.orbit,
@@ -376,6 +380,7 @@ export function ClimbScreen({
       // and drag from anywhere afterwards. Both work; thumbs differ.
       setSelected(hit);
       selectedRef.current = hit;
+      followRef.current = true;
       dragRef.current = {
         kind: 'aim', startX: x, startY: y, x, y,
         camFocus: cam.focusY, camOrbit: cam.orbit,
@@ -408,7 +413,7 @@ export function ClimbScreen({
       const scene = sceneRef.current;
       if (!scene) return;
       const mpp = scene.metresPerPixel();
-      camRef.current.focusY = clamp(drag.camFocus + (drag.y - drag.startY) * mpp, 0.9, 4.0);
+      camRef.current.focusY = clamp(drag.camFocus + (drag.y - drag.startY) * mpp, 0.9, 4.4);
       camRef.current.orbit = clamp(
         drag.camOrbit - (drag.x - drag.startX) * 0.0022, -ORBIT_LIMIT, ORBIT_LIMIT,
       );

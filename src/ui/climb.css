@@ -235,6 +235,7 @@
 }
 .stamina__word {
   font-size: 0.66rem;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.85);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
