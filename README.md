@@ -55,8 +55,10 @@ people fall off most problems. It grows as you climb harder things.
 
 **The face is the strain readout.** There are no coloured lines on the wall
 telling you a limb is loaded, because that is not how you read it off another
-climber. Eyes screw shut under load and go wide in alarm, brows drive down into
-a scowl, and the mouth goes from a flat line to a full open yell.
+climber. There is no anger in it and no misery — the worse things get, the more
+delighted and astonished he is that any of it is happening to him. Effort runs
+from a small smile through impressed, surprised and astonished to a full
+open-mouthed whoop, and the brows only ever go up.
 
 **Body position is a move you make, not a thing that happens to you.** Drag
 your hips and the climber pulls toward that position as far as their limbs

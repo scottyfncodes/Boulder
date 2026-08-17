@@ -19,13 +19,19 @@ import { type Outfit, awardById } from '../game/awards';
 /**
  * What the face is doing.
  *
- * The face is the strain readout now — there are no coloured lines on the wall
+ * The face is the strain readout — there are no coloured lines on the wall
  * telling you a limb is loaded, because a climber reads that off another
  * climber's face, not off a diagram.
+ *
+ * There is no anger here and no misery. This climber does not scowl and does
+ * not sulk; the worse things get, the more delighted and astonished he is that
+ * any of it is happening to him. Effort reads as escalating surprise rather
+ * than as a grimace, which is both funnier and the only register the character
+ * has. Brows therefore never drive down — they only ever go up.
  */
 export type Mood =
-  | 'calm' | 'focus' | 'working' | 'strain' | 'gurn' | 'panic'
-  | 'smug' | 'done' | 'yell';
+  | 'calm' | 'keen' | 'impressed' | 'surprised' | 'astonished'
+  | 'shocked' | 'whooping' | 'delighted' | 'dazed';
 
 const UPPER_ARM = BODY.arm * 0.5;
 const LOWER_ARM = BODY.arm * 0.5;
@@ -96,6 +102,7 @@ export class Climber {
   private brows: THREE.Mesh[] = [];
   private pupils: THREE.Mesh[] = [];
   private mouth: THREE.Mesh;
+  private smile: THREE.Mesh;
   private eyes: THREE.Mesh[] = [];
   private hips: THREE.Mesh;
   private bones: Record<LimbId, { upper: Bone; lower: Bone; end: THREE.Mesh }>;
@@ -143,13 +150,21 @@ export class Climber {
       this.head.add(socket);
     }
 
-    // A capsule rather than a bar, so it can go from a thin line to a wide open
-    // yell without looking like a rectangle being stretched.
+    // Two mouths, because one shape cannot both gape and grin. The capsule is
+    // every open-mouthed expression; the arc is every closed-mouthed smile.
     const mouthGeo = new THREE.CapsuleGeometry(0.03, 0.028, 4, 10);
     mouthGeo.rotateZ(Math.PI / 2);
     this.mouth = new THREE.Mesh(mouthGeo, inkMat);
     this.mouth.position.set(0, -0.056, 0.108);
     this.head.add(this.mouth);
+
+    // A half torus turned upside down, which is a smile.
+    const smileGeo = new THREE.TorusGeometry(0.052, 0.012, 6, 14, Math.PI);
+    smileGeo.rotateZ(Math.PI);
+    this.smile = new THREE.Mesh(smileGeo, inkMat);
+    this.smile.position.set(0, -0.038, 0.108);
+    this.smile.visible = false;
+    this.head.add(this.smile);
 
     // Two brows, so they can angle independently and actually scowl.
     for (const sx of [-1, 1]) {
@@ -234,49 +249,57 @@ export class Climber {
        * mouth and the whole face reads as one dark blob.
        */
       eye: number;
-      /** Pupil size multiplier — small is strain, huge is fear. */
+      /** Pupil size multiplier. Big pupils are delight, not fear. */
       pupil: number;
-      /** Brow angle, radians. Positive is a scowl. */
+      /**
+       * Brow angle, radians. Never positive: a positive angle drives the inner
+       * ends down into a scowl, and this character does not scowl.
+       */
       brow: number;
-      /** Brow height offset, metres. */
+      /** Brow height offset, metres. Higher is more amazed. */
       browY: number;
-      /** Mouth width and height multipliers. */
+      /** True for a closed-mouth grin, false for an open mouth. */
+      grin: boolean;
+      /** Width and height multipliers for whichever mouth is showing. */
       mouth: [number, number];
       /** Mouth vertical offset, metres. */
       mouthY: number;
-      /** Whole-head squash, for a proper gurn. */
+      /** Whole-head squash. */
       head: [number, number];
     };
 
+    // Effort runs left to right as pleasure and amazement, never as anger.
     const F: Record<Mood, Face> = {
-      calm:    { eye: 1,    pupil: 1,    brow: 0.02,  browY: 0.078, mouth: [1, 1],      mouthY: -0.056, head: [1, 1] },
-      focus:   { eye: 0.8,  pupil: 0.95, brow: 0.16,  browY: 0.07,  mouth: [1.15, 0.7], mouthY: -0.058, head: [1, 1] },
-      working: { eye: 0.55, pupil: 0.85, brow: 0.3,   browY: 0.062, mouth: [1.5, 1.5],  mouthY: -0.06,  head: [1.02, 0.99] },
-      strain:  { eye: 0.24, pupil: 0.7,  brow: 0.46,  browY: 0.05,  mouth: [1.9, 1.9],  mouthY: -0.062, head: [1.06, 0.97] },
-      gurn:    { eye: 0.06, pupil: 0.6,  brow: 0.62,  browY: 0.042, mouth: [2.6, 1.3],  mouthY: -0.056, head: [1.14, 0.94] },
-      panic:   { eye: 1.45, pupil: 1.2,  brow: -0.5,  browY: 0.098, mouth: [1.4, 1.7],  mouthY: -0.075, head: [0.97, 1.05] },
-      yell:    { eye: 1.3,  pupil: 1.1,  brow: -0.36, browY: 0.094, mouth: [1.8, 1.9],  mouthY: -0.078, head: [1.02, 1.08] },
-      smug:    { eye: 0.45, pupil: 0.9,  brow: -0.2,  browY: 0.086, mouth: [1.9, 0.8],  mouthY: -0.05,  head: [1, 1] },
-      done:    { eye: 0.1,  pupil: 0.8,  brow: 0.1,   browY: 0.068, mouth: [1.4, 1.8],  mouthY: -0.06,  head: [1.04, 0.98] },
+      calm:       { eye: 1,    pupil: 1,    brow: 0,     browY: 0.078, grin: true,  mouth: [1, 1],      mouthY: -0.038, head: [1, 1] },
+      keen:       { eye: 1.08, pupil: 1.05, brow: -0.1,  browY: 0.084, grin: true,  mouth: [1.2, 1.15], mouthY: -0.04,  head: [1, 1] },
+      impressed:  { eye: 1.2,  pupil: 1.12, brow: -0.22, browY: 0.092, grin: true,  mouth: [1.5, 1.5],  mouthY: -0.042, head: [1.01, 1.01] },
+      surprised:  { eye: 1.34, pupil: 1.2,  brow: -0.32, browY: 0.099, grin: false, mouth: [1.15, 1.5], mouthY: -0.062, head: [1.01, 1.03] },
+      astonished: { eye: 1.44, pupil: 1.26, brow: -0.42, browY: 0.105, grin: false, mouth: [1.35, 1.9], mouthY: -0.07,  head: [1.02, 1.05] },
+      shocked:    { eye: 1.48, pupil: 1.3,  brow: -0.5,  browY: 0.11,  grin: false, mouth: [1.45, 1.8], mouthY: -0.075, head: [0.99, 1.06] },
+      whooping:   { eye: 1.26, pupil: 1.16, brow: -0.46, browY: 0.106, grin: false, mouth: [1.85, 1.95], mouthY: -0.078, head: [1.03, 1.07] },
+      delighted:  { eye: 0.42, pupil: 0.95, brow: -0.14, browY: 0.09,  grin: true,  mouth: [1.75, 1.45], mouthY: -0.036, head: [1, 1] },
+      dazed:      { eye: 0.3,  pupil: 0.9,  brow: -0.06, browY: 0.086, grin: true,  mouth: [1.7, 0.9],  mouthY: -0.034, head: [1.04, 0.98] },
     };
     const f = F[mood];
 
     for (const eye of this.eyes) eye.scale.set(1, f.eye, 1);
     for (const pupil of this.pupils) pupil.scale.set(f.pupil, f.pupil, 0.5);
 
-    // Brows mirror. A positive angle drives the *inner* ends down into a
-    // scowl; a negative one lifts them into alarm. Getting this sign backwards
-    // turns every strain face into a worried one.
+    // Brows mirror. Negative angles lift the inner ends, which is the only
+    // direction this face goes.
     this.brows.forEach((brow, i) => {
       const side = i === 0 ? -1 : 1;
       brow.rotation.z = side * f.brow;
       brow.position.y = f.browY;
-      // They also crowd toward the nose as the scowl deepens.
-      brow.position.x = side * (0.058 - Math.max(f.brow, 0) * 0.02);
+      brow.position.x = side * 0.058;
     });
 
-    this.mouth.scale.set(f.mouth[0], f.mouth[1], 1);
-    this.mouth.position.y = f.mouthY;
+    this.mouth.visible = !f.grin;
+    this.smile.visible = f.grin;
+    const active = f.grin ? this.smile : this.mouth;
+    active.scale.set(f.mouth[0], f.mouth[1], 1);
+    active.position.y = f.mouthY;
+
     this.head.scale.set(f.head[0], f.head[1], 1);
   }
 

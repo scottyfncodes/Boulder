@@ -88,11 +88,11 @@ const easeBack = (t: number): number => {
 };
 
 function moodFor(grade: MoveGrade, fell: boolean, stability: number): Mood {
-  if (fell) return 'panic';
-  if (grade === 'YEET') return 'panic';
-  if (grade === 'MISS') return 'gurn';
-  if (grade === 'SCRAPE') return 'strain';
-  return stability < 0.4 ? 'strain' : stability < 0.62 ? 'working' : 'calm';
+  if (fell) return 'shocked';
+  if (grade === 'YEET') return 'shocked';
+  if (grade === 'MISS') return 'astonished';
+  if (grade === 'SCRAPE') return 'surprised';
+  return stability < 0.4 ? 'surprised' : stability < 0.62 ? 'impressed' : 'keen';
 }
 
 /**
@@ -101,11 +101,12 @@ function moodFor(grade: MoveGrade, fell: boolean, stability: number): Mood {
  * readout the game gives — no coloured lines, no bars over the limbs.
  */
 export function idleMood(stability: number, endurance: number): Mood {
-  const strain = Math.min(1 - stability, 1 - endurance);
-  if (strain > 0.78) return 'gurn';
-  if (strain > 0.6) return 'strain';
-  if (strain > 0.4) return 'working';
-  if (strain > 0.22) return 'focus';
+  // The harder it is, the more amazed he is that it is happening.
+  const effort = Math.max(1 - stability, 1 - endurance);
+  if (effort > 0.78) return 'astonished';
+  if (effort > 0.6) return 'surprised';
+  if (effort > 0.4) return 'impressed';
+  if (effort > 0.22) return 'keen';
   return 'calm';
 }
 
@@ -153,7 +154,7 @@ export class MoveAnimation {
         if (l === this.limb) continue;
         if (!r.next.contacts.some((c) => c.limb === l)) limbs[l] = danglePos(l, pose, elapsed);
       }
-      return { pose, limbs, mood: 'focus', done: false };
+      return { pose, limbs, mood: 'keen', done: false };
     }
 
     // --- 2. the body catches up -----------------------------------------
@@ -189,7 +190,7 @@ export class MoveAnimation {
       }
       return {
         pose, limbs,
-        mood: r.fell ? 'panic' : moodFor(r.grade, false, toPose.stability),
+        mood: r.fell ? 'shocked' : moodFor(r.grade, false, toPose.stability),
         done: false,
       };
     }
@@ -227,14 +228,14 @@ export class MoveAnimation {
           * 0.42 * (1 - t * 0.35);
         limbs[l] = { x: rest.x + windmill, y: rest.y + Math.abs(windmill) * 0.55 };
       }
-      return { pose, limbs, mood: t > 0.86 ? 'done' : 'yell', done: false };
+      return { pose, limbs, mood: t > 0.86 ? 'dazed' : 'whooping', done: false };
     }
 
     // --- rest -------------------------------------------------------------
     return {
       pose: r.fell ? this.restingPose(toPose) : toPose,
       limbs: r.fell ? this.restingLimbs(toPose) : settled,
-      mood: r.fell ? 'done' : r.grade === 'PERFECT' ? 'smug' : 'calm',
+      mood: r.fell ? 'dazed' : r.grade === 'PERFECT' ? 'delighted' : 'calm',
       done: true,
     };
   }

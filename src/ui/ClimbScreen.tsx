@@ -197,7 +197,7 @@ export function ClimbScreen({
           pose: att.state.pose,
           limbs: limbsFor(att.state.contacts, att.state.pose, now),
           mood: att.phase === 'sent'
-            ? 'smug'
+            ? 'delighted'
             : idleMood(att.state.pose.stability, att.endurance.base),
           done: true,
         };
@@ -242,7 +242,7 @@ export function ClimbScreen({
             pose: preview.pose,
             limbs: limbsFor(att.state.contacts, preview.pose, now),
           };
-          scene.setClimber(frame.pose, frame.limbs, preview.risky ? 'strain' : 'focus');
+          scene.setClimber(frame.pose, frame.limbs, preview.risky ? 'surprised' : 'keen');
           shiftView = {
             hip: preview.pose.hip,
             from: drag?.hipFrom ?? att.state.pose.hip,
