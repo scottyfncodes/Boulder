@@ -14,7 +14,7 @@ import { dynoLanding, fallOffResult, limbOrigin } from '../game/move';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
 import { MoveAnimation, type Frame, idleMood, limbsFor } from '../render/animator';
 import {
-  drawOverlay, shoutText, type AimView, type ShiftView, type Shout,
+  drawOverlay, introAlpha, shoutText, type AimView, type ShiftView, type Shout,
   LIMB_TOUCH_RADIUS, SHOUT_MS,
 } from '../render/overlay';
 import { GRADE_COLOR } from '../render/palette';
@@ -95,6 +95,13 @@ export function ClimbScreen({
   const shoutRef = useRef<{ at: { x: number; y: number }; start: number } | null>(null);
   const dynoRef = useRef(false);
   dynoRef.current = dyno;
+  // When the current go started, so the introductory labels know how old they
+  // are. Stamped off the phase turning to 'climbing' rather than by the things
+  // that cause it — you can pull on from a button or the space bar, and a retry
+  // drops you back to inspecting first, so watching the transition is the only
+  // version that cannot miss one.
+  const introRef = useRef(-Infinity);
+  const phaseRef = useRef<string>('');
 
   // Refs the animation loop reads. React state drives the words on screen;
   // these drive the pixels.
@@ -163,6 +170,11 @@ export function ClimbScreen({
       // --- endurance ---
       const dt = lastTickRef.current ? Math.min(now - lastTickRef.current, 100) : 0;
       lastTickRef.current = now;
+      if (att.phase !== phaseRef.current) {
+        if (att.phase === 'climbing') introRef.current = now;
+        phaseRef.current = att.phase;
+      }
+
       if (att.phase === 'climbing' && dt > 0) {
         // Reaching costs extra: a limb in the air drains the bar faster than
         // hanging does.
@@ -297,8 +309,9 @@ export function ClimbScreen({
           scene, ctx,
           width: rect.width, height: rect.height,
           limbPositions: frame.limbs,
+          hip: att.state.pose.hip,
           contactLimbs: new Set(att.state.contacts.map((c) => c.limb)),
-          selected: sel === 'BODY' ? null : sel,
+          selected: sel,
           locked: lockedLimbs(att),
           aim: aimView,
           shift: shiftView,
@@ -311,6 +324,7 @@ export function ClimbScreen({
             : null,
           accent,
           showLimbs: att.phase === 'climbing' && !playing,
+          intro: introAlpha(now - introRef.current),
         });
       }
 
@@ -716,7 +730,7 @@ export function ClimbScreen({
 
       {attempt.phase === 'fallen' && !busy && (
         <div className="falloff">
-          <div className="falloff__word">Bruuuuuuh!</div>
+          <div className="falloff__word">Bruuuuuuh</div>
           <div className="falloff__reason">{lastReason ?? 'You are on the mat.'}</div>
           <div className="falloff__row">
             <button className="btn" onClick={onExit}>Leave it</button>

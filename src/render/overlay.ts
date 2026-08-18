@@ -47,8 +47,10 @@ export type OverlayInput = {
   width: number;
   height: number;
   limbPositions: Record<LimbId, Vec2>;
+  /** Where the hips are, in wall space. The body is a tap target too. */
+  hip: Vec2;
   contactLimbs: Set<LimbId>;
-  selected: LimbId | null;
+  selected: LimbId | 'BODY' | null;
   /** Limbs that cannot be moved right now, with the reason. */
   locked: Set<LimbId>;
   aim: AimView | null;
@@ -57,6 +59,11 @@ export type OverlayInput = {
   accent: string;
   /** Suppresses the limb pips during inspection and animation. */
   showLimbs: boolean;
+  /**
+   * Opacity of the introductory labels, 0..1. They name every limb and the
+   * hips when you pull on, then get out of the way.
+   */
+  intro: number;
 };
 
 /**
@@ -72,6 +79,25 @@ export const LIMB_PIP_RADIUS = 21;
 /** Fingers are wide. The tap target is much bigger than the thing it hits. */
 export const LIMB_TOUCH_RADIUS = 40;
 
+/** How long the introductory labels stay legible before they start to go. */
+export const INTRO_HOLD_MS = 2600;
+/** And how long they take to leave. Slow enough not to snatch them away. */
+export const INTRO_FADE_MS = 1100;
+
+/**
+ * The labels are a one-time introduction, not permanent furniture.
+ *
+ * Every limb and the hips get named when you pull on — the hips especially,
+ * because they are a tap target with nothing drawn on them the rest of the
+ * time, and an invisible affordance is one nobody finds. Then they fade, and
+ * what is left is the wall.
+ */
+export function introAlpha(age: number): number {
+  if (age <= INTRO_HOLD_MS) return 1;
+  const t = (age - INTRO_HOLD_MS) / INTRO_FADE_MS;
+  return t >= 1 ? 0 : 1 - t * t;
+}
+
 export function drawOverlay(input: OverlayInput): void {
   const { ctx, width, height, scene } = input;
   ctx.clearRect(0, 0, width, height);
@@ -79,6 +105,9 @@ export function drawOverlay(input: OverlayInput): void {
   if (input.shift) drawShift(input);
   if (input.aim) drawAim(input);
   if (input.showLimbs) drawLimbPips(input);
+  // The shift drawing already labels the hips, so during a drag this would be
+  // the same word twice on the same spot.
+  if (input.showLimbs && !input.shift && input.intro > 0) drawBodyIntro(input);
   if (input.shout) drawShout(input);
 
   void scene;
@@ -151,13 +180,14 @@ function drawShift(input: OverlayInput): void {
 export const SHOUT_MS = 2000;
 
 /**
- * The climber's own commentary. There is one line and it is "Bruh!", except
- * that it stretches the whole way down — the vowel grows as he falls, so a long
- * fall earns a longer Bruuuuuuh than a short one.
+ * The climber's own commentary. There is one line and it is "Bruh", except that
+ * it stretches the whole way down — the vowel grows as he falls, so a long fall
+ * earns a longer Bruuuuuuh than a short one. No exclamation mark: he is not
+ * exclaiming, he is observing.
  */
 export function shoutText(age: number): string {
   const t = Math.min(Math.max(age, 0) / SHOUT_MS, 1);
-  return `Br${'u'.repeat(1 + Math.floor(t * 8))}h!`;
+  return `Br${'u'.repeat(1 + Math.floor(t * 8))}h`;
 }
 
 function drawShout({ ctx, scene, shout }: OverlayInput): void {
@@ -203,13 +233,48 @@ function drawLimbPips(input: OverlayInput): void {
     ctx.strokeStyle = isSel ? '#fff' : on ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)';
     ctx.stroke();
 
-    ctx.fillStyle = isSel ? '#11141a' : '#fff';
-    ctx.font = `700 ${isSel ? 15 : 13}px ui-sans-serif, system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(LIMB_SHORT[limb], p.x, p.y + 0.5);
+    // The name fades out with the rest of the introduction. The pip stays —
+    // it is the thing you tap — but once you know which limb is which, having
+    // it spelled out on top of the climber is just clutter. The selected limb
+    // keeps its label, because there the text is answering "which did I pick?"
+    const nameAlpha = isSel ? 1 : input.intro;
+    if (nameAlpha > 0.01) {
+      ctx.globalAlpha *= nameAlpha;
+      ctx.fillStyle = isSel ? '#11141a' : '#fff';
+      ctx.font = `700 ${isSel ? 15 : 13}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(LIMB_SHORT[limb], p.x, p.y + 0.5);
+    }
     ctx.restore();
   }
+}
+
+/**
+ * The hips, named, while the introduction lasts. Drawn to match a limb pip so
+ * it reads as the same kind of thing — something you can take hold of.
+ */
+function drawBodyIntro(input: OverlayInput): void {
+  const { ctx, scene, intro, selected } = input;
+  const p = scene.project(input.hip, HIP_Z);
+  if (!p.visible) return;
+  const isSel = selected === 'BODY';
+
+  ctx.save();
+  ctx.globalAlpha = isSel ? 1 : intro;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 23, 0, Math.PI * 2);
+  ctx.fillStyle = isSel ? input.accent : 'rgba(18,20,26,0.62)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.stroke();
+  ctx.fillStyle = isSel ? '#11141a' : '#fff';
+  ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('BODY', p.x, p.y + 0.5);
+  ctx.restore();
 }
 
 function drawAim(input: OverlayInput): void {

@@ -3,7 +3,9 @@ import type { Hold, Route } from './types';
 import { beginAttempt, pullOn, tickEndurance } from './attempt';
 import { fallOffResult, initialState } from './move';
 import { capacityFor, drainEndurance, freshEndurance } from './endurance';
-import { shoutText, SHOUT_MS } from '../render/overlay';
+import {
+  introAlpha, shoutText, INTRO_FADE_MS, INTRO_HOLD_MS, SHOUT_MS,
+} from '../render/overlay';
 
 const jug = (id: number, x: number, y: number): Hold => ({
   id, pos: { x, y }, type: 'jug', size: 0.115, dir: -Math.PI / 2,
@@ -101,7 +103,7 @@ describe('the noise he makes', () => {
     const start = shoutText(0);
     const mid = shoutText(SHOUT_MS / 2);
     const end = shoutText(SHOUT_MS);
-    expect(start).toBe('Bruh!');
+    expect(start).toBe('Bruh');
     expect(start.length).toBeLessThan(mid.length);
     expect(mid.length).toBeLessThan(end.length);
     // A long fall earns a long vowel.
@@ -112,8 +114,35 @@ describe('the noise he makes', () => {
     for (const age of [-500, 0, 200, 1000, 5000]) {
       const t = shoutText(age);
       expect(t.startsWith('Br')).toBe(true);
-      expect(t.endsWith('h!')).toBe(true);
-      expect(t).toMatch(/^Bru+h!$/);
+      expect(t.endsWith('h')).toBe(true);
+      expect(t).toMatch(/^Bru+h$/);
+    }
+  });
+});
+
+describe('the introductory labels', () => {
+  it('are fully legible for long enough to read', () => {
+    expect(introAlpha(0)).toBe(1);
+    expect(introAlpha(INTRO_HOLD_MS)).toBe(1);
+    // Long enough to find four limbs and the hips on a phone.
+    expect(INTRO_HOLD_MS).toBeGreaterThanOrEqual(1500);
+  });
+
+  it('then gets out of the way completely', () => {
+    expect(introAlpha(INTRO_HOLD_MS + INTRO_FADE_MS)).toBe(0);
+    expect(introAlpha(INTRO_HOLD_MS + INTRO_FADE_MS * 10)).toBe(0);
+  });
+
+  it('fades rather than blinking out', () => {
+    const mid = introAlpha(INTRO_HOLD_MS + INTRO_FADE_MS / 2);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+    // Monotonic the whole way down, so it never brightens on its way out.
+    let prev = 1;
+    for (let a = 0; a <= INTRO_HOLD_MS + INTRO_FADE_MS; a += 50) {
+      const v = introAlpha(a);
+      expect(v).toBeLessThanOrEqual(prev + 1e-9);
+      prev = v;
     }
   });
 });
