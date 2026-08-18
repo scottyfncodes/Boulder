@@ -3,7 +3,7 @@ import type { LimbId, Route, Vec2 } from '../game/types';
 import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor, maxReachOf, reachOf } from '../game/body';
 import { type Aim, previewShift, projectLanding } from '../game/move';
-import { contactRadius } from '../game/holds';
+import { canUse, contactRadius } from '../game/holds';
 import {
   type Attempt, type AttemptMode, type StepOutcome,
   beginAttempt, dynoStep, overhangOf, pullOn, retry, shiftStep, step, tickEndurance,
@@ -288,7 +288,7 @@ export function ClimbScreen({
             landing,
             maxReach: armed ? DYNO_RANGE : maxReachOf(sel),
             power: aim.power,
-            targetHold: holdAt(landing, route, att) ?? null,
+            targetHold: holdAt(landing, route, att, sel) ?? null,
             dragging: drag?.kind === 'aim',
           };
         }
@@ -320,11 +320,14 @@ export function ClimbScreen({
     return () => cancelAnimationFrame(rafRef.current);
   }, [route, accent, onOutcome]);
 
-  const holdAt = useCallback((p: Vec2, r: Route, att: Attempt) => {
+  const holdAt = useCallback((p: Vec2, r: Route, att: Attempt, limb: LimbId) => {
     const taken = new Set(att.state.contacts.map((c) => c.holdId));
     let best: (typeof r.holds)[number] | undefined;
     let bestD = Infinity;
     for (const h of r.holds) {
+      // Do not ring a hold this limb cannot use — the reticle would be
+      // promising a placement that is going to be refused.
+      if (!canUse(h.type, limb)) continue;
       const d = Math.hypot(p.x - h.pos.x, p.y - h.pos.y);
       const zone = contactRadius(h.size, h.type) * 1.25;
       if (d <= zone && d < bestD && (!taken.has(h.id) || contactRadius(h.size, h.type) >= 0.09)) {

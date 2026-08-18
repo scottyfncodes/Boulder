@@ -3,7 +3,7 @@ import type {
 } from './types';
 import { isHand } from './types';
 import {
-  affinityFactor, canShare, contactRadius, profileOf, worldZones,
+  affinityFactor, canShare, canUse, contactRadius, profileOf, worldZones,
 } from './holds';
 import {
   anchorFor, analyseStance, BODY, FALL_THRESHOLD, maxReachOf, reachOf,
@@ -265,12 +265,13 @@ export function blockedFor(remaining: Contact[], holds: Hold[]): Set<number> {
 
 /** The hold a landing point catches, if any: nearest centre whose zone covers it. */
 function findCaught(
-  landing: Vec2, holds: Hold[], exclude: Set<number>, windowScale: number,
+  landing: Vec2, holds: Hold[], limb: LimbId, exclude: Set<number>, windowScale: number,
 ): Hold | null {
   let best: Hold | null = null;
   let bestD = Infinity;
   for (const h of holds) {
     if (exclude.has(h.id)) continue;
+    if (!canUse(h.type, limb)) continue;
     const zone = contactRadius(h.size, h.type) * windowScale;
     const d = dist(landing, h.pos);
     if (d <= zone && d < bestD) { best = h; bestD = d; }
@@ -324,7 +325,7 @@ export function resolveMove({ state, aim, holds }: ResolveInput): MoveResult {
   // cannot place a foot precisely while barn-dooring off the wall.
   const preScale = clamp(reachQ * tensionQ, 0.28, 1.15);
 
-  const caught = findCaught(landing, holds, held, preScale);
+  const caught = findCaught(landing, holds, limb, held, preScale);
   const target = aimedAt(anchor, dirUnit, travel, holds, held);
 
   let grade: MoveGrade;
@@ -386,7 +387,14 @@ export function resolveMove({ state, aim, holds }: ResolveInput): MoveResult {
     }
   } else {
     grade = 'MISS';
-    reason = target ? 'Sailed past it.' : 'Grabbed a fistful of wall.';
+    // A hand that landed dead on a foot chip did not miss by distance, so the
+    // generic reasons would be a lie about what went wrong.
+    const onFootOnly = holds.some(
+      (h) => !canUse(h.type, limb) && zoneAt(h, landing) !== null,
+    );
+    reason = onFootOnly
+      ? 'That is a foot chip. Nothing there for a hand.'
+      : target ? 'Sailed past it.' : 'Grabbed a fistful of wall.';
   }
 
   // A throw that flies well past something it clearly aimed at is not a miss,
@@ -683,6 +691,7 @@ export function resolveDyno(state: ClimbState, aim: Aim, holds: Hold[]): DynoRes
     let bestD = Infinity;
     for (const h of holds) {
       if (blocked.has(h.id)) continue;
+      if (!canUse(h.type, limb)) continue;
       const hit = zoneAt(h, hand);
       if (!hit) continue;
       const d = dist(hand, h.pos);

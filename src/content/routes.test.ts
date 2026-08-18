@@ -3,7 +3,40 @@ import { ROUTES } from './routes';
 import { SETTERS } from './setters';
 import { solveRoute } from '../game/autoplay';
 import { initialState } from '../game/move';
+import {
+  capacityFor, drainEndurance, freshEndurance, routeDrain,
+} from '../game/endurance';
+import { GRADES, gradeIndex } from '../game/types';
+import type { Route } from '../game/types';
 import { WALL } from './wall';
+
+/**
+ * Seconds a route affords the climber it is aimed at, burned at an ordinary
+ * stance with a limb in the air two ticks in five, crediting a short pause at
+ * each rest hold. It is a yardstick, not a simulation — what it is good for is
+ * catching a route that has quietly grown too long to finish.
+ */
+function secondsOnTheWall(route: Route): number {
+  const gi = gradeIndex(route.grade);
+  const cap = capacityFor(gi > 0 ? GRADES[gi - 1] : null, Math.min(gi * 3, 40));
+  const drain = routeDrain(route);
+  let restLeft = route.holds.filter((h) => h.rest === true).length * 3;
+
+  let e = freshEndurance(cap);
+  let t = 0;
+  for (let i = 0; i < 100000; i++) {
+    const resting = restLeft > 0 && i % 40 < 10;
+    if (resting) restLeft -= 0.1;
+    const r = drainEndurance({
+      endurance: e, dtMs: 100, drain, stability: 0.6,
+      reaching: !resting && i % 5 < 2, resting,
+    });
+    e = r.endurance;
+    t += 0.1;
+    if (r.pumped) break;
+  }
+  return t;
+}
 
 describe('route data', () => {
   it('has unique ids', () => {
@@ -57,6 +90,16 @@ describe('route data', () => {
         expect(sol.moves.length).toBeGreaterThan(5);
         expect(route.par).toBeGreaterThanOrEqual(sol.moves.length);
         expect(route.par).toBeLessThanOrEqual(sol.moves.length + 5);
+      });
+
+      it('leaves enough endurance to actually finish it', () => {
+        // A route can be geometrically solvable and still unsendable, because
+        // the solver does not model the pump. Every move on the reference line
+        // needs time to read, aim and throw, so if the line grows or the wall
+        // steepens without a rest to pay for it, this is what notices.
+        const moves = solveRoute(route, { beam: 40, depth: 48 }).moves.length;
+        const perMove = secondsOnTheWall(route) / moves;
+        expect(perMove).toBeGreaterThanOrEqual(2.2);
       });
     });
   }

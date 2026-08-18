@@ -37,7 +37,7 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     directionality: 0.4,
     gripBase: 0.74,
     push: false,
-    crossUse: 0.45,
+    crossUse: 0.82,
     note: 'An edge. Wants a straight downward pull.',
   },
   sloper: {
@@ -69,7 +69,7 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     directionality: 0.72,
     gripBase: 0.7,
     push: false,
-    crossUse: 0.4,
+    crossUse: 0.78,
     note: 'Squeeze it. Needs the approach it was set for.',
   },
   pocket: {
@@ -85,7 +85,7 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     directionality: 0.34,
     gripBase: 0.8,
     push: false,
-    crossUse: 0.3,
+    crossUse: 0.7,
     note: 'Small opening. You either find it or you do not.',
   },
   sidepull: {
@@ -101,7 +101,7 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     directionality: 0.95,
     gripBase: 0.78,
     push: false,
-    crossUse: 0.5,
+    crossUse: 0.8,
     note: 'Pull it sideways, into your body. Needs tension to work.',
   },
   undercling: {
@@ -117,7 +117,7 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     directionality: 0.95,
     gripBase: 0.8,
     push: false,
-    crossUse: 0.45,
+    crossUse: 0.72,
     note: 'Faces down. Only useful once your hips are above it.',
   },
   gaston: {
@@ -133,7 +133,7 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     directionality: 0.95,
     gripBase: 0.68,
     push: true,
-    crossUse: 0.4,
+    crossUse: 0.76,
     note: 'Thumb down, elbow out, push away. Feels wrong. Is correct.',
   },
   foothold: {
@@ -212,14 +212,31 @@ export function worldZones(hold: {
 }
 
 /**
- * How badly this limb is misusing this shape. 1 = as intended.
- * Feet on hand holds and hands on footholds both work — just not well.
+ * Whether this limb can use this shape at all.
+ *
+ * The rule is not symmetric, because climbing is not. You can stand on anything
+ * you can hold — a foot on a crimp or an undercling is ordinary, and often
+ * easier than the hand version — but a foot chip set flat against the wall is
+ * not a handhold, and no amount of trying makes it one. So feet go anywhere and
+ * hands are refused by foot-only shapes outright, rather than being allowed on
+ * at a penalty.
+ */
+export function canUse(type: HoldType, limb: LimbId): boolean {
+  return HOLD_PROFILES[type].affinity !== 'foot' || !isHand(limb);
+}
+
+/**
+ * How well this limb suits this shape. 1 = as intended.
+ *
+ * Only ever penalises feet on hand shapes, and gently: standing on a hold is a
+ * normal thing to do with it. Hands on foot-only shapes do not come through
+ * here at all, because `canUse` has already refused them.
  */
 export function affinityFactor(type: HoldType, limb: LimbId): number {
   const p = HOLD_PROFILES[type];
   if (p.affinity === 'both') return 1;
-  const wantsHand = p.affinity === 'hand';
-  return wantsHand === isHand(limb) ? 1 : p.crossUse;
+  if (p.affinity === 'foot') return isHand(limb) ? 0 : 1;
+  return isHand(limb) ? 1 : p.crossUse;
 }
 
 /**

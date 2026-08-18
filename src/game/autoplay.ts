@@ -4,7 +4,7 @@ import { anchorFor, maxReachOf } from './body';
 import {
   type Aim, type ClimbState, blockedFor, initialState, limbOrigin, resolveMove,
 } from './move';
-import { worldZones } from './holds';
+import { canUse, worldZones } from './holds';
 import { dist, norm, sub } from './vec';
 import { rng } from './rng';
 
@@ -53,6 +53,7 @@ export function reachableHolds(state: ClimbState, limb: LimbId, holds: Hold[]): 
   // the shoulder or hip, and the throw itself cannot travel further than that.
   return holds.filter((h) => {
     if (taken.has(h.id)) return false;
+    if (!canUse(h.type, limb)) return false;
     const target = worldZones(h)[0].pos;
     return dist(anchor, target) <= max && dist(from, target) <= max;
   });

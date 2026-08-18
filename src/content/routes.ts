@@ -340,7 +340,7 @@ export const ROUTES: Route[] = [
     wall: 'main',
     tagline: 'Every hold works. From exactly one position.',
     overhang: 24,
-    par: 21,
+    par: 26,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [21],
     holds: [
@@ -351,7 +351,7 @@ export const ROUTES: Route[] = [
       foot(9, -0.22, 1.68), foot(10, 0.46, 1.74),
       sloper(11, -0.26, 2.82, { hard: 1.2 , rest: true }), sloper(12, 0.44, 2.86, { hard: 1.2 }),
       foot(13, -0.44, 2.28), foot(14, 0.3, 2.34),
-      undercling(15, -0.32, 3.2), pocket(16, 0.32, 3.38, { hard: 1.15 }),
+      undercling(15, -0.32, 3.2, { rest: true }), pocket(16, 0.32, 3.38, { hard: 1.15 }),
       foot(17, -0.24, 2.84), foot(18, 0.46, 2.9),
       foot(19, -0.32, 3.32), foot(20, 0.28, 3.36),
       jug(21, 0.0, 3.92, { finish: true }),

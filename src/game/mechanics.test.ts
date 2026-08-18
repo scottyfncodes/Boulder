@@ -4,7 +4,7 @@ import {
   DYNO_RANGE, dynoLanding, initialState, limbOrigin, resolveDyno, resolveMove, zoneAt,
 } from './move';
 import { anchorFor, footShare, maxReachOf, pullOff } from './body';
-import { worldZones } from './holds';
+import { affinityFactor, canUse, worldZones } from './holds';
 import { dist, norm, sub } from './vec';
 
 const jug = (id: number, x: number, y: number): Hold => ({
@@ -165,5 +165,67 @@ describe('dyno', () => {
     const s = initialState(holds, START);
     const r = resolveDyno(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 1 }, holds);
     expect(r.next.pose.hip.y - s.pose.hip.y).toBeLessThanOrEqual(DYNO_RANGE + 0.3);
+  });
+});
+
+describe('what a limb may use', () => {
+  const footChip: Hold = { id: 9, pos: { x: 0, y: 2 }, type: 'foothold', size: 0.085, dir: -Math.PI / 2 };
+  const crimp: Hold = { id: 10, pos: { x: 0, y: 2 }, type: 'crimp', size: 0.095, dir: -Math.PI / 2 };
+
+  it('refuses hands on foot-only holds outright', () => {
+    expect(canUse('foothold', 'LH')).toBe(false);
+    expect(canUse('foothold', 'RH')).toBe(false);
+    expect(canUse('foothold', 'LF')).toBe(true);
+    expect(canUse('foothold', 'RF')).toBe(true);
+  });
+
+  it('lets feet stand on every hand shape', () => {
+    for (const t of ['jug', 'crimp', 'sloper', 'pinch', 'pocket',
+      'sidepull', 'undercling', 'gaston', 'volume'] as const) {
+      expect(canUse(t, 'LF')).toBe(true);
+      expect(canUse(t, 'RF')).toBe(true);
+    }
+  });
+
+  it('charges a foot only mildly for using a hand hold', () => {
+    // Standing on a hold is a normal thing to do with it.
+    for (const t of ['crimp', 'pinch', 'sidepull', 'gaston', 'undercling'] as const) {
+      expect(affinityFactor(t, 'LF')).toBeGreaterThan(0.65);
+      expect(affinityFactor(t, 'LH')).toBe(1);
+    }
+  });
+
+  it('will not let a hand catch a foot chip it lands dead on', () => {
+    const holds = [
+      jug(1, -0.3, 1.55), jug(2, 0.3, 1.55), foot(3, -0.35, 0.5), foot(4, 0.35, 0.5),
+      footChip,
+    ];
+    const s = initialState(holds, START);
+    const from = limbOrigin(s, 'RH');
+    const target = worldZones(footChip)[0].pos;
+    const r = resolveMove({
+      state: s,
+      aim: { limb: 'RH', dir: norm(sub(target, from)), power: dist(from, target) / maxReachOf('RH') },
+      holds,
+    });
+    expect(r.holdId).toBeNull();
+    expect(r.reason).toContain('foot chip');
+  });
+
+  it('lets a foot take the same shape a hand would', () => {
+    const holds = [
+      jug(1, -0.3, 1.55), jug(2, 0.3, 1.55), foot(3, -0.35, 0.5), foot(4, 0.35, 0.5),
+      { ...crimp, id: 11, pos: { x: 0.2, y: 1.05 } },
+    ];
+    const s = initialState(holds, START);
+    const from = limbOrigin(s, 'RF');
+    const target = worldZones(holds[4])[0].pos;
+    const r = resolveMove({
+      state: s,
+      aim: { limb: 'RF', dir: norm(sub(target, from)), power: dist(from, target) / maxReachOf('RF') },
+      holds,
+    });
+    expect(r.holdId).toBe(11);
+    expect(r.fell).toBe(false);
   });
 });

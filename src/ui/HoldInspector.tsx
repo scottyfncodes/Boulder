@@ -11,9 +11,11 @@ import './hold-inspector.css';
  * for the player.
  */
 
+// Feet will stand on anything. Hands are the fussy ones: a foot chip has
+// nothing on it to hold, so it is the only shape that turns a hand away.
 const USES: Record<string, string> = {
-  hand: 'Hands',
-  foot: 'Feet',
+  hand: 'Hands — feet can stand on it too',
+  foot: 'Feet only',
   both: 'Hands or feet',
 };
 
