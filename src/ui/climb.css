@@ -5,6 +5,12 @@
   background: #171a21;
 }
 
+.climb__stage {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
 .climb__gl,
 .climb__ui {
   position: absolute;
@@ -71,6 +77,23 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.climb__corner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.climb__mute {
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(18, 20, 26, 0.75);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .climb__mode {
   flex: none;
   align-self: center;
@@ -101,6 +124,117 @@
 .climb__par { color: var(--ink-faint); }
 .climb__note { color: var(--accent); font-weight: 600; }
 
+/* The stats row is click-through so it never eats an aim; this one button in
+   it has to opt back in, or "let go" can be seen and not pressed. */
+.climb__held {
+  position: absolute;
+  top: 1.7rem;
+  left: 0;
+  white-space: nowrap;
+  pointer-events: auto;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(0, 229, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(12, 14, 19, 0.78);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.climb__held b { font-size: 0.74rem; color: #00e5ff; }
+
+/* --- feel --- */
+
+.climb__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 45%, rgba(150, 10, 20, 0.55) 85%, rgba(90, 0, 10, 0.85) 100%);
+  animation: throb 0.9s ease-in-out infinite;
+  transition: opacity 0.4s ease;
+}
+@keyframes throb {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.5); }
+}
+
+.flow {
+  position: absolute;
+  top: calc(var(--safe-t) + 6.6rem);
+  right: 0.85rem;
+  z-index: 4;
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(12, 14, 19, 0.7);
+  border: 1px solid rgba(110, 242, 180, 0.5);
+  box-shadow: 0 0 1.2rem rgba(110, 242, 180, 0.35);
+  pointer-events: none;
+  animation: flowPop 0.35s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+.flow__word {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #6ef2b4;
+}
+.flow__n {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #fff;
+}
+@keyframes flowPop {
+  0% { transform: scale(1.6); }
+  100% { transform: scale(1); }
+}
+
+.sent {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  text-align: center;
+  pointer-events: none;
+  animation: sentSlam 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.sent__word {
+  font-size: 4.6rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: #fff;
+  -webkit-text-stroke: 2px #11141a;
+  text-shadow: 0 0.35rem 0 #6ef2b4, 0 0.8rem 2.2rem rgba(0, 0, 0, 0.6);
+  transform: rotate(-6deg);
+}
+.sent__kicker {
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: #ffd75e;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+.sent__sub {
+  white-space: nowrap;
+  margin-top: 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+@keyframes sentSlam {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(3); }
+  60% { opacity: 1; transform: translate(-50%, -50%) scale(0.92); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
 /* --- move feedback --- */
 
 .flash {
@@ -125,7 +259,14 @@
   color: rgba(255, 255, 255, 0.8);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
-.flash--perfect .flash__grade { color: #6ef2b4; }
+.flash--perfect .flash__grade {
+  color: #6ef2b4;
+  animation: perfectPop 0.4s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+@keyframes perfectPop {
+  0% { transform: scale(1.7) rotate(-4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
 .flash--good .flash__grade { color: #f2f3f6; }
 .flash--scrape .flash__grade { color: #f2c249; }
 .flash--miss .flash__grade { color: #e8564f; }
