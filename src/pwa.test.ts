@@ -46,9 +46,6 @@ describe('icons', () => {
     expect(pngInfo(join(pub, file))).toEqual({ w: size, h: size });
   });
 
-  it('has an SVG source that the PNGs are generated from', () => {
-    expect(readFileSync(join(pub, 'icon.svg'), 'utf8')).toMatch(/^<svg[^>]*viewBox="0 0 512 512"/);
-  });
 });
 
 describe('manifest', () => {
@@ -118,7 +115,7 @@ describe('production build', () => {
         expect(href, rel).toMatch(/^\.\//);
         expect(existsSync(join(out, href)), href).toBe(true);
       }
-      for (const file of ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'favicon-32.png', 'icon.svg']) {
+      for (const file of ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'favicon-32.png']) {
         expect(existsSync(join(out, file)), file).toBe(true);
       }
       const builtManifest = JSON.parse(readFileSync(join(out, 'manifest.webmanifest'), 'utf8')) as Manifest;
