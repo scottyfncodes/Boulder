@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Route } from '../game/types';
 import type { Attempt, Beta } from '../game/attempt';
 import { betaDistance, toBeta } from '../game/attempt';
-import { type ScoreCard, verdict } from '../game/scoring';
+import { type ScoreCard, longestFlow, verdict } from '../game/scoring';
 import { type CommunityBeta, communityBetasFor } from '../content/communityBeta';
 import { GRADE_COLOR } from '../render/palette';
+import { sfxGrab, sfxSend, sfxTap } from '../render/sfx';
 import './result.css';
 
 /**
@@ -46,6 +47,15 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
   }, [beta, community]);
 
   const improved = personalBest !== null && card.efficiency > personalBest.efficiency;
+  const bestFlow = useMemo(() => longestFlow(attempt.moves), [attempt]);
+  // The headline number counts up rather than arriving, with a tick per step
+  // that climbs the same scale the grabs did.
+  const shown = useCountUp(Math.round(card.efficiency * 100), 1100);
+  useEffect(() => {
+    if (!improved) return;
+    const t = window.setTimeout(() => sfxSend(), 1250);
+    return () => window.clearTimeout(t);
+  }, [improved]);
 
   return (
     <div className="result" style={{ ['--accent' as string]: accent }}>
@@ -67,14 +77,14 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
         {tab === 'score' ? (
           <>
             <div className="effring">
-              <div className="effring__num">{Math.round(card.efficiency * 100)}</div>
+              <div className="effring__num">{shown}</div>
               <div className="effring__cap">efficiency</div>
               <svg viewBox="0 0 120 120" className="effring__svg" aria-hidden="true">
                 <circle cx="60" cy="60" r="52" className="effring__track" />
                 <circle
                   cx="60" cy="60" r="52"
                   className="effring__bar"
-                  style={{ strokeDasharray: `${card.efficiency * 326.7} 326.7` }}
+                  style={{ strokeDasharray: `${(shown / 100) * 326.7} 326.7` }}
                 />
               </svg>
             </div>
@@ -87,6 +97,7 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
               <Stat label="Shifts" value={String(card.shifts)} sub="free" />
               <Stat label="Style" value={card.onsight ? 'Onsight' : 'Project'} />
               <Stat label="Points" value={String(card.points)} />
+              <Stat label="Best flow" value={`×${bestFlow}`} sub="in a row" />
             </dl>
 
             {improved && <div className="result__pb">New personal best on this one.</div>}
@@ -102,6 +113,30 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
       </div>
     </div>
   );
+}
+
+function useCountUp(target: number, ms: number): number {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    let lastTick = -1;
+    const start = performance.now();
+    const loop = (now: number) => {
+      const t = Math.min((now - start) / ms, 1);
+      const v = Math.round(target * (1 - (1 - t) ** 3));
+      setValue(v);
+      const step = Math.floor(v / 10);
+      if (step !== lastTick) {
+        lastTick = step;
+        if (v > 0) sfxTap();
+      }
+      if (t < 1) raf = requestAnimationFrame(loop);
+      else sfxGrab('PERFECT', Math.floor(target / 10));
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return value;
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {

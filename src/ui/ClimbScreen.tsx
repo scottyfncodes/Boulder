@@ -17,7 +17,13 @@ import {
   drawOverlay, introAlpha, shoutText, type AimView, type ShiftView, type Shout,
   LIMB_TOUCH_RADIUS, SHOUT_MS,
 } from '../render/overlay';
+import { flowStreak } from '../game/scoring';
 import { GRADE_COLOR } from '../render/palette';
+import { Fx } from '../render/fx';
+import {
+  buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend,
+  sfxSlip, sfxThrow, sfxThud, unlockAudio,
+} from '../render/sfx';
 import { setterOf } from '../content/setters';
 import { HoldInspector } from './HoldInspector';
 import './climb.css';
@@ -37,6 +43,12 @@ function maxDragPx(w: number, h: number): number {
 
 /** Below this the throw is treated as a cancelled drag rather than a move. */
 const MIN_POWER = 0.06;
+
+/** How long a clean catch holds its contact frame. */
+const HIT_STOP_MS = 70;
+
+/** How long the top-out gets to be enjoyed before the scorecard takes over. */
+const CELEBRATE_MS = 1900;
 
 /** The body is selected and dragged like a limb, so it shares the selection. */
 export type Selection = LimbId | 'BODY';
@@ -102,6 +114,19 @@ export function ClimbScreen({
   // version that cannot miss one.
   const introRef = useRef(-Infinity);
   const phaseRef = useRef<string>('');
+  // Feel. None of it feeds back into the sim.
+  const fxRef = useRef(new Fx());
+  const stageRef = useRef<HTMLDivElement>(null);
+  const vignetteRef = useRef<HTMLDivElement>(null);
+  const beatsFiredRef = useRef({ contact: false, fall: false, impact: false });
+  const lockRef = useRef<number | null>(null);
+  const heartRef = useRef(0);
+  /** Until when the current move is held on its contact frame. */
+  const freezeRef = useRef<{ until: number; at: number } | null>(null);
+  const celebrateRef = useRef<{ at: number; attempt: Attempt } | null>(null);
+  const [sentBanner, setSentBanner] = useState(false);
+  const [muted, setMutedState] = useState(isMuted);
+  const [streak, setStreak] = useState(0);
 
   // Refs the animation loop reads. React state drives the words on screen;
   // these drive the pixels.
@@ -155,6 +180,76 @@ export function ClimbScreen({
     };
   }, [route]);
 
+  // --- feel ---------------------------------------------------------------
+
+  /** Fires sound, shake and chalk on the frames the animation says they happen. */
+  const fireBeats = (
+    playing: { anim: MoveAnimation; start: number; outcome: StepOutcome },
+    now: number,
+  ) => {
+    const fired = beatsFiredRef.current;
+    const beats = playing.anim.beats;
+    const t = now - playing.start;
+    const r = playing.outcome.result;
+    const fx = fxRef.current;
+
+    if (!fired.contact && t >= beats.contact) {
+      fired.contact = true;
+      const caught = r.holdId !== null && (r.grade === 'PERFECT' || r.grade === 'GOOD' || r.grade === 'SCRAPE');
+      if (caught) {
+        const streakNow = flowStreak(playing.outcome.attempt.moves);
+        sfxGrab(r.grade, streakNow);
+        fx.chalk(r.landing, r.grade === 'PERFECT' ? 1.3 : r.grade === 'GOOD' ? 0.9 : 0.6);
+        if (r.grade === 'PERFECT') {
+          fx.perfect(r.landing, '#6ef2b4');
+          fx.kick(0.22 + Math.min(streakNow, 8) * 0.02);
+          buzz(12);
+          // Hit-stop: the world holds its breath for a few frames on a clean
+          // catch. It is the cheapest trick there is and it always works.
+          freezeRef.current = { until: now + HIT_STOP_MS, at: t };
+          playing.start += HIT_STOP_MS;
+        } else {
+          fx.kick(r.grade === 'GOOD' ? 0.12 : 0.18);
+          buzz(8);
+        }
+        if (r.popped.length) sfxSlip();
+        setStreak(streakNow);
+      } else {
+        sfxSlip();
+        fx.chalk(r.landing, 0.4, 'rgba(255,255,255,0.6)');
+        fx.kick(r.grade === 'YEET' ? 0.3 : 0.18);
+        buzz(20);
+        setStreak(0);
+      }
+    }
+    if (!fired.fall && beats.fallStart !== null && t >= beats.fallStart) {
+      fired.fall = true;
+      sfxFall((beats.impact ?? beats.fallStart + 800) - beats.fallStart);
+    }
+    if (!fired.impact && beats.impact !== null && t >= beats.impact) {
+      fired.impact = true;
+      sfxThud(beats.drop);
+      fx.dust(r.next.pose.hip);
+      fx.kick(0.45 + Math.min(beats.drop, 3) * 0.14);
+      buzz([40, 30, 70]);
+    }
+  };
+
+  const celebrate = (att: Attempt) => {
+    const hands = att.state.contacts.filter((c) => isHand(c.limb));
+    const at = hands.length
+      ? {
+          x: hands.reduce((a, c) => a + c.pos.x, 0) / hands.length,
+          y: hands.reduce((a, c) => a + c.pos.y, 0) / hands.length,
+        }
+      : att.state.pose.head;
+    fxRef.current.confetti(at);
+    fxRef.current.kick(0.5);
+    sfxSend();
+    buzz([20, 40, 20, 40, 60]);
+    setSentBanner(true);
+  };
+
   // --- the frame loop ----------------------------------------------------
 
   useEffect(() => {
@@ -186,6 +281,7 @@ export function ClimbScreen({
           // animation snapped him straight to the mat with no tumble.
           const reason = 'Pumped stupid. Arms opened on their own.';
           const result = fallOffResult(att.state, reason);
+          beatsFiredRef.current = { contact: false, fall: false, impact: false };
           animRef.current = {
             anim: new MoveAnimation(
               att.state.pose,
@@ -207,17 +303,36 @@ export function ClimbScreen({
         const e = ticked.attempt.endurance;
         if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${e.base})`;
         if (pumpRef.current) pumpRef.current.textContent = pumpWord(e.base);
+        // Running on empty is something you should feel in your own forearms:
+        // a heartbeat that speeds up and the edges of the screen closing in.
+        const low = e.base < 0.32 ? 1 - e.base / 0.32 : 0;
+        if (vignetteRef.current) vignetteRef.current.style.opacity = String(low * 0.85);
+        if (low > 0 && !animRef.current && now >= heartRef.current) {
+          sfxHeartbeat(low);
+          heartRef.current = now + 1100 - low * 620;
+        }
+      } else if (vignetteRef.current && att.phase !== 'climbing') {
+        vignetteRef.current.style.opacity = '0';
       }
+      fxRef.current.update(dt);
 
       const playing = animRef.current;
       if (playing) {
-        frame = playing.anim.sample(now - playing.start);
+        fireBeats(playing, now);
+        const frozen = freezeRef.current && now < freezeRef.current.until ? freezeRef.current : null;
+        frame = playing.anim.sample(frozen ? frozen.at : now - playing.start);
         if (frame.done) {
           const done = playing.outcome;
           animRef.current = null;
           setBusy(false);
           setAttempt(done.attempt);
-          if (done.ended) onOutcome(done.attempt, done.ended);
+          if (done.ended === 'sent') {
+            // Let the top land. The scorecard can wait two seconds.
+            celebrate(done.attempt);
+            celebrateRef.current = { at: now, attempt: done.attempt };
+          } else if (done.ended) {
+            onOutcome(done.attempt, done.ended);
+          }
         }
       } else {
         frame = {
@@ -239,6 +354,19 @@ export function ClimbScreen({
       if (shoutRef.current) {
         if (now - shoutRef.current.start > SHOUT_MS) shoutRef.current = null;
         else shoutRef.current.at = { ...frame.pose.head };
+      }
+
+      const celebrating = celebrateRef.current;
+      if (celebrating && now - celebrating.at > CELEBRATE_MS) {
+        celebrateRef.current = null;
+        onOutcome(celebrating.attempt, 'sent');
+      }
+
+      const shake = fxRef.current.shake();
+      if (stageRef.current) {
+        stageRef.current.style.transform = shake.x || shake.y
+          ? `translate(${shake.x}px, ${shake.y}px) rotate(${shake.r}deg)`
+          : '';
       }
 
       scene.setCamera(cam);
@@ -294,13 +422,20 @@ export function ClimbScreen({
           const landing = armed
             ? dynoLanding(att.state, aim).hands
             : projectLanding(att.state, aim).landing;
+          const targetHold = holdAt(landing, route, att, sel) ?? null;
+          // A tick when the reticle finds something, so you can aim by ear.
+          const lockId = drag?.kind === 'aim' ? targetHold?.id ?? null : null;
+          if (lockId !== lockRef.current) {
+            if (lockId !== null) { sfxLock(); buzz(4); }
+            lockRef.current = lockId;
+          }
           aimView = {
             limb: sel,
             anchor: armed ? att.state.pose.hip : limbOrigin(att.state, sel),
             landing,
             maxReach: armed ? DYNO_RANGE : maxReachOf(sel),
             power: aim.power,
-            targetHold: holdAt(landing, route, att, sel) ?? null,
+            targetHold,
             dragging: drag?.kind === 'aim',
           };
         }
@@ -326,6 +461,7 @@ export function ClimbScreen({
           showLimbs: att.phase === 'climbing' && !playing,
           intro: introAlpha(now - introRef.current),
         });
+        fxRef.current.draw(ctx, scene);
       }
 
       scene.render();
@@ -369,6 +505,7 @@ export function ClimbScreen({
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    unlockAudio();
     if (busy) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -394,7 +531,12 @@ export function ClimbScreen({
     const scene = sceneRef.current;
     if (scene) {
       const hipPt = scene.project(att.state.pose.hip, 0.15);
-      if (Math.hypot(hipPt.x - x, hipPt.y - y) < LIMB_TOUCH_RADIUS) {
+      // With a limb already picked, a press near the hips is far more likely
+      // to be the start of an aim than a change of mind — so the hips only
+      // take it when it lands right on them.
+      const limbPicked = selectedRef.current !== null && selectedRef.current !== 'BODY';
+      const hipRadius = limbPicked ? LIMB_TOUCH_RADIUS * 0.5 : LIMB_TOUCH_RADIUS;
+      if (Math.hypot(hipPt.x - x, hipPt.y - y) < hipRadius) {
         setSelected('BODY');
         selectedRef.current = 'BODY';
         // Panning away parks the camera. Reaching for a limb or the hips means
@@ -464,7 +606,9 @@ export function ClimbScreen({
     const fromPose = att.state.pose;
     const fromLimbs = limbsFor(att.state.contacts, fromPose, performance.now());
     const outcome = step(att, route, aim);
+    sfxThrow(aim.power);
 
+    beatsFiredRef.current = { contact: false, fall: false, impact: false };
     animRef.current = {
       anim: new MoveAnimation(fromPose, fromLimbs, aim.limb, outcome.result),
       start: performance.now(),
@@ -488,6 +632,12 @@ export function ClimbScreen({
     const outcome = shiftStep(att, route, target);
     setAttempt(outcome.attempt);
     if (outcome.result.fell) {
+      sfxSlip();
+      sfxThud(outcome.attempt.state.pose.hip.y);
+      fxRef.current.dust(outcome.attempt.state.pose.hip);
+      fxRef.current.kick(0.55);
+      buzz([40, 30, 70]);
+      setStreak(0);
       setLastReason(outcome.result.reason);
       setFlash({ grade: 'OFF', reason: outcome.result.reason });
       window.setTimeout(() => setFlash(null), 1500);
@@ -495,6 +645,8 @@ export function ClimbScreen({
       selectedRef.current = null;
       onOutcome(outcome.attempt, 'fallen');
     } else if (outcome.result.popped.length) {
+      sfxSlip();
+      fxRef.current.kick(0.2);
       setFlash({ grade: 'SLIP', reason: outcome.result.reason });
       window.setTimeout(() => setFlash(null), 1500);
     }
@@ -506,6 +658,7 @@ export function ClimbScreen({
     const fromPose = att.state.pose;
     const fromLimbs = limbsFor(att.state.contacts, fromPose, performance.now());
     const outcome = dynoStep(att, route, aim);
+    sfxThrow(1);
     const asMove: StepOutcome = {
       attempt: outcome.attempt,
       result: {
@@ -526,6 +679,7 @@ export function ClimbScreen({
       },
       ended: outcome.ended,
     };
+    beatsFiredRef.current = { contact: false, fall: false, impact: false };
     animRef.current = {
       anim: new MoveAnimation(fromPose, fromLimbs, 'RH', asMove.result),
       start: performance.now(),
@@ -584,10 +738,11 @@ export function ClimbScreen({
   // Desktop shortcuts: the four limbs, and space to pull on.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      unlockAudio();
       const att = attemptRef.current;
       if (att.phase === 'inspect' && (e.key === ' ' || e.key === 'Enter')) {
         e.preventDefault();
-        setAttempt((a) => pullOn(a));
+        startClimbRef.current();
         return;
       }
       if (att.phase !== 'climbing' || busy) return;
@@ -616,15 +771,30 @@ export function ClimbScreen({
   const holdToInspect = inspectHold !== null ? holdsById.get(inspectHold) ?? null : null;
 
   const startClimb = () => {
+    unlockAudio();
     setAttempt((a) => pullOn(a));
     camRef.current.frame = 3.9;
     followRef.current = true;
+    // Chalk up. Both hands, a clap, a cloud.
+    sfxChalk();
+    for (const c of attemptRef.current.state.contacts) {
+      if (isHand(c.limb)) fxRef.current.chalk(c.pos, 0.8);
+    }
     force((n) => n + 1);
+  };
+  const startClimbRef = useRef(startClimb);
+  startClimbRef.current = startClimb;
+
+  const toggleMute = () => {
+    unlockAudio();
+    setMuted(!muted);
+    setMutedState(!muted);
   };
 
   const restart = () => {
     setAttempt(retry(attempt, route));
     setSelected(null);
+    setStreak(0);
     setLastReason(null);
     camRef.current = { ...DEFAULT_CAMERA };
     followRef.current = true;
@@ -632,16 +802,19 @@ export function ClimbScreen({
 
   return (
     <div className="climb" style={{ ['--accent' as string]: accent }}>
-      <canvas ref={glRef} className="climb__gl" />
-      <canvas
-        ref={uiRef}
-        className="climb__ui"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onWheel={onWheel}
-      />
+      <div className="climb__stage" ref={stageRef}>
+        <canvas ref={glRef} className="climb__gl" />
+        <canvas
+          ref={uiRef}
+          className="climb__ui"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onWheel={onWheel}
+        />
+      </div>
+      <div className="climb__vignette" ref={vignetteRef} />
 
       <header className="climb__top">
         <button className="climb__back" onClick={onExit} aria-label="Back to routes">←</button>
@@ -652,8 +825,17 @@ export function ClimbScreen({
           </div>
           <div className="climb__setter">{setter.name} — “{setter.line}”</div>
         </div>
-        <div className={`climb__mode climb__mode--${attempt.mode}`}>
-          {attempt.mode === 'onsight' ? 'ONSIGHT' : 'PROJECT'}
+        <div className="climb__corner">
+          <div className={`climb__mode climb__mode--${attempt.mode}`}>
+            {attempt.mode === 'onsight' ? 'ONSIGHT' : 'PROJECT'}
+          </div>
+          <button
+            className="climb__mute"
+            onClick={toggleMute}
+            aria-label={muted ? 'Sound on' : 'Sound off'}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
         </div>
       </header>
 
@@ -689,6 +871,24 @@ export function ClimbScreen({
           </button>
         )}
       </div>
+
+      {streak >= 3 && attempt.phase === 'climbing' && (
+        <div className="flow" key={`flow-${streak}`}>
+          <span className="flow__word">FLOW</span>
+          <span className="flow__n">×{streak}</span>
+        </div>
+      )}
+
+      {sentBanner && (
+        <div className="sent">
+          {attempt.mode === 'onsight' && <div className="sent__kicker">onsight</div>}
+          <div className="sent__word">SENT</div>
+          <div className="sent__sub">
+            {attempt.moves.length} moves · par {route.par}
+            {attempt.moves.length <= route.par ? ' · under par' : ''}
+          </div>
+        </div>
+      )}
 
       {flash && (
         <div className={`flash flash--${flash.grade.toLowerCase()}`} key={attempt.moves.length}>

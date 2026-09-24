@@ -1,6 +1,6 @@
 import type { Grade, MoveGrade, Route } from './types';
 import { gradeIndex } from './types';
-import type { Attempt } from './attempt';
+import type { Attempt, BetaMove } from './attempt';
 
 /**
  * Scoring.
@@ -120,4 +120,31 @@ export function verdict(card: ScoreCard): string {
   if (card.whiffed > card.moves * 0.3) return 'Half of that was improvisation.';
   if (card.moves > card.par * 1.6) return 'Took the scenic line.';
   return 'It counts. They all count.';
+}
+
+/** A placement clean enough to keep a flow going: it caught, and caught well. */
+function isClean(m: Pick<BetaMove, 'grade' | 'holdId'>): boolean {
+  return m.holdId !== null && (m.grade === 'PERFECT' || m.grade === 'GOOD');
+}
+
+/**
+ * Clean placements in a row, counting back from the latest. Purely for show —
+ * it drives the sound and the FLOW counter and scores nothing, because the
+ * score already rewards clean placements once and should not do it twice.
+ */
+export function flowStreak(moves: Pick<BetaMove, 'grade' | 'holdId'>[]): number {
+  let n = 0;
+  for (let i = moves.length - 1; i >= 0 && isClean(moves[i]); i--) n++;
+  return n;
+}
+
+/** The longest flow anywhere in an attempt. */
+export function longestFlow(moves: Pick<BetaMove, 'grade' | 'holdId'>[]): number {
+  let best = 0;
+  let run = 0;
+  for (const m of moves) {
+    run = isClean(m) ? run + 1 : 0;
+    best = Math.max(best, run);
+  }
+  return best;
 }

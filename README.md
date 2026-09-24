@@ -17,7 +17,7 @@ a climber who is technically cooperating.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 102 tests, all logic, no DOM
+npm test           # 181 tests, all logic, no DOM
 npm run typecheck
 npm run build      # -> dist/, static, deploys anywhere as-is
 npm run gen:beta   # regenerates community betas after changing routes or the sim
@@ -105,6 +105,19 @@ are not placements. They will absolutely put you on the mat.
 aimed it before the flailing starts, so a spectacular failure still shows you
 the mistake that produced it.
 
+**It should feel like something.** Every sound is synthesised on the spot —
+there are still no assets and nothing is fetched. A throw whooshes, a catch
+slaps, and a clean catch chimes on a pentatonic scale that climbs one note for
+every clean placement in a row, so a good run is audible before you look at the
+FLOW counter. A PERFECT holds its contact frame for 70ms, throws chalk and a
+ring off the hold, and knocks the camera; a fall whistles on the way down and
+thuds into the pad with dust and a shake scaled to the height. When the tank is
+nearly empty a heartbeat starts and the edges of the screen close in. A send
+gets confetti, a fanfare and two seconds to enjoy it before the scorecard, which
+counts up. On phones that support it, all of this buzzes too. There is a mute
+button, and none of it touches the sim — flow scores nothing, because the score
+already rewards clean placements once.
+
 ## Architecture
 
 ```
@@ -168,6 +181,8 @@ src/game/sim.test.ts       the body solver and move resolution, including
 src/game/shift.test.ts     weight shifts: determinism, that they cannot exceed
                            what the limbs allow, that they buy reach, and that
                            they cost stability when the weight leaves the feet
+src/game/feel.test.ts      flow streaks, and that the fall's impact beat lands
+                           on the frame the hip reaches the pad
 src/content/routes.test.ts every route: valid data, inside the wall, a start
                            that stands up, a finish near the top, actually
                            climbable, and a par a clean climb could hit

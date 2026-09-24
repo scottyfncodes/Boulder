@@ -147,6 +147,22 @@ export class MoveAnimation {
     return this.total;
   }
 
+  /**
+   * When the things worth reacting to happen, in ms from the start: the limb
+   * arriving, the body giving up, and the body meeting the pad. The sound and
+   * the shake key off these so they land on the frame the picture does.
+   */
+  get beats(): { contact: number; fallStart: number | null; impact: number | null; drop: number } {
+    const fallStart = this.result.fell
+      ? THROW_MS + SETTLE_MS + (this.flails ? FLAIL_MS : 0)
+      : null;
+    if (fallStart === null) return { contact: THROW_MS, fallStart, impact: null, drop: 0 };
+    // Inverts the drop curve in sample(): where the hip reaches the floor.
+    const drop = Math.max(this.result.next.pose.hip.y - 0.42, 0);
+    const t = Math.min(Math.sqrt(drop / 2.45) / 0.62, 1);
+    return { contact: THROW_MS, fallStart, impact: fallStart + t * FALL_MS, drop };
+  }
+
   sample(elapsed: number): Frame {
     const r = this.result;
     const toPose = r.next.pose;
