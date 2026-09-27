@@ -4,20 +4,24 @@ A browser game about precision bouldering.
 
 Read the route. Plan your beta. Throw your limbs at the wall. Somehow send it.
 
-You control four limbs, one at a time. Select one, drag away from where you
-want it to go, and let go. The limb travels exactly where you aimed it, and
-then your body has to deal with the consequences. You can also grab your own
-hips and move your weight around, which is usually the difference between a
-hold being out of reach and being on it. Fourteen handcrafted routes
-from V0 to V7, five route setters with strong opinions and poor judgement, and
-a climber who is technically cooperating.
+You control four limbs, one at a time. Press one, pull it back like a
+slingshot, and let go. It flies, and then the rest of the body has to deal with
+whatever that was. Fourteen handcrafted routes from V0 to V7, five route
+setters with strong opinions and poor judgement, and a climber who is
+technically cooperating.
+
+**This branch is a mechanics pivot, in prototype.** The pump meter is gone and
+the limbs are now launched into a live physics body rather than placed. The
+old turn-based loop is still here behind a switch on the route board (with its
+endurance bar switched off), so the two can be compared by feel. See
+[Slingshot limbs](#slingshot-limbs) below.
 
 ## Run it
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 181 tests, all logic, no DOM
+npm test           # 221 tests, all logic, no DOM
 npm run typecheck
 npm run build      # -> dist/, static, deploys anywhere as-is
 npm run gen:beta   # regenerates community betas after changing routes or the sim
@@ -37,6 +41,56 @@ and keyboard on desktop (`Q`/`W` for hands, `A`/`S` for feet, `E` for the body,
 `space` to pull on). Nothing is fetched at runtime and there is no backend; progress lives in
 local storage.
 
+## Slingshot limbs
+
+The question this prototype exists to answer is: *is flinging individual
+limbs actually fun?* The old game asked whether you could climb before your
+pump ran out. This one asks whether you can work out where to fling the next
+limb without screwing up the entire body.
+
+**One gesture.** Press a hand or a foot, pull it back, let go. The pull is the
+input: the limb fires the opposite way, as hard as you pulled. That is all the
+controls there are. Tap a limb first and pull from anywhere if your thumb is in
+the way; `Q`/`W`/`A`/`S` pick limbs on a keyboard.
+
+**No clock.** Nothing drains. Stop, look, aim, change your mind, aim again.
+The difficulty is the physics, the holds, and the shape your body is in.
+
+**The body is a live thing.** Hip and shoulder are particles on a rigid torso.
+Each arm is a rope from the shoulder to the hand; each leg is a strut from the
+hip to the foot that pushes when the foot is below you and rocks you up when
+it is level with you. A launched limb flies under gravity until its tether
+goes taut, at which point the body gets yanked after it — that is the reach,
+and a big throw with a bad stance takes the rest of you somewhere. Let go with
+everything and you swing. Swing hard enough and holds let go.
+
+**Holds catch what passes through them.** A limb in flight grabs a hold where
+it passes closest to its centre, and is graded on which part of the shape it
+found, exactly as before. A hand will not grab a foot chip. The hold you just
+let go of will not grab you back. A limb that catches nothing dangles, and a
+dangling limb does not grab anything — you fling it again.
+
+**Holds care how you load them.** Every attached limb reads the load through
+it, in body weights, and compares it against what that shape can take from
+that direction: a jug takes a swing, a crimp does not, and an undercling with
+your hips below it lets go at once. The face still says how it is going.
+
+**The preview is honest.** While you pull, the arc on screen is the launch run
+forward on a copy of the body — tether, yank and all — so what it shows is
+what will happen. If something else is going to let go because of the throw,
+it says so.
+
+**The lab.** The route board has a *Sling Lab* at the top in slingshot mode: a
+wall with one of everything on it, set so short throws, long throws,
+diagonals, misses, swings, rotation and recovery can all be tried in a minute.
+It is not graded, scored or counted.
+
+**Still rough, on purpose.** The sim is planar, so the body never peels away
+from the wall in depth; a barn door is a swing, not a rotation out of the
+plane. Real routes were set for the old placement rules and some will be
+harder or easier than their grade says. Steepness only scales leg and hand
+authority. Feel first; everything else after.
+
 ## How the game works
 
 **Aim is honest.** The trajectory you see is the trajectory the sim uses, the
@@ -55,13 +109,11 @@ it never tells you which one to use.
 landed against a window that shrinks with overreach, bad angles, and a poor
 stance. Failure always says why.
 
-**Endurance is the clock.** One bar, running from the moment you pull on,
-draining faster on a steep route with small holds and faster still when you are
-hanging around with a limb in the air. A bad stance costs more than a good one.
-Rest holds give some back. Run it out and you come off — not because you did
-anything wrong, but because you took too long, which is the honest reason most
-people fall off most problems. It plays as a proper fall, with the tumble and
-the noise, because it is one. It grows as you climb harder things.
+**Endurance was the clock, and is switched off.** The old loop's endurance
+bar is disabled by `PUMP_ENABLED` in `src/game/flags.ts`. The module and its
+tests are kept so the two loops can be compared; nothing in the live game
+drains, and no rest hold gives anything back, because there is nothing to
+give back.
 
 **The climber is Bernie.** Teal jacket, striped shirt, cream slacks, moustache,
 and sunglasses he is not taking off. Technically present, which is the same joke the original brief wanted from the Weekend at
@@ -122,13 +174,28 @@ already rewards clean placements once.
 
 ```
 src/game/      the sim — pure, deterministic, no DOM, no React
+src/game/sling.ts   the slingshot body: particles, tethers, launches, catches, slips
+src/game/flags.ts   which loop is live, and whether the pump is
 src/content/   routes, setters, wall, generated community betas — plain data
 src/render/    three.js scene, the climber rig, the aiming overlay
 src/state/     profile, progression, local persistence
 src/ui/        React screens
 ```
 
-### The body is two particles
+### The slingshot body is the same two particles, moving
+
+`src/game/sling.ts` runs the same hip and shoulder on a fixed 120 Hz step with
+position-based constraints: the torso is rigid, arms are ropes, legs are
+struts, attached limbs are pinned to their holds. Forces on top: gravity, a
+core torque that keeps the torso upright while a hand is on, a righting pull
+toward whatever is holding you up, leg push with damping so a fresh foot
+stands you up rather than bouncing you off, and a small lock-off pull on the
+arms. The load through each hold is read off the net constraint impulse, in
+body weights, and a hold that is asked for more than its shape and angle can
+give lets go. It is deterministic and the aim preview is a copy of it run
+forward.
+
+### The classic body is two particles
 
 Hip and shoulder, joined by a rigid torso, relaxed against whichever limbs are
 on holds over a fixed iteration count. Legs are struts rather than tethers, so
@@ -176,7 +243,10 @@ sim bugs during the build, which is most of why it exists.
 ## Tests
 
 ```
-src/game/sim.test.ts       the body solver and move resolution, including
+src/game/sling.test.ts     the slingshot: picking limbs, the pull, launches,
+                           catching, missing, slipping, swinging, rotating,
+                           falling, the honest preview, and that nothing drains
+src/game/sim.test.ts       the classic body solver and move resolution, including
                            determinism, reach, hold directionality and barn door
 src/game/shift.test.ts     weight shifts: determinism, that they cannot exceed
                            what the limbs allow, that they buy reach, and that
