@@ -144,17 +144,9 @@ delighted and astonished he is that any of it is happening to him. Effort runs
 from a small smile through impressed, surprised and astonished to a full
 open-mouthed whoop, and the brows only ever go up.
 
-**Body position is a move you make, not a thing that happens to you.** Drag
-your hips and the climber pulls toward that position as far as their limbs
-allow — the tethers on screen redden as each limb runs out of slack, so you can
-see which one is stopping you. Shifting up buys about 40cm of vertical reach
-and costs you lateral; shifting out over a foot makes it solid and shifting off
-one starts a barn door. Shifts cost no moves and are not scored, because they
-are not placements. They will absolutely put you on the mat.
-
-**Falling is informative.** A whiffed limb visibly travels to where you actually
-aimed it before the flailing starts, so a spectacular failure still shows you
-the mistake that produced it.
+**Falling is informative.** A whiffed limb visibly flies where you actually
+aimed it and the body does whatever that made it do, so a spectacular failure
+still shows you the mistake that produced it.
 
 **It should feel like something.** Every sound is synthesised on the spot —
 there are still no assets and nothing is fetched. A throw whooshes, a catch
