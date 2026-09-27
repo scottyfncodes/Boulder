@@ -1,6 +1,6 @@
 {
-  "name": "Bruh — precision bouldering",
-  "short_name": "Bruh",
+  "name": "Boulder",
+  "short_name": "Boulder",
   "description": "Read the route. Plan your beta. Throw your limbs at the wall. Somehow send it.",
   "start_url": "./",
   "scope": "./",

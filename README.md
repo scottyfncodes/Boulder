@@ -1,27 +1,22 @@
-# Bruh
+# Boulder
 
-A browser game about precision bouldering.
+A browser game about flinging your limbs at a climbing wall.
 
-Read the route. Plan your beta. Throw your limbs at the wall. Somehow send it.
+Fling. Stick. Send.
 
 You control four limbs, one at a time. Press one, pull it back like a
 slingshot, and let go. It flies, and then the rest of the body has to deal with
-whatever that was. Fourteen handcrafted routes from V0 to V7, five route
-setters with strong opinions and poor judgement, and a climber who is
-technically cooperating.
-
-**This branch is a mechanics pivot, in prototype.** The pump meter is gone and
-the limbs are now launched into a live physics body rather than placed. The
-old turn-based loop is still here behind a switch on the route board (with its
-endurance bar switched off), so the two can be compared by feel. See
-[Slingshot limbs](#slingshot-limbs) below.
+whatever that was. Grab the hips and pull, and the whole body goes: a dyno,
+everything off the wall, one or two hands to catch it. Fourteen handcrafted
+routes from V0 to V7, five route setters with strong opinions and poor
+judgement, and a climber who is technically cooperating.
 
 ## Run it
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 221 tests, all logic, no DOM
+npm test           # 188 tests, all logic, no DOM
 npm run typecheck
 npm run build      # -> dist/, static, deploys anywhere as-is
 npm run gen:beta   # regenerates community betas after changing routes or the sim
@@ -43,15 +38,22 @@ local storage.
 
 ## Slingshot limbs
 
-The question this prototype exists to answer is: *is flinging individual
-limbs actually fun?* The old game asked whether you could climb before your
-pump ran out. This one asks whether you can work out where to fling the next
-limb without screwing up the entire body.
+The game asks one question: can you work out where to fling the next limb
+without screwing up the entire body?
 
 **One gesture.** Press a hand or a foot, pull it back, let go. The pull is the
-input: the limb fires the opposite way, as hard as you pulled. That is all the
-controls there are. Tap a limb first and pull from anywhere if your thumb is in
-the way; `Q`/`W`/`A`/`S` pick limbs on a keyboard.
+input: the limb fires the opposite way, as hard as you pulled. Tap a limb first
+and pull from anywhere if your thumb is in the way; `Q`/`W`/`A`/`S` pick limbs
+on a keyboard, `E` picks the hips.
+
+**The dyno.** Press the hips, pull, let go. Everything leaves the wall at once
+and the whole body is the thing that flies; the hands lead and either one of
+them catches something on the way past or the mat catches the climber. The
+preview shows the body's arc and says whether it will be one hand or both.
+
+**Putting a limb back.** A limb that is dangling can be tapped, and then a
+hold in reach can be tapped, and it goes straight on — a sound placement, never
+a perfect one. A limb that is holding on has to be flung.
 
 **No clock.** Nothing drains. Stop, look, aim, change your mind, aim again.
 The difficulty is the physics, the holds, and the shape your body is in.
@@ -80,16 +82,15 @@ forward on a copy of the body — tether, yank and all — so what it shows is
 what will happen. If something else is going to let go because of the throw,
 it says so.
 
-**The lab.** The route board has a *Sling Lab* at the top in slingshot mode: a
-wall with one of everything on it, set so short throws, long throws,
-diagonals, misses, swings, rotation and recovery can all be tried in a minute.
-It is not graded, scored or counted.
+**The practice wall.** The route board has a *Sling Lab* at the top: a wall
+with one of everything on it, set so short throws, long throws, diagonals,
+misses, swings, rotation, dynos and recovery can all be tried in a minute. It
+is not graded, scored or counted.
 
-**Still rough, on purpose.** The sim is planar, so the body never peels away
-from the wall in depth; a barn door is a swing, not a rotation out of the
-plane. Real routes were set for the old placement rules and some will be
-harder or easier than their grade says. Steepness only scales leg and hand
-authority. Feel first; everything else after.
+**Known limits.** The sim is planar, so the body never peels away from the
+wall in depth; a barn door is a swing, not a rotation out of the plane. Routes
+were set before the physics existed and some will be harder or easier than
+their grade says. Steepness only scales leg and hand authority.
 
 ## How the game works
 
@@ -109,11 +110,9 @@ it never tells you which one to use.
 landed against a window that shrinks with overreach, bad angles, and a poor
 stance. Failure always says why.
 
-**Endurance was the clock, and is switched off.** The old loop's endurance
-bar is disabled by `PUMP_ENABLED` in `src/game/flags.ts`. The module and its
-tests are kept so the two loops can be compared; nothing in the live game
-drains, and no rest hold gives anything back, because there is nothing to
-give back.
+**Nothing is the clock.** There is no endurance bar, no pump and no timer.
+Stop, look, aim, change your mind. The difficulty is the physics, the holds
+and the shape your body is in.
 
 **The climber is Bernie.** Teal jacket, striped shirt, cream slacks, moustache,
 and sunglasses he is not taking off. Technically present, which is the same joke the original brief wanted from the Weekend at
@@ -145,17 +144,9 @@ delighted and astonished he is that any of it is happening to him. Effort runs
 from a small smile through impressed, surprised and astonished to a full
 open-mouthed whoop, and the brows only ever go up.
 
-**Body position is a move you make, not a thing that happens to you.** Drag
-your hips and the climber pulls toward that position as far as their limbs
-allow — the tethers on screen redden as each limb runs out of slack, so you can
-see which one is stopping you. Shifting up buys about 40cm of vertical reach
-and costs you lateral; shifting out over a foot makes it solid and shifting off
-one starts a barn door. Shifts cost no moves and are not scored, because they
-are not placements. They will absolutely put you on the mat.
-
-**Falling is informative.** A whiffed limb visibly travels to where you actually
-aimed it before the flailing starts, so a spectacular failure still shows you
-the mistake that produced it.
+**Falling is informative.** A whiffed limb visibly flies where you actually
+aimed it and the body does whatever that made it do, so a spectacular failure
+still shows you the mistake that produced it.
 
 **It should feel like something.** Every sound is synthesised on the spot —
 there are still no assets and nothing is fetched. A throw whooshes, a catch
@@ -174,8 +165,7 @@ already rewards clean placements once.
 
 ```
 src/game/      the sim — pure, deterministic, no DOM, no React
-src/game/sling.ts   the slingshot body: particles, tethers, launches, catches, slips
-src/game/flags.ts   which loop is live, and whether the pump is
+src/game/sling.ts   the body: particles, tethers, launches, dynos, catches, slips
 src/content/   routes, setters, wall, generated community betas — plain data
 src/render/    three.js scene, the climber rig, the aiming overlay
 src/state/     profile, progression, local persistence
@@ -195,7 +185,7 @@ body weights, and a hold that is asked for more than its shape and angle can
 give lets go. It is deterministic and the aim preview is a copy of it run
 forward.
 
-### The classic body is two particles
+### The route validator's body is two particles
 
 Hip and shoulder, joined by a rigid torso, relaxed against whichever limbs are
 on holds over a fixed iteration count. Legs are struts rather than tethers, so
@@ -243,16 +233,12 @@ sim bugs during the build, which is most of why it exists.
 ## Tests
 
 ```
-src/game/sling.test.ts     the slingshot: picking limbs, the pull, launches,
-                           catching, missing, slipping, swinging, rotating,
-                           falling, the honest preview, and that nothing drains
-src/game/sim.test.ts       the classic body solver and move resolution, including
-                           determinism, reach, hold directionality and barn door
-src/game/shift.test.ts     weight shifts: determinism, that they cannot exceed
-                           what the limbs allow, that they buy reach, and that
-                           they cost stability when the weight leaves the feet
-src/game/feel.test.ts      flow streaks, and that the fall's impact beat lands
-                           on the frame the hip reaches the pad
+src/game/sling.test.ts     the body: picking limbs, the pull, launches, dynos,
+                           putting limbs back, catching, missing, slipping,
+                           swinging, rotating, falling, the honest preview, and
+                           that nothing drains
+src/game/sim.test.ts       the validator's static solver and move resolution
+src/game/feel.test.ts      flow streaks, the shout, and the introductory labels
 src/content/routes.test.ts every route: valid data, inside the wall, a start
                            that stands up, a finish near the top, actually
                            climbable, and a par a clean climb could hit

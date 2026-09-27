@@ -29,8 +29,6 @@ export type ScoreCard = {
   scrape: number;
   whiffed: number;
   timeMs: number;
-  /** Body positioning used. Reported, not scored — placements are the score. */
-  shifts: number;
   /** 0..1. The headline number. */
   efficiency: number;
   /** Points, for leaderboards. */
@@ -102,7 +100,6 @@ export function scoreAttempt(attempt: Attempt, route: Route, now = Date.now()): 
     falls: attempt.falls,
     perfect, good, scrape, whiffed,
     timeMs: attempt.elapsedMs,
-    shifts: attempt.shifts.length,
     efficiency,
     points,
     onsight,
