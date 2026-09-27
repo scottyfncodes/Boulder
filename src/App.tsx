@@ -11,6 +11,9 @@ import {
 import { attemptsRemaining, refreshDaily } from './game/daily';
 import { useProfile } from './state/useProfile';
 import { ClimbScreen } from './ui/ClimbScreen';
+import { SlingScreen } from './ui/SlingScreen';
+import { type ClimbMode, loadClimbMode, saveClimbMode } from './game/flags';
+import { isLabRoute } from './content/lab';
 import { ResultScreen } from './ui/ResultScreen';
 import { RouteList } from './ui/RouteList';
 import { Breakthrough } from './ui/Breakthrough';
@@ -34,6 +37,13 @@ type Screen =
 export default function App() {
   const { profile, update } = useProfile();
   const [screen, setScreen] = useState<Screen>({ kind: 'title' });
+  // Which climbing loop is live. The slingshot is the pivot; the classic loop
+  // is kept so the two can be compared by feel.
+  const [climbMode, setClimbModeState] = useState<ClimbMode>(loadClimbMode);
+  const setClimbMode = useCallback((m: ClimbMode) => {
+    saveClimbMode(m);
+    setClimbModeState(m);
+  }, []);
 
   const daily = useMemo(() => refreshDaily(profile.daily), [profile.daily]);
 
@@ -45,6 +55,14 @@ export default function App() {
   const handleOutcome = useCallback((attempt: Attempt, outcome: 'sent' | 'fallen') => {
     const route = routeById(attempt.routeId);
     if (!route) return;
+
+    // The lab is a sandbox: nothing it does touches the profile.
+    if (isLabRoute(route.id)) {
+      if (outcome === 'sent') {
+        setScreen({ kind: 'result', route, attempt, card: scoreAttempt(attempt, route), best: null });
+      }
+      return;
+    }
 
     if (outcome === 'fallen') {
       // A fall is not a screen change — the climb screen offers another go.
@@ -109,6 +127,8 @@ export default function App() {
         <RouteList
           profile={profile}
           daily={daily}
+          climbMode={climbMode}
+          onClimbMode={setClimbMode}
           onClimb={startClimb}
           onToggleProject={(id) => update((p) => toggleProject(p, id))}
           onStandings={() => setScreen({ kind: 'standings' })}
@@ -121,6 +141,18 @@ export default function App() {
 
     case 'climb': {
       const left = attemptsRemaining(daily);
+      if (climbMode === 'slingshot') {
+        return (
+          <SlingScreen
+            key={`sling:${screen.route.id}:${screen.mode}`}
+            route={screen.route}
+            mode={screen.mode}
+            onExit={() => setScreen({ kind: 'board' })}
+            onOutcome={handleOutcome}
+            attemptsNote={screen.daily ? `daily · ${left} left` : undefined}
+          />
+        );
+      }
       return (
         <ClimbScreen
           key={`${screen.route.id}:${screen.mode}`}

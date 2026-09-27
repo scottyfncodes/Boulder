@@ -6,9 +6,10 @@ import { type Aim, previewShift, projectLanding } from '../game/move';
 import { canUse, contactRadius } from '../game/holds';
 import {
   type Attempt, type AttemptMode, type StepOutcome,
-  beginAttempt, dynoStep, overhangOf, pullOn, retry, shiftStep, step, tickEndurance,
+  beginAttempt, dynoStep, overhangOf, pullOn, retry, shiftStep, step, tickClimb,
 } from '../game/attempt';
 import { pumpWord } from '../game/endurance';
+import { PUMP_ENABLED } from '../game/flags';
 import { DYNO_RANGE } from '../game/move';
 import { dynoLanding, fallOffResult, limbOrigin } from '../game/move';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
@@ -274,7 +275,7 @@ export function ClimbScreen({
         // Reaching costs extra: a limb in the air drains the bar faster than
         // hanging does.
         const reaching = selectedRef.current !== null && selectedRef.current !== 'BODY';
-        const ticked = tickEndurance(att, dt, reaching, route);
+        const ticked = tickClimb(att, dt, reaching, route);
         attemptRef.current = ticked.attempt;
         if (ticked.pumped) {
           // Pumping out is a fall, so play one. Ending the attempt without an
@@ -839,7 +840,7 @@ export function ClimbScreen({
         </div>
       </header>
 
-      {attempt.phase === 'climbing' && (
+      {PUMP_ENABLED && attempt.phase === 'climbing' && (
         <div className="stamina">
           <div className="stamina__row">
             <span className="stamina__label">Endurance</span>

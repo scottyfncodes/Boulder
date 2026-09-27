@@ -7,6 +7,7 @@ import {
 import {
   type Endurance, capacityFor, drainEndurance, freshEndurance, isRest, routeDrain,
 } from './endurance';
+import { PUMP_ENABLED } from './flags';
 
 /**
  * One go on a route, from pulling on to either topping out or hitting the mat.
@@ -123,6 +124,19 @@ export function tickEndurance(
     },
     pumped,
   };
+}
+
+/**
+ * The per-frame tick the climb screen actually runs. With the pump switched
+ * off it does nothing at all: standing on the wall looking at it costs
+ * nothing, which is the whole point of the slingshot pivot. `tickEndurance`
+ * is kept underneath it so the old loop can be compared against.
+ */
+export function tickClimb(
+  attempt: Attempt, dtMs: number, reaching: boolean, route: Route,
+): TickResult {
+  if (!PUMP_ENABLED) return { attempt, pumped: false };
+  return tickEndurance(attempt, dtMs, reaching, route);
 }
 
 export type ShiftOutcome = {

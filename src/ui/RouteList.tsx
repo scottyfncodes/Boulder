@@ -6,7 +6,10 @@ import { setterOf } from '../content/setters';
 import { type Profile, isUnlocked, projectStatus, recordFor, onsightAvailable } from '../state/progress';
 import { attemptsRemaining, type DailyState } from '../game/daily';
 import { GRADE_COLOR } from '../render/palette';
+import type { ClimbMode } from '../game/flags';
+import { SLING_LAB } from '../content/lab';
 import './routelist.css';
+import './sling.css';
 
 /**
  * The route board.
@@ -19,13 +22,15 @@ import './routelist.css';
 export type RouteListProps = {
   profile: Profile;
   daily: DailyState;
+  climbMode: ClimbMode;
+  onClimbMode: (mode: ClimbMode) => void;
   onClimb: (route: Route, opts: { daily?: boolean }) => void;
   onToggleProject: (routeId: string) => void;
   onStandings: () => void;
 };
 
 export function RouteList({
-  profile, daily, onClimb, onToggleProject, onStandings,
+  profile, daily, climbMode, onClimbMode, onClimb, onToggleProject, onStandings,
 }: RouteListProps) {
   const [tab, setTab] = useState<'board' | 'projects'>('board');
 
@@ -61,6 +66,23 @@ export function RouteList({
           <div><b>{profile.totalFalls}</b><span>falls</span></div>
         </button>
       </header>
+
+      <div className="board__mode">
+        {climbMode === 'slingshot'
+          ? <span><b>Slingshot</b> · prototype. Fling limbs, no pump.</span>
+          : <span><b>Classic</b> · the old loop, endurance switched off.</span>}
+        <button onClick={() => onClimbMode(climbMode === 'slingshot' ? 'classic' : 'slingshot')}>
+          {climbMode === 'slingshot' ? 'Play classic' : 'Play slingshot'}
+        </button>
+      </div>
+
+      {climbMode === 'slingshot' && (
+        <button className="lab" onClick={() => onClimb(SLING_LAB, {})}>
+          <div className="lab__tag">Slingshot lab</div>
+          <div className="lab__name">{SLING_LAB.name}</div>
+          <div className="lab__meta">{SLING_LAB.tagline} Not graded, not scored, not counted.</div>
+        </button>
+      )}
 
       {dailyRoute && (
         <button
