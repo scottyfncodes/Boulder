@@ -1,19 +1,15 @@
-import type { Grade, LimbId, MoveGrade, Route, Vec2 } from './types';
+import type { Grade, LimbId, MoveGrade, Route } from './types';
 import { isHand } from './types';
 import {
-  type Aim, type ClimbState, type DynoResult, type MoveResult, type ShiftResult,
-  initialState, resolveDyno, resolveMove, shiftBody,
+  type Aim, type ClimbState, type MoveResult, initialState, resolveMove,
 } from './move';
-import {
-  type Endurance, capacityFor, drainEndurance, freshEndurance, isRest, routeDrain,
-} from './endurance';
-import { PUMP_ENABLED } from './flags';
 
 /**
  * One go on a route, from pulling on to either topping out or hitting the mat.
  *
  * An attempt owns the move log, which doubles as the beta — the sequence a
- * send is stored as, and the thing ghosts replay from.
+ * send is stored as, and the thing the send screen compares you against.
+ * There is no clock in here. Nothing drains while you look at the wall.
  */
 
 export type AttemptMode = 'onsight' | 'project';
@@ -22,147 +18,49 @@ export type AttemptPhase = 'inspect' | 'climbing' | 'fallen' | 'sent';
 
 /** One entry in a beta: which limb went where, and how well. */
 export type BetaMove = {
-  /** True when this entry was a dyno rather than a single limb placement. */
+  /** True when this entry was a dyno — the whole body — rather than one limb. */
   dyno?: boolean;
+  /** True when the limb was put back on rather than flung. */
+  placed?: boolean;
   limb: LimbId;
   /** Null when the limb caught nothing. */
   holdId: number | null;
   grade: MoveGrade;
-  /** Aim the player used, so a ghost can replay the attempt exactly. */
+  /** Aim the player used. */
   aim: Aim;
 };
-
-/**
- * A weight shift, pinned to the point in the sequence it happened at, so a
- * recorded attempt can be replayed exactly without shifts having to pretend
- * to be moves.
- */
-export type ShiftRecord = { afterMove: number; to: Vec2 | null };
 
 export type Attempt = {
   routeId: string;
   mode: AttemptMode;
   phase: AttemptPhase;
+  /** The static solver's view of the start, kept for the route tools. */
   state: ClimbState;
   moves: BetaMove[];
-  /** Body positioning, in sequence order. Not moves, and not scored as moves. */
-  shifts: ShiftRecord[];
   falls: number;
   /** Wall-clock ms spent climbing, excluding inspection. */
   elapsedMs: number;
   startedAt: number;
   /** Furthest move index reached across this session's attempts on the route. */
   highWater: number;
-  /** What is left in the tank. */
-  endurance: Endurance;
-  /** Route difficulty multiplier, cached so the tick stays cheap. */
-  drain: number;
 };
 
 export function overhangOf(route: Route): number {
   return ((route.overhang ?? 0) * Math.PI) / 180;
 }
 
-export function beginAttempt(
-  route: Route, mode: AttemptMode, now = Date.now(), capacity = capacityFor(null, 0),
-): Attempt {
+export function beginAttempt(route: Route, mode: AttemptMode, now = Date.now()): Attempt {
   return {
     routeId: route.id,
     mode,
     phase: 'inspect',
     state: initialState(route.holds, route.start, overhangOf(route)),
     moves: [],
-    shifts: [],
     falls: 0,
     elapsedMs: 0,
     startedAt: now,
     highWater: 0,
-    endurance: freshEndurance(capacity),
-    drain: routeDrain(route),
   };
-}
-
-export type TickResult = {
-  attempt: Attempt;
-  /** The pool emptied — pumped off the wall. */
-  pumped: boolean;
-};
-
-/**
- * Advances endurance. Called every frame while climbing.
- *
- * `reaching` is true from the moment a limb is committed to a move until it
- * finds a hold, which is the only time the fast pool moves.
- */
-export function tickEndurance(
-  attempt: Attempt, dtMs: number, reaching: boolean, route: Route,
-): TickResult {
-  if (attempt.phase !== 'climbing') return { attempt, pumped: false };
-
-  // Resting only counts when you are actually settled on a rest hold, not
-  // merely touching one on the way past.
-  const restIds = new Set(route.holds.filter(isRest).map((h) => h.id));
-  const resting = !reaching
-    && attempt.state.pose.stability > 0.55
-    && attempt.state.contacts.some((c) => restIds.has(c.holdId));
-
-  const { endurance, pumped } = drainEndurance({
-    endurance: attempt.endurance,
-    dtMs,
-    drain: attempt.drain,
-    stability: attempt.state.pose.stability,
-    reaching,
-    resting,
-  });
-
-  return {
-    attempt: {
-      ...attempt,
-      endurance,
-      phase: pumped ? 'fallen' : attempt.phase,
-      falls: attempt.falls + (pumped ? 1 : 0),
-    },
-    pumped,
-  };
-}
-
-/**
- * The per-frame tick the climb screen actually runs. With the pump switched
- * off it does nothing at all: standing on the wall looking at it costs
- * nothing, which is the whole point of the slingshot pivot. `tickEndurance`
- * is kept underneath it so the old loop can be compared against.
- */
-export function tickClimb(
-  attempt: Attempt, dtMs: number, reaching: boolean, route: Route,
-): TickResult {
-  if (!PUMP_ENABLED) return { attempt, pumped: false };
-  return tickEndurance(attempt, dtMs, reaching, route);
-}
-
-export type ShiftOutcome = {
-  attempt: Attempt;
-  result: ShiftResult;
-  ended: 'fallen' | null;
-};
-
-/**
- * Commands a new body position. Costs no move — this is not a placement, and
- * scoring counts placements — but it can absolutely put you on the mat, which
- * is the whole tension of moving your weight around on small holds.
- */
-export function shiftStep(
-  attempt: Attempt, route: Route, target: Vec2 | null, now = Date.now(),
-): ShiftOutcome {
-  const result = shiftBody(attempt.state, target, route.holds);
-  const next: Attempt = {
-    ...attempt,
-    phase: result.fell ? 'fallen' : attempt.phase,
-    state: result.next,
-    shifts: [...attempt.shifts, { afterMove: attempt.moves.length, to: target }],
-    falls: attempt.falls + (result.fell ? 1 : 0),
-    elapsedMs: now - attempt.startedAt,
-  };
-  return { attempt: next, result, ended: result.fell ? 'fallen' : null };
 }
 
 export function pullOn(attempt: Attempt, now = Date.now()): Attempt {
@@ -183,7 +81,7 @@ export type StepOutcome = {
   ended: 'sent' | 'fallen' | null;
 };
 
-/** Plays one move and folds the outcome back into the attempt. */
+/** Plays one static move and folds the outcome back into the attempt. Used by the route tools. */
 export function step(attempt: Attempt, route: Route, aim: Aim, now = Date.now()): StepOutcome {
   const result = resolveMove({ state: attempt.state, aim, holds: route.holds });
   const moves = [...attempt.moves, {
@@ -217,43 +115,12 @@ export function retry(attempt: Attempt, route: Route, now = Date.now()): Attempt
     phase: 'inspect',
     state: initialState(route.holds, route.start, overhangOf(route)),
     moves: [],
-    shifts: [],
     elapsedMs: 0,
     startedAt: now,
-    endurance: freshEndurance(attempt.endurance.capacity),
   };
 }
 
 /** The stored form of a beta: limb and hold only, aim dropped. */
-export type DynoOutcome = {
-  attempt: Attempt;
-  result: DynoResult;
-  ended: 'sent' | 'fallen' | null;
-};
-
-/** Commits a dyno. Everything leaves the wall; the hands sort it out. */
-export function dynoStep(attempt: Attempt, route: Route, aim: Aim, now = Date.now()): DynoOutcome {
-  const result = resolveDyno(attempt.state, aim, route.holds);
-  const moves = [...attempt.moves, {
-    limb: aim.limb, holdId: result.caught[0]?.holdId ?? null, grade: result.grade, aim, dyno: true,
-  }];
-  const sent = !result.fell && isSent(result.next, route);
-  const phase: AttemptPhase = sent ? 'sent' : result.fell ? 'fallen' : 'climbing';
-  return {
-    attempt: {
-      ...attempt,
-      phase,
-      state: result.next,
-      moves,
-      falls: attempt.falls + (result.fell ? 1 : 0),
-      elapsedMs: now - attempt.startedAt,
-      highWater: Math.max(attempt.highWater, moves.length),
-    },
-    result,
-    ended: sent ? 'sent' : result.fell ? 'fallen' : null,
-  };
-}
-
 export type Beta = { limb: LimbId; holdId: number }[];
 
 export function toBeta(moves: BetaMove[]): Beta {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Hold } from './types';
 import {
-  DYNO_RANGE, dynoLanding, initialState, limbOrigin, resolveDyno, resolveMove, zoneAt,
+  initialState, limbOrigin, resolveMove, zoneAt,
 } from './move';
-import { anchorFor, footShare, maxReachOf, pullOff } from './body';
+import { footShare, maxReachOf, pullOff } from './body';
 import { affinityFactor, canUse, worldZones } from './holds';
 import { dist, norm, sub } from './vec';
 
@@ -108,65 +108,6 @@ describe('overhang', () => {
   });
 });
 
-/** The power whose hand-landing lands on `target`, found the way the UI would. */
-function powerToReach(state: Parameters<typeof dynoLanding>[0], target: { x: number; y: number }): number {
-  let best = 0;
-  let bestD = Infinity;
-  for (let p = 0.05; p <= 1; p += 0.005) {
-    const d = dist(dynoLanding(state, { limb: 'RH', dir: { x: 0, y: 1 }, power: p }).hands, target);
-    if (d < bestD) { bestD = d; best = p; }
-  }
-  return best;
-}
-
-describe('dyno', () => {
-  it('reaches holds a single limb cannot', () => {
-    const holds = wall();
-    const s = initialState(holds, START);
-    const anchor = anchorFor('RH', s.pose.hip, s.pose.shoulder);
-    const target = holds[6].pos;
-    expect(dist(anchor, target)).toBeGreaterThan(maxReachOf('RH'));
-
-    // Aim it the way a player would: find the power that puts the hands there.
-    const power = powerToReach(s, target);
-    const r = resolveDyno(s, { limb: 'RH', dir: { x: 0, y: 1 }, power }, holds);
-    expect(r.fell).toBe(false);
-    expect(r.caught.length).toBeGreaterThan(0);
-  });
-
-  it('lands on the mat when aimed at nothing', () => {
-    const holds = wall();
-    const s = initialState(holds, START);
-    const r = resolveDyno(s, { limb: 'RH', dir: { x: 1, y: 0.3 }, power: 1 }, holds);
-    expect(r.fell).toBe(true);
-    expect(r.grade).toBe('YEET');
-  });
-
-  it('is deterministic', () => {
-    const holds = wall();
-    const s = initialState(holds, START);
-    const aim = { limb: 'RH' as const, dir: { x: 0, y: 1 }, power: powerToReach(s, holds[6].pos) };
-    const a = resolveDyno(s, aim, holds);
-    const b = resolveDyno(s, aim, holds);
-    expect(a.next.pose).toEqual(b.next.pose);
-    expect(a.caught).toEqual(b.caught);
-  });
-
-  it('never catches cleanly — a dyno placement is always worse than a static one', () => {
-    const holds = wall();
-    const s = initialState(holds, START);
-    const r = resolveDyno(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: powerToReach(s, holds[6].pos) }, holds);
-    expect(r.next.contacts.length).toBeGreaterThan(0);
-    for (const c of r.next.contacts) expect(c.seat).toBeLessThan(0.7);
-  });
-
-  it('cannot travel further than its range', () => {
-    const holds = wall();
-    const s = initialState(holds, START);
-    const r = resolveDyno(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 1 }, holds);
-    expect(r.next.pose.hip.y - s.pose.hip.y).toBeLessThanOrEqual(DYNO_RANGE + 0.3);
-  });
-});
 
 describe('what a limb may use', () => {
   const footChip: Hold = { id: 9, pos: { x: 0, y: 2 }, type: 'foothold', size: 0.085, dir: -Math.PI / 2 };

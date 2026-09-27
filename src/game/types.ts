@@ -117,10 +117,7 @@ export type Hold = {
   hard?: number;
   /** Marks the hold as part of the route's finish. */
   finish?: boolean;
-  /**
-   * A hold good enough to shake out on. Standing on it gives endurance back,
-   * which is what makes a route a shape rather than a uniform grind.
-   */
+  /** A hold good enough to shake out on. Setter's note; nothing drains now. */
   rest?: boolean;
 };
 

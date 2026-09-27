@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { MoveGrade } from './types';
 import { flowStreak, longestFlow } from './scoring';
-import { fallOffResult, initialState } from './move';
-import type { Hold } from './types';
-import { MoveAnimation, limbsFor } from '../render/animator';
+import {
+  introAlpha, shoutText, INTRO_FADE_MS, INTRO_HOLD_MS, SHOUT_MS,
+} from '../render/overlay';
 
 const m = (grade: MoveGrade, holdId: number | null = 1) => ({ grade, holdId });
 
@@ -27,33 +27,47 @@ describe('flow', () => {
   });
 });
 
-describe('animation beats', () => {
-  const holds: Hold[] = [
-    { id: 1, pos: { x: -0.3, y: 2.4 }, type: 'jug', size: 0.115, dir: -Math.PI / 2 },
-    { id: 2, pos: { x: 0.3, y: 2.4 }, type: 'jug', size: 0.115, dir: -Math.PI / 2 },
-    { id: 3, pos: { x: -0.35, y: 1.2 }, type: 'foothold', size: 0.085, dir: -Math.PI / 2 },
-    { id: 4, pos: { x: 0.35, y: 1.2 }, type: 'foothold', size: 0.085, dir: -Math.PI / 2 },
-  ];
-  const state = initialState(holds, { LH: 1, RH: 2, LF: 3, RF: 4 });
-
-  it('puts the impact after the fall starts and before the animation ends', () => {
-    const result = fallOffResult(state, 'test');
-    const anim = new MoveAnimation(state.pose, limbsFor(state.contacts, state.pose), 'RH', result);
-    const { contact, fallStart, impact } = anim.beats;
-    expect(fallStart).not.toBeNull();
-    expect(impact).not.toBeNull();
-    expect(contact).toBeLessThan(fallStart!);
-    expect(impact!).toBeGreaterThan(fallStart!);
-    expect(impact!).toBeLessThanOrEqual(anim.durationMs);
+describe('the noise he makes', () => {
+  it('stretches the vowel the whole way down', () => {
+    const start = shoutText(0);
+    const mid = shoutText(SHOUT_MS / 2);
+    const end = shoutText(SHOUT_MS);
+    expect(start).toBe('Bruh');
+    expect(start.length).toBeLessThan(mid.length);
+    expect(mid.length).toBeLessThan(end.length);
+    // A long fall earns a long vowel.
+    expect(end.match(/u/g)!.length).toBeGreaterThanOrEqual(8);
   });
 
-  it('lands the impact on the frame the hip reaches the pad', () => {
-    const result = fallOffResult(state, 'test');
-    const anim = new MoveAnimation(state.pose, limbsFor(state.contacts, state.pose), 'RH', result);
-    const { impact } = anim.beats;
-    const before = anim.sample(impact! - 40).pose.hip.y;
-    const at = anim.sample(impact! + 1).pose.hip.y;
-    expect(before).toBeGreaterThan(0.43);
-    expect(at).toBeCloseTo(0.42, 2);
+  it('is always recognisably the same word', () => {
+    for (const age of [-500, 0, 200, 1000, 5000]) {
+      const t = shoutText(age);
+      expect(t).toMatch(/^Bru+h$/);
+    }
+  });
+});
+
+describe('the introductory labels', () => {
+  it('are fully legible for long enough to read', () => {
+    expect(introAlpha(0)).toBe(1);
+    expect(introAlpha(INTRO_HOLD_MS)).toBe(1);
+    expect(INTRO_HOLD_MS).toBeGreaterThanOrEqual(1500);
+  });
+
+  it('then get out of the way completely', () => {
+    expect(introAlpha(INTRO_HOLD_MS + INTRO_FADE_MS)).toBe(0);
+    expect(introAlpha(INTRO_HOLD_MS + INTRO_FADE_MS * 10)).toBe(0);
+  });
+
+  it('fade rather than blinking out', () => {
+    const mid = introAlpha(INTRO_HOLD_MS + INTRO_FADE_MS / 2);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+    let prev = 1;
+    for (let a = 0; a <= INTRO_HOLD_MS + INTRO_FADE_MS; a += 50) {
+      const v = introAlpha(a);
+      expect(v).toBeLessThanOrEqual(prev + 1e-9);
+      prev = v;
+    }
   });
 });

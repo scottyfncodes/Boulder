@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { Hold, LimbId, Route } from './types';
+import type { Hold, LimbId } from './types';
 import { LIMBS } from './types';
 import { SLING_LAB } from '../content/lab';
 import {
   type SlingEvent, type SlingState,
-  SLING, aimFromPull, bodySpeed, canLaunch, cloneSling, gradeOfSeat, heldCount, initialSling,
-  isSlingSent, launch, launchSpeed, limbPositions, poseOf, predictLaunch, seatOn, stepSling,
+  SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
+  initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
+  predictDyno, predictLaunch, seatOn, stepSling,
 } from './sling';
-import { PUMP_ENABLED } from './flags';
-import { beginAttempt, pullOn, tickClimb } from './attempt';
+import { beginAttempt, pullOn } from './attempt';
 
 const holds = SLING_LAB.holds;
 const byId = new Map(holds.map((h) => [h.id, h]));
@@ -366,26 +366,115 @@ describe('sending', () => {
   });
 });
 
-describe('no pump', () => {
-  const route: Route = SLING_LAB;
-
-  it('the switch is off', () => {
-    expect(PUMP_ENABLED).toBe(false);
+describe('the dyno', () => {
+  it('needs something to jump off', () => {
+    const s = start();
+    expect(canDyno(s)).toBe(true);
+    for (const limb of LIMBS) launch(s, { limb, dir: { x: 0, y: -1 }, power: 0.5 });
+    expect(canDyno(s)).toBe(false);
+    expect(dyno(s, { dir: { x: 0, y: 1 }, power: 1 })).toBe(false);
   });
 
-  it('the climb tick no longer drains anything or ends the attempt', () => {
-    let attempt = pullOn(beginAttempt(route, 'onsight', 0, 4));
-    for (let i = 0; i < 3000; i++) {
-      const t = tickClimb(attempt, 100, true, route);
-      expect(t.pumped).toBe(false);
-      attempt = t.attempt;
-    }
-    expect(attempt.phase).toBe('climbing');
-    expect(attempt.endurance.base).toBe(1);
-    expect(attempt.falls).toBe(0);
+  it('takes everything off the wall and throws the whole body', () => {
+    const s = start();
+    run(s, 0.5);
+    const hip = { ...s.hip };
+    const events: SlingEvent[] = [];
+    expect(dyno(s, { dir: { x: 0, y: 1 }, power: 0.8 }, events)).toBe(true);
+    expect(heldCount(s)).toBe(0);
+    expect(s.limbs.LH.phase).toBe('flying');
+    expect(s.limbs.RH.phase).toBe('flying');
+    expect(s.limbs.LF.phase).toBe('free');
+    expect(s.dyno).toBe(true);
+    expect(events[0].kind).toBe('dyno');
+    expect(s.hipV.y).toBeGreaterThan(3);
+    for (let i = 0; i < 24; i++) stepSling(s, holds, SLING.dt);
+    expect(s.hip.y).toBeGreaterThan(hip.y + 0.2);
   });
 
-  it('the slingshot body has no clock of any kind', () => {
+  it('sticks it two-handed on a good pull, and the preview agrees', () => {
+    const s = start();
+    run(s, 0.5);
+    const aim = { dir: { x: 0, y: 1 }, power: 0.8 };
+    const guess = predictDyno(s, holds, aim);
+    expect(guess.caught.map((c) => c.holdId).sort()).toEqual([7, 8]);
+    const events: SlingEvent[] = [];
+    dyno(s, aim, events);
+    run(s, 2.5, events);
+    const catches = events.filter((e) => e.kind === 'catch');
+    expect(catches).toHaveLength(2);
+    expect(catches.every((c) => c.kind === 'catch' && c.dyno)).toBe(false);
+    expect(catches.some((c) => c.kind === 'catch' && c.dyno)).toBe(true);
+    expect(s.limbs.LH.holdId).toBe(7);
+    expect(s.limbs.RH.holdId).toBe(8);
+    expect(s.dyno).toBe(false);
+    expect(s.fallen).toBe(false);
+  });
+
+  it('can be stuck one-handed, swinging', () => {
+    const s = start();
+    run(s, 0.5);
+    const events: SlingEvent[] = [];
+    dyno(s, { dir: { x: 0.55, y: 0.83 }, power: 1 }, events);
+    run(s, 2.5, events);
+    const held = LIMBS.filter((l) => s.limbs[l].phase === 'held');
+    expect(held).toHaveLength(1);
+    expect(s.fallen).toBe(false);
+  });
+
+  it('a weak one is a fall, not a dangle', () => {
+    const s = start();
+    run(s, 0.5);
+    const events: SlingEvent[] = [];
+    dyno(s, { dir: { x: 0, y: 1 }, power: 0.4 }, events);
+    run(s, 3, events);
+    expect(kinds(events)).not.toContain('catch');
+    expect(kinds(events)).toContain('fell');
+    expect(s.fallen).toBe(true);
+  });
+});
+
+describe('putting a dangling limb back', () => {
+  it('only offers holds within reach that the limb can use', () => {
+    const s = start();
+    expect(placeableHolds(s, holds, 'RH')).toHaveLength(0); // it is holding on
+    launch(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 0.3 });
+    run(s, 1.5);
+    expect(s.limbs.RH.phase).toBe('free');
+    const ids = placeableHolds(s, holds, 'RH').map((h) => h.id);
+    expect(ids).toContain(2);
+    expect(ids).not.toContain(17); // a metre and a half up
+    expect(ids).not.toContain(4); // a foot chip
+  });
+
+  it('puts it straight on, as a sound placement rather than a perfect one', () => {
+    const s = start();
+    launch(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 0.3 });
+    run(s, 1.5);
+    const events: SlingEvent[] = [];
+    expect(placeLimb(s, 'RH', 2, holds, events)).toBe(true);
+    expect(events[0]).toMatchObject({ kind: 'place', limb: 'RH', holdId: 2 });
+    expect(s.limbs.RH.phase).toBe('held');
+    expect(s.limbs.RH.grade).toBe('GOOD');
+    run(s, 1);
+    expect(heldCount(s)).toBe(4);
+    expect(bodySpeed(s)).toBeLessThan(0.2);
+  });
+
+  it('refuses a limb that is holding on, and a hold that is out of reach', () => {
+    const s = start();
+    expect(placeLimb(s, 'LH', 7, holds)).toBe(false);
+    launch(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 0.3 });
+    run(s, 1.5);
+    expect(placeLimb(s, 'RH', 17, holds)).toBe(false);
+    expect(s.limbs.RH.phase).toBe('free');
+  });
+});
+
+describe('no clock', () => {
+  it('the attempt record has no endurance and nothing drains', () => {
+    const attempt = pullOn(beginAttempt(SLING_LAB, 'onsight', 0));
+    expect('endurance' in attempt).toBe(false);
     const s = start();
     expect('endurance' in s).toBe(false);
     // Standing on the wall for half a minute changes nothing: nobody comes

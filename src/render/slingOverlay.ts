@@ -1,9 +1,11 @@
 import type { Hold, LimbId, Vec2 } from '../game/types';
 import { LIMB_SHORT, isHand } from '../game/types';
 import { contactRadius } from '../game/holds';
-import type { LimbPhase, Prediction } from '../game/sling';
-import { AIM_HOT, AIM_TARGET, LIMB_PIP_RADIUS, type Shout, drawOverlay } from './overlay';
-import { ARM_Z, FOOT_Z, HAND_Z, HOLD_Z } from './depths';
+import type { DynoPrediction, LimbPhase, Prediction } from '../game/sling';
+import {
+  AIM_HOT, AIM_TARGET, LIMB_PIP_RADIUS, type Shout, drawShout,
+} from './overlay';
+import { ARM_Z, FOOT_Z, HAND_Z, HIP_Z, HOLD_Z } from './depths';
 import type { WallScene } from './scene';
 
 /**
@@ -15,18 +17,24 @@ import type { WallScene } from './scene';
  * the body — so the interface never promises a catch the physics will refuse.
  */
 
+/** The hips are a tap target too: pull them and the whole body goes. */
+export type Selection = LimbId | 'BODY';
+
 export type PullView = {
-  limb: LimbId;
-  /** Where the limb actually is, wall space. */
+  limb: Selection;
+  /** Where the thing being pulled actually is, wall space. */
   from: Vec2;
   /** The shoulder or hip it swings from, wall space. */
   anchor: Vec2;
-  /** Where the finger has dragged the limb to, screen pixels. */
+  /** Where the finger has dragged it to, screen pixels. */
   ghost: { x: number; y: number };
   power: number;
   prediction: Prediction | null;
+  dynoPrediction: DynoPrediction | null;
   /** Holds this limb could plausibly reach from here, for a subtle ring. */
   reachable: Hold[];
+  /** Holds a dangling limb can simply be put back on. Tap one. */
+  placeable: Hold[];
 };
 
 export type SlingOverlayInput = {
@@ -36,9 +44,12 @@ export type SlingOverlayInput = {
   height: number;
   limbs: Record<LimbId, Vec2>;
   phases: Record<LimbId, LimbPhase>;
-  selected: LimbId | null;
+  hip: Vec2;
+  selected: Selection | null;
   /** Limbs that can be picked up right now. */
   launchable: Set<LimbId>;
+  /** Whether the hips can be pulled: something to jump off. */
+  canDyno: boolean;
   pull: PullView | null;
   /** Recent positions of limbs in flight, oldest first. */
   trails: Partial<Record<LimbId, Vec2[]>>;
@@ -47,7 +58,6 @@ export type SlingOverlayInput = {
   showLimbs: boolean;
   /** Opacity of the introductory limb names. */
   intro: number;
-  hip: Vec2;
 };
 
 export function drawSlingOverlay(input: SlingOverlayInput): void {
@@ -57,37 +67,36 @@ export function drawSlingOverlay(input: SlingOverlayInput): void {
   if (input.pull) drawReachable(input);
   drawTrails(input);
   if (input.pull) drawPrediction(input);
-  if (input.pull) drawBand(input);
+  if (input.pull) drawDynoPrediction(input);
+  if (input.pull && input.pull.power > 0) drawBand(input);
   if (input.showLimbs) drawPips(input);
-  if (input.pull) drawGhost(input);
-
-  if (input.shout) {
-    // The shout drawing lives with the old overlay; borrow it with everything
-    // else switched off.
-    drawOverlay({
-      scene: input.scene, ctx, width, height,
-      limbPositions: input.limbs, hip: input.hip,
-      contactLimbs: new Set(), selected: null, locked: new Set(),
-      aim: null, shift: null, shout: input.shout, accent: input.accent,
-      showLimbs: false, intro: 0,
-    });
-  }
+  if (input.showLimbs) drawBodyPip(input);
+  if (input.pull && input.pull.power > 0) drawGhost(input);
+  if (input.shout) drawShout(ctx, input.scene, input.shout);
 }
 
-/** Faint rings on the holds this limb could get to. Information, not advice. */
+/** Faint rings on the holds this limb could get to; solid ones it can be tapped onto. */
 function drawReachable({ ctx, scene, pull }: SlingOverlayInput): void {
   if (!pull) return;
-  const caught = pull.prediction?.caught?.holdId ?? null;
-  for (const h of pull.reachable) {
+  const caught = new Set<number>();
+  if (pull.prediction?.caught) caught.add(pull.prediction.caught.holdId);
+  for (const c of pull.dynoPrediction?.caught ?? []) caught.add(c.holdId);
+  const placeable = new Set(pull.placeable.map((h) => h.id));
+  const rings = pull.placeable.length ? pull.placeable : pull.reachable;
+
+  for (const h of rings) {
     const c = scene.project(h.pos, HOLD_Z);
     if (!c.visible) continue;
     const edge = scene.project({ x: h.pos.x + contactRadius(h.size, h.type), y: h.pos.y }, HOLD_Z);
-    const r = Math.abs(edge.x - c.x) + 4;
+    const r = Math.abs(edge.x - c.x) + 5;
     ctx.save();
-    if (h.id === caught) {
+    if (caught.has(h.id)) {
       ctx.lineWidth = 3;
       ctx.strokeStyle = AIM_TARGET;
-      ctx.globalAlpha = 0.95;
+    } else if (placeable.has(h.id) && pull.power === 0) {
+      // Tap targets: solid, white, and obviously buttons.
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     } else {
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = 'rgba(255,255,255,0.28)';
@@ -123,9 +132,33 @@ function drawTrails({ ctx, scene, trails }: SlingOverlayInput): void {
   }
 }
 
+function drawEndMarker(
+  ctx: CanvasRenderingContext2D, e: { x: number; y: number }, caught: boolean,
+): void {
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  ctx.strokeStyle = caught ? AIM_TARGET : 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, 9, 0, Math.PI * 2);
+  ctx.stroke();
+  if (caught) {
+    ctx.fillStyle = AIM_TARGET;
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(-5, -5); ctx.lineTo(5, 5);
+    ctx.moveTo(5, -5); ctx.lineTo(-5, 5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** The arc, dotted, fading toward where the flight ends. */
 function drawPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
-  if (!pull || !pull.prediction) return;
+  if (!pull || !pull.prediction || pull.limb === 'BODY') return;
   const p = pull.prediction;
   const z = isHand(pull.limb) ? HAND_Z : FOOT_Z;
   const n = p.path.length;
@@ -143,31 +176,10 @@ function drawPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
   }
   ctx.restore();
 
-  // Where it ends: on the hold it grabs, or a reticle where it gives up.
   const end = p.caught ? p.caught.at : p.end;
   const e = scene.project(end, p.caught ? HOLD_Z : z);
-  ctx.save();
-  ctx.translate(e.x, e.y);
-  ctx.strokeStyle = p.caught ? AIM_TARGET : 'rgba(255,255,255,0.7)';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.arc(0, 0, 9, 0, Math.PI * 2);
-  ctx.stroke();
-  if (p.caught) {
-    ctx.fillStyle = AIM_TARGET;
-    ctx.beginPath();
-    ctx.arc(0, 0, 4, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    // A cross: this is where the limb ends up dangling.
-    ctx.beginPath();
-    ctx.moveTo(-5, -5); ctx.lineTo(5, 5);
-    ctx.moveTo(5, -5); ctx.lineTo(-5, 5);
-    ctx.stroke();
-  }
-  ctx.restore();
+  drawEndMarker(ctx, e, !!p.caught);
 
-  // Something else is going to let go if you do this. Say so, quietly.
   if (p.slips.length > 0) {
     ctx.save();
     ctx.font = '700 12px ui-sans-serif, system-ui, sans-serif';
@@ -178,44 +190,79 @@ function drawPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
   }
 }
 
+/** The whole body's arc for a dyno, and where the hands end up. */
+function drawDynoPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
+  if (!pull || !pull.dynoPrediction || pull.limb !== 'BODY') return;
+  const p = pull.dynoPrediction;
+  const n = p.path.length;
+  if (n === 0) return;
+  const step = Math.max(1, Math.round(n / 26));
+  ctx.save();
+  for (let i = 0; i < n; i += step) {
+    const s = scene.project(p.path[i], HIP_Z);
+    const t = i / n;
+    ctx.globalAlpha = 0.9 - 0.55 * t;
+    ctx.fillStyle = AIM_HOT;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 4.4 - 1.6 * t, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  if (p.caught.length) {
+    for (const c of p.caught) drawEndMarker(ctx, scene.project(c.at, HOLD_Z), true);
+    const first = scene.project(p.caught[0].at, HOLD_Z);
+    ctx.save();
+    ctx.font = '800 12px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = AIM_TARGET;
+    ctx.fillText(p.caught.length === 2 ? 'BOTH HANDS' : 'ONE HAND', first.x, first.y - 20);
+    ctx.restore();
+  } else {
+    drawEndMarker(ctx, scene.project(p.hands, HAND_Z), false);
+  }
+}
+
 /**
  * The band. Two lines from the anchor to the pulled-back limb, the way an
  * elastic runs round the thing it is about to fire, plus the stretch itself.
  */
 function drawBand({ ctx, scene, pull, accent }: SlingOverlayInput): void {
   if (!pull) return;
-  const a = scene.project(pull.anchor, ARM_Z);
-  const f = scene.project(pull.from, isHand(pull.limb) ? HAND_Z : FOOT_Z);
+  const body = pull.limb === 'BODY';
+  const a = scene.project(pull.anchor, body ? HIP_Z : ARM_Z);
+  const f = scene.project(pull.from, pull.limb === 'BODY' ? HIP_Z : isHand(pull.limb) ? HAND_Z : FOOT_Z);
   const g = pull.ghost;
   const hot = pull.power > 0.96;
 
   ctx.save();
   ctx.lineCap = 'round';
-  // Elastic: from the anchor round the ghost.
-  ctx.strokeStyle = hot ? AIM_HOT : 'rgba(255,255,255,0.55)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(a.x - 6, a.y);
-  ctx.lineTo(g.x, g.y);
-  ctx.moveTo(a.x + 6, a.y);
-  ctx.lineTo(g.x, g.y);
-  ctx.stroke();
-  // The stretch: where the limb is, to where it has been pulled.
-  ctx.strokeStyle = hot ? AIM_HOT : accent;
-  ctx.lineWidth = 4;
-  ctx.setLineDash([]);
+  if (!body) {
+    ctx.strokeStyle = hot ? AIM_HOT : 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(a.x - 6, a.y);
+    ctx.lineTo(g.x, g.y);
+    ctx.moveTo(a.x + 6, a.y);
+    ctx.lineTo(g.x, g.y);
+    ctx.stroke();
+  }
+  // The stretch: where it is, to where it has been pulled.
+  ctx.strokeStyle = hot || body ? AIM_HOT : accent;
+  ctx.lineWidth = body ? 6 : 4;
   ctx.beginPath();
   ctx.moveTo(f.x, f.y);
   ctx.lineTo(g.x, g.y);
   ctx.stroke();
-  // Launch direction: a short arrow out of the limb, opposite the pull.
+  // Launch direction: a short arrow out of the thing, opposite the pull.
   const dx = f.x - g.x;
   const dy = f.y - g.y;
   const l = Math.max(Math.hypot(dx, dy), 1);
   const ux = dx / l;
   const uy = dy / l;
-  const tipX = f.x + ux * 28;
-  const tipY = f.y + uy * 28;
+  const len = body ? 40 : 28;
+  const tipX = f.x + ux * len;
+  const tipY = f.y + uy * len;
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 2.5;
   ctx.beginPath();
@@ -229,32 +276,32 @@ function drawBand({ ctx, scene, pull, accent }: SlingOverlayInput): void {
   ctx.restore();
 }
 
-/** The limb, pulled back to the finger, scaled by how hard it is being pulled. */
+/** The limb (or the body), pulled back to the finger, growing with the pull. */
 function drawGhost({ ctx, pull, accent }: SlingOverlayInput): void {
   if (!pull) return;
   const g = pull.ghost;
-  const r = LIMB_PIP_RADIUS + 2 + pull.power * 6;
+  const body = pull.limb === 'BODY';
+  const r = (body ? 25 : LIMB_PIP_RADIUS + 2) + pull.power * 6;
   ctx.save();
   ctx.beginPath();
   ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = pull.power > 0.96 ? AIM_HOT : accent;
+  ctx.fillStyle = pull.power > 0.96 || body ? AIM_HOT : accent;
   ctx.fill();
   ctx.lineWidth = 3;
   ctx.strokeStyle = '#fff';
   ctx.stroke();
   ctx.fillStyle = '#11141a';
-  ctx.font = '700 15px ui-sans-serif, system-ui, sans-serif';
+  ctx.font = `700 ${body ? 12 : 15}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(LIMB_SHORT[pull.limb], g.x, g.y + 0.5);
+  ctx.fillText(pull.limb === 'BODY' ? 'DYNO' : LIMB_SHORT[pull.limb], g.x, g.y + 0.5);
   ctx.restore();
 }
 
 function drawPips(input: SlingOverlayInput): void {
   const { ctx, scene, limbs, phases, selected, launchable, pull } = input;
   for (const limb of ['LF', 'RF', 'LH', 'RH'] as LimbId[]) {
-    // The selected limb is drawn as the ghost while it is being pulled.
-    if (pull && pull.limb === limb) continue;
+    if (pull && pull.limb === limb && pull.power > 0) continue;
     const p = scene.project(limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
     if (!p.visible) continue;
     const phase = phases[limb];
@@ -288,3 +335,29 @@ function drawPips(input: SlingOverlayInput): void {
   }
 }
 
+/** The hips: grab them to dyno. Named while the introduction lasts, and when picked. */
+function drawBodyPip(input: SlingOverlayInput): void {
+  const { ctx, scene, selected, pull, canDyno } = input;
+  if (pull && pull.limb === 'BODY' && pull.power > 0) return;
+  const p = scene.project(input.hip, HIP_Z);
+  if (!p.visible) return;
+  const isSel = selected === 'BODY';
+
+  ctx.save();
+  ctx.globalAlpha = canDyno ? 1 : 0.3;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, isSel ? 27 : 23, 0, Math.PI * 2);
+  ctx.fillStyle = isSel ? AIM_HOT : 'rgba(18,20,26,0.62)';
+  ctx.fill();
+  ctx.lineWidth = isSel ? 3 : 2;
+  ctx.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.7)';
+  ctx.stroke();
+  const nameAlpha = isSel ? 1 : Math.max(input.intro, 0.55);
+  ctx.globalAlpha *= nameAlpha;
+  ctx.fillStyle = isSel ? '#11141a' : '#fff';
+  ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('DYNO', p.x, p.y + 0.5);
+  ctx.restore();
+}

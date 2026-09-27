@@ -2,21 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LimbId, Route, Vec2 } from '../game/types';
 import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor } from '../game/body';
+import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf } from '../game/attempt';
 import {
-  type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf,
-} from '../game/attempt';
-import {
-  type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canLaunch, heldCount,
-  initialSling, isSlingSent, launch, limbPositions, poseOf, predictLaunch, reachableHolds,
-  stepSling,
+  type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
+  heldCount, initialSling, isSlingSent, launch, limbPositions, placeLimb, placeableHolds, poseOf,
+  predictDyno, predictLaunch, reachableHolds, stepSling,
 } from '../game/sling';
 import { flowStreak } from '../game/scoring';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
 import type { Mood } from '../render/climber';
 import { LIMB_TOUCH_RADIUS, SHOUT_MS, introAlpha, shoutText } from '../render/overlay';
-import { drawSlingOverlay, type PullView } from '../render/slingOverlay';
+import { drawSlingOverlay, type PullView, type Selection } from '../render/slingOverlay';
 import { GRADE_COLOR } from '../render/palette';
-import { HAND_Z, FOOT_Z, HOLD_Z } from '../render/depths';
+import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z } from '../render/depths';
 import { Fx } from '../render/fx';
 import {
   buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxLock, sfxSend, sfxSlip, sfxThrow,
@@ -29,12 +27,14 @@ import './climb.css';
 import './sling.css';
 
 /**
- * The slingshot climbing screen.
+ * The climbing screen.
  *
- * The same three layers as the old one — 3D wall, 2D aiming canvas, React for
- * words — but underneath there is no turn. The body is a live physics thing
- * that runs every frame, and every input is the same gesture: press a limb,
- * pull it back, let go. No bar drains while you think about it.
+ * Three layers stacked: the 3D wall, a 2D canvas for aiming, and React for
+ * everything made of words. Underneath there is no turn: the body is a live
+ * physics thing that runs every frame, and every input is a gesture. Press a
+ * limb, pull it back, let go. Press the hips, pull, let go, and everything
+ * leaves the wall at once. Tap a dangling limb, then tap a hold, and it goes
+ * back on. No bar drains while you think about it.
  */
 
 /** Drag length, in pixels, that corresponds to a full pull. */
@@ -50,6 +50,8 @@ const CELEBRATE_MS = 1900;
 const MAT_MS = 900;
 /** Longest frame the sim will try to catch up on, ms. Tab switches happen. */
 const MAX_FRAME_MS = 50;
+/** A press that travels less than this is a tap. */
+const TAP_PX = 8;
 
 type Drag = {
   kind: 'aim' | 'look';
@@ -78,22 +80,22 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
   const rafRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>('inspect');
-  const [selected, setSelected] = useState<LimbId | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [flash, setFlash] = useState<{ grade: string; reason: string } | null>(null);
   const [lastReason, setLastReason] = useState<string | null>(null);
   const [inspectHold, setInspectHold] = useState<number | null>(null);
   const [launches, setLaunches] = useState(0);
   const [streak, setStreak] = useState(0);
   const [sentBanner, setSentBanner] = useState(false);
-  // True once the fall has been reported and the mat is offering another go.
   const [landed, setLanded] = useState(false);
   const [muted, setMutedState] = useState(isMuted);
+  const [, bump] = useState(0);
 
   // The sim and everything the frame loop reads live in refs: sixty renders a
   // second of React would make the drag stutter on a phone.
   const simRef = useRef<SlingState>(initialSling(route.holds, route.start, overhangOf(route)));
   const phaseRef = useRef<Phase>('inspect');
-  const selectedRef = useRef<LimbId | null>(null);
+  const selectedRef = useRef<Selection | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const camRef = useRef({ ...DEFAULT_CAMERA });
   const followRef = useRef(true);
@@ -178,9 +180,12 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
 
   // --- events out of the sim ---------------------------------------------
 
+  const startShout = useCallback((now: number) => {
+    if (!shoutRef.current) shoutRef.current = { at: { ...poseOf(simRef.current).head }, start: now };
+  }, []);
+
   const handleEvents = useCallback((events: SlingEvent[], now: number) => {
     const fx = fxRef.current;
-    const sim = simRef.current;
     for (const e of events) {
       switch (e.kind) {
         case 'launch': {
@@ -195,25 +200,64 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           setLaunches(movesRef.current.length);
           break;
         }
+        case 'dyno': {
+          sfxThrow(1);
+          buzz([10, 20, 30]);
+          fx.kick(0.25);
+          fx.chalk(e.from, 0.8, 'rgba(255,255,255,0.7)');
+          movesRef.current.push({
+            dyno: true, limb: 'RH', holdId: null, grade: 'MISS',
+            aim: { limb: 'RH', dir: { x: 0, y: 1 }, power: e.power },
+          });
+          // Either hand can complete it.
+          pendingRef.current.LH = movesRef.current.length - 1;
+          pendingRef.current.RH = movesRef.current.length - 1;
+          trailsRef.current.LH = [];
+          trailsRef.current.RH = [];
+          setLaunches(movesRef.current.length);
+          say('DYNO', 'Everything off. Go.', 900);
+          break;
+        }
+        case 'place': {
+          sfxGrab('GOOD', 0);
+          buzz(8);
+          fx.chalk(e.at, 0.7);
+          movesRef.current.push({
+            placed: true, limb: e.limb, holdId: e.holdId, grade: 'GOOD',
+            aim: { limb: e.limb, dir: { x: 0, y: 1 }, power: 0 },
+          });
+          setLaunches(movesRef.current.length);
+          setStreak(flowStreak(movesRef.current));
+          say('PLACED', `${LIMB_LABEL[e.limb]} back on.`, 1100);
+          break;
+        }
         case 'catch': {
           const idx = pendingRef.current[e.limb];
-          if (idx !== undefined) movesRef.current[idx] = { ...movesRef.current[idx], holdId: e.holdId, grade: e.grade };
+          const move = idx !== undefined ? movesRef.current[idx] : undefined;
+          if (move && move.holdId === null) {
+            movesRef.current[idx!] = { ...move, holdId: e.holdId, grade: e.grade };
+          }
           delete pendingRef.current[e.limb];
+          if (move?.dyno) {
+            // The second hand's catch belongs to the same move, so stop waiting on it.
+            for (const l of ['LH', 'RH'] as LimbId[]) if (pendingRef.current[l] === idx) delete pendingRef.current[l];
+          }
           const streakNow = flowStreak(movesRef.current);
           setStreak(streakNow);
           sfxGrab(e.grade, streakNow);
           fx.chalk(e.at, e.grade === 'PERFECT' ? 1.3 : e.grade === 'GOOD' ? 0.9 : 0.6);
-          if (e.grade === 'PERFECT') {
-            fx.perfect(e.at, '#6ef2b4');
-            fx.kick(0.2);
-            buzz(12);
+          if (e.grade === 'PERFECT' || e.dyno) {
+            fx.perfect(e.at, e.dyno ? '#ff8f3c' : '#6ef2b4');
+            fx.kick(e.dyno ? 0.35 : 0.2);
+            buzz(e.dyno ? [14, 10, 24] : 12);
             freezeRef.current = now + HIT_STOP_MS;
           } else {
             fx.kick(e.grade === 'GOOD' ? 0.1 : 0.15);
             buzz(8);
           }
           const zone = e.zone;
-          say(e.grade,
+          if (e.dyno) say('STUCK', `Caught ${zone}. Hold on.`);
+          else say(e.grade,
             e.grade === 'PERFECT' ? `Right on ${zone}.`
             : e.grade === 'GOOD' ? `Got ${zone}.`
             : `${zone.charAt(0).toUpperCase()}${zone.slice(1)}, barely.`);
@@ -241,10 +285,11 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
         }
         case 'off': {
           sfxFall(900);
-          shoutRef.current = { at: { ...poseOf(sim).head }, start: now };
+          startShout(now);
           break;
         }
         case 'fell': {
+          startShout(now - 400);
           sfxThud(e.from);
           fx.dust(e.at);
           fx.kick(0.45 + Math.min(e.from, 3) * 0.14);
@@ -263,7 +308,7 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
         }
       }
     }
-  }, [say]);
+  }, [say, startShout]);
 
   const celebrate = useCallback((now: number) => {
     const sim = simRef.current;
@@ -371,7 +416,9 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
 
         let pull: PullView | null = null;
         if (sel && climbing) {
-          const limbPx = scene.project(limbs[sel], isHand(sel) ? HAND_Z : FOOT_Z);
+          const body = sel === 'BODY';
+          const from = body ? pose.hip : limbs[sel];
+          const fromPx = scene.project(from, body ? HIP_Z : isHand(sel) ? HAND_Z : FOOT_Z);
           const max = maxDragPx(rect.width, rect.height);
           let dx = 0;
           let dy = 0;
@@ -380,24 +427,27 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
             dy = drag.y - drag.startY;
             const l = Math.hypot(dx, dy);
             if (l > max) { dx *= max / l; dy *= max / l; }
+            if (l < TAP_PX) { dx = 0; dy = 0; }
           }
-          const aim = aimFromPull(sel, { x: dx, y: -dy }, max);
-          const prediction = drag?.kind === 'aim' && aim.power >= SLING.minPower
-            ? predictLaunch(sim, route.holds, aim, 1.0)
-            : null;
-          const lockId = prediction?.caught?.holdId ?? null;
+          const aim = aimFromPull(body ? 'RH' : sel, { x: dx, y: -dy }, max);
+          const pulling = drag?.kind === 'aim' && aim.power >= SLING.minPower;
+          const prediction = pulling && !body ? predictLaunch(sim, route.holds, aim, 1.0) : null;
+          const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, aim, 1.5) : null;
+          const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
           if (lockId !== lockRef.current) {
             if (lockId !== null) { sfxLock(); buzz(4); }
             lockRef.current = lockId;
           }
           pull = {
             limb: sel,
-            from: limbs[sel],
-            anchor: anchorFor(sel, pose.hip, pose.shoulder),
-            ghost: { x: limbPx.x + dx, y: limbPx.y + dy },
-            power: aim.power,
+            from,
+            anchor: body ? pose.hip : anchorFor(sel, pose.hip, pose.shoulder),
+            ghost: { x: fromPx.x + dx, y: fromPx.y + dy },
+            power: pulling ? aim.power : 0,
             prediction,
-            reachable: reachableHolds(sim, route.holds, sel),
+            dynoPrediction,
+            reachable: body ? [] : reachableHolds(sim, route.holds, sel),
+            placeable: body ? [] : placeableHolds(sim, route.holds, sel),
           };
         } else {
           lockRef.current = null;
@@ -411,8 +461,10 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           scene, ctx,
           width: rect.width, height: rect.height,
           limbs, phases,
+          hip: pose.hip,
           selected: sel,
           launchable,
+          canDyno: canDyno(sim),
           pull,
           trails: trailsRef.current,
           shout: shoutRef.current
@@ -421,7 +473,6 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           accent,
           showLimbs: climbing,
           intro: introAlpha(now - introRef.current),
-          hip: pose.hip,
         });
         fxRef.current.draw(ctx, scene);
       }
@@ -434,18 +485,23 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
 
   // --- input -------------------------------------------------------------
 
-  const limbAtPoint = useCallback((x: number, y: number): LimbId | null => {
+  /** The limb, or the hips, under a screen point. Limbs win when they overlap. */
+  const targetAtPoint = useCallback((x: number, y: number): Selection | null => {
     const scene = sceneRef.current;
     if (!scene) return null;
-    const limbs = limbPositions(simRef.current);
-    let best: LimbId | null = null;
+    const sim = simRef.current;
+    const limbs = limbPositions(sim);
+    let best: Selection | null = null;
     let bestD = LIMB_TOUCH_RADIUS;
     for (const limb of LIMBS) {
       const p = scene.project(limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < bestD) { best = limb; bestD = d; }
     }
-    return best;
+    if (best) return best;
+    const hip = scene.project(sim.hip, HIP_Z);
+    if (Math.hypot(hip.x - x, hip.y - y) < LIMB_TOUCH_RADIUS * 0.8) return 'BODY';
+    return null;
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -464,10 +520,12 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
     }
     if (phaseRef.current !== 'climbing') return;
 
-    const hit = limbAtPoint(x, y);
-    if (hit && canLaunch(simRef.current, hit)) {
-      // Press straight onto a limb and pull in one gesture, or tap to pick it
-      // up and pull from anywhere. Thumbs differ.
+    const hit = targetAtPoint(x, y);
+    const sim = simRef.current;
+    const usable = hit === 'BODY' ? canDyno(sim) : hit !== null && canLaunch(sim, hit);
+    if (hit && usable) {
+      // Press straight onto it and pull in one gesture, or tap to pick it up
+      // and pull from anywhere. Thumbs differ.
       setSelected(hit);
       selectedRef.current = hit;
       followRef.current = true;
@@ -480,7 +538,7 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
     }
     followRef.current = false;
     dragRef.current = { kind: 'look', startX: x, startY: y, x, y, camFocus: cam.focusY, camOrbit: cam.orbit };
-  }, [limbAtPoint, route]);
+  }, [targetAtPoint, route]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;
@@ -505,27 +563,49 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
     const sel = selectedRef.current;
     if (drag.kind !== 'aim' || !sel || phaseRef.current !== 'climbing') return;
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    const sim = simRef.current;
     const dx = drag.x - drag.startX;
     const dy = drag.y - drag.startY;
     const moved = Math.hypot(dx, dy);
-    // A tap with no travel just keeps the limb picked up.
-    if (moved < 8) return;
-    const aim = aimFromPull(sel, { x: dx, y: -dy }, maxDragPx(rect.width, rect.height));
+
+    if (moved < TAP_PX) {
+      // A tap. With a dangling limb picked up, a tap on a hold in reach puts
+      // it there. Otherwise the tap just keeps the thing picked up.
+      if (sel !== 'BODY' && sim.limbs[sel].phase === 'free') {
+        const hold = holdAtScreen(sceneRef.current, drag.x, drag.y, route);
+        if (hold !== null) {
+          const events: SlingEvent[] = [];
+          if (placeLimb(sim, sel, hold, route.holds, events)) {
+            handleEvents(events, performance.now());
+            setSelected(null);
+            selectedRef.current = null;
+            bump((n) => n + 1);
+          }
+        }
+      }
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const aim = aimFromPull(sel === 'BODY' ? 'RH' : sel, { x: dx, y: -dy }, maxDragPx(rect.width, rect.height));
     const events: SlingEvent[] = [];
-    if (launch(simRef.current, aim, events)) {
+    const went = sel === 'BODY'
+      ? dyno(sim, { dir: aim.dir, power: aim.power }, events)
+      : launch(sim, aim, events);
+    if (went) {
       handleEvents(events, performance.now());
       setSelected(null);
       selectedRef.current = null;
       followRef.current = true;
     }
-  }, [handleEvents]);
+  }, [handleEvents, route]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     camRef.current.frame = clamp(camRef.current.frame + e.deltaY * 0.0035, FRAME_MIN, FRAME_MAX);
   }, []);
 
-  // Desktop: the four limbs on the keys the old game used, space to pull on.
+  // Desktop: the four limbs on the keys the game has always used, E for the
+  // body, space to pull on.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       unlockAudio();
@@ -535,9 +615,15 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
         return;
       }
       if (phaseRef.current !== 'climbing') return;
-      const map: Record<string, LimbId> = { q: 'LH', w: 'RH', a: 'LF', s: 'RF', Q: 'LH', W: 'RH', A: 'LF', S: 'RF' };
-      const limb = map[e.key];
-      if (limb && canLaunch(simRef.current, limb)) setSelected((cur) => (cur === limb ? null : limb));
+      const map: Record<string, Selection> = {
+        q: 'LH', w: 'RH', a: 'LF', s: 'RF', e: 'BODY',
+        Q: 'LH', W: 'RH', A: 'LF', S: 'RF', E: 'BODY',
+      };
+      const pick = map[e.key];
+      const sim = simRef.current;
+      if (pick && (pick === 'BODY' ? canDyno(sim) : canLaunch(sim, pick))) {
+        setSelected((cur) => (cur === pick ? null : pick));
+      }
       if (e.key === 'Escape') setSelected(null);
     };
     window.addEventListener('keydown', onKey);
@@ -575,6 +661,7 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
     modeRef.current = 'project';
     accRef.current = 0;
     reasonRef.current = null;
+    shoutRef.current = null;
     setLaunches(0);
     setStreak(0);
     setSelected(null);
@@ -593,6 +680,16 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
   };
 
   const catches = movesRef.current.filter((m) => m.holdId !== null).length;
+  const hint = (() => {
+    const sim = simRef.current;
+    if (selected === 'BODY') return 'Pull the whole body back and let go. Everything leaves the wall.';
+    if (selected && sim.limbs[selected].phase === 'free') {
+      return `Tap a ringed hold to put ${LIMB_LABEL[selected].toLowerCase()} on it, or pull to fling it.`;
+    }
+    if (selected) return `Pull ${LIMB_LABEL[selected].toLowerCase()} back and let go.`;
+    if (heldCount(sim) === 0) return 'Airborne. Fling something at the wall.';
+    return 'Press a limb, pull it back, let go. Grab the hips to dyno.';
+  })();
 
   return (
     <div className="climb sling" style={{ ['--accent' as string]: accent }}>
@@ -619,7 +716,9 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           <div className="climb__setter">{setter.name} — “{setter.line}”</div>
         </div>
         <div className="climb__corner">
-          <div className="climb__mode sling__tag">SLINGSHOT</div>
+          <div className={`climb__mode climb__mode--${modeRef.current}`}>
+            {lab ? 'PRACTICE' : modeRef.current === 'onsight' ? 'ONSIGHT' : 'PROJECT'}
+          </div>
           <button className="climb__mute" onClick={toggleMute} aria-label={muted ? 'Sound on' : 'Sound off'}>
             {muted ? '🔇' : '🔊'}
           </button>
@@ -627,7 +726,7 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
       </header>
 
       <div className="climb__stats">
-        <span><b>{launches}</b> flings</span>
+        <span><b>{launches}</b> moves</span>
         <span><b>{catches}</b> caught</span>
         {!lab && <span className="climb__par">par {route.par}</span>}
         {attemptsNote && <span className="climb__note">{attemptsNote}</span>}
@@ -642,9 +741,9 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
 
       {sentBanner && (
         <div className="sent">
-          {modeRef.current === 'onsight' && <div className="sent__kicker">onsight</div>}
+          {modeRef.current === 'onsight' && !lab && <div className="sent__kicker">onsight</div>}
           <div className="sent__word">SENT</div>
-          <div className="sent__sub">{launches} flings{lab ? '' : ` · par ${route.par}`}</div>
+          <div className="sent__sub">{launches} moves{lab ? '' : ` · par ${route.par}`}</div>
         </div>
       )}
 
@@ -658,9 +757,9 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
       {phase === 'inspect' && (
         <div className="inspect">
           <div className="inspect__hint">
-            <strong>{lab ? 'The lab.' : 'Read the route.'}</strong> Press a hand or a foot, pull it back,
-            let go. It flies where you aimed it and the rest of him has to deal with that.
-            Take all the time you like — nothing is draining.
+            <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot, pull
+            it back, let go. Grab the hips and pull to dyno the whole body. Tap a dangling limb,
+            then a hold, to put it back on. Take all the time you like.
           </div>
           {holdToInspect && (
             <HoldInspector hold={holdToInspect} onClose={() => setInspectHold(null)} />
@@ -678,13 +777,7 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
       )}
 
       {phase === 'climbing' && (
-        <div className="climb__hint">
-          {selected
-            ? `Pull ${LIMB_LABEL[selected].toLowerCase()} back and let go.`
-            : heldCount(simRef.current) === 0
-              ? 'Airborne. Fling something at the wall.'
-              : 'Press a limb, pull it back, let go.'}
-        </div>
+        <div className="climb__hint">{hint}</div>
       )}
 
       {phase === 'fallen' && landed && (
@@ -712,6 +805,7 @@ function moodOf(sim: SlingState, phase: Phase): Mood {
   if (phase === 'sent') return 'delighted';
   if (sim.fallen) return 'dazed';
   const held = heldCount(sim);
+  if (sim.dyno) return 'whooping';
   if (held === 0 && sim.left) return 'whooping';
   const speed = bodySpeed(sim);
   if (speed > 2.4) return 'astonished';

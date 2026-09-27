@@ -1,44 +1,176 @@
 .title {
   position: fixed;
   inset: 0;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  padding: 2rem 1.25rem;
-  background:
-    radial-gradient(ellipse at 50% 18%, rgba(95, 209, 160, 0.16), transparent 62%),
-    var(--bg);
+  padding: calc(1.5rem + var(--safe-t)) 1.25rem calc(1.5rem + var(--safe-b));
+  background: #0f1116;
+  color: var(--ink);
 }
-.title__inner { text-align: center; max-width: 26rem; }
+
+/* The wall, faintly: panel seams and a slow tilt so the page has depth. */
+.title__wall {
+  position: absolute;
+  inset: -20%;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 100% 132px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 132px 100%,
+    linear-gradient(160deg, #1b1f28 0%, #12141a 55%, #0c0e12 100%);
+  transform: perspective(900px) rotateX(8deg) translateY(-2%);
+  transform-origin: 50% 100%;
+}
+.title__glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 42% at 50% 34%, rgba(95, 209, 160, 0.22), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 82% 88%, rgba(0, 229, 255, 0.1), transparent 70%),
+    radial-gradient(ellipse 45% 35% at 12% 92%, rgba(255, 143, 60, 0.1), transparent 70%);
+  pointer-events: none;
+}
+
+.title__inner {
+  position: relative;
+  width: min(26rem, 100%);
+  text-align: center;
+  animation: titleIn 0.6s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes titleIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+.title__hero {
+  position: relative;
+  width: min(15rem, 44vh);
+  aspect-ratio: 1;
+  margin: 0 auto 0.4rem;
+  border-radius: 28%;
+  overflow: hidden;
+  box-shadow:
+    0 30px 60px -20px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: heroBob 5.5s ease-in-out infinite;
+}
+.title__hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 40%, rgba(0, 0, 0, 0.18));
+  pointer-events: none;
+}
+.title__bernie {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.04);
+}
+@keyframes heroBob {
+  0%, 100% { transform: translateY(0) rotate(-1.2deg); }
+  50% { transform: translateY(-8px) rotate(1.2deg); }
+}
+
+.title__kicker {
+  margin-top: 1.1rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--good);
+}
 .title__mark {
-  font-size: clamp(2.4rem, 15vw, 5.2rem);
+  margin: 0.15rem 0 0;
+  font-size: clamp(2.8rem, 16vw, 4.8rem);
   font-weight: 900;
-  letter-spacing: 0.11em;
+  letter-spacing: -0.02em;
   line-height: 0.95;
-  margin-right: -0.11em;
-  background: linear-gradient(170deg, #f2f3f6, #8fb8a8);
+  background: linear-gradient(175deg, #ffffff 10%, #cfe7dc 55%, #7fb9a2 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  text-shadow: none;
 }
 .title__tag {
-  margin: 1.1rem auto 0;
+  margin: 0.8rem auto 0;
   max-width: 21rem;
-  font-size: 0.95rem;
+  font-size: 0.93rem;
   line-height: 1.5;
   color: var(--ink-dim);
 }
-.title__go { width: min(20rem, 100%); margin-top: 2rem; }
-.title__stats {
-  margin-top: 0.9rem;
-  font-size: 0.78rem;
-  color: var(--ink-faint);
-  letter-spacing: 0.04em;
-}
-.title__foot {
-  margin-top: 2.6rem;
-  font-size: 0.76rem;
-  color: var(--ink-faint);
-  line-height: 1.5;
+
+.title__go {
+  width: min(20rem, 100%);
+  margin-top: 1.5rem;
+  font-size: 1.02rem;
+  padding: 1rem 1.2rem;
+  box-shadow: 0 14px 34px -12px rgba(95, 209, 160, 0.7);
 }
 
-.title__kit { margin-top: 0.6rem; }
+/* Returning players get their numbers; new ones get the manual. */
+.title__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 1.1rem auto 0;
+  width: min(20rem, 100%);
+}
+.title__stat {
+  padding: 0.6rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.03);
+}
+.title__stat b { display: block; font-size: 1.15rem; font-weight: 800; }
+.title__stat b i { font-style: normal; font-size: 0.72rem; color: var(--ink-faint); }
+.title__stat span {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.title__steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 1.1rem auto 0;
+  width: min(22rem, 100%);
+}
+.title__step {
+  padding: 0.7rem 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--good);
+}
+.title__step svg { width: 2rem; height: 2rem; }
+.title__step b { display: block; margin-top: 0.2rem; font-size: 0.82rem; color: var(--ink); }
+.title__step span {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.66rem;
+  line-height: 1.3;
+  color: var(--ink-faint);
+}
+
+.title__row { margin-top: 0.8rem; min-height: 0.5rem; }
+.title__link { min-height: 2.4rem; padding: 0.5rem 1rem; font-size: 0.82rem; }
+
+.title__foot {
+  margin: 1.6rem auto 0;
+  max-width: 22rem;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+
+@media (max-height: 640px) {
+  .title__hero { width: min(11rem, 34vh); }
+  .title__tag { display: none; }
+  .title__foot { margin-top: 1rem; }
+}

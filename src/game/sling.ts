@@ -46,6 +46,12 @@ export const SLING = {
   maxSpeedFoot: 5.0,
   /** Below this much pull the launch is treated as a cancelled drag. */
   minPower: 0.05,
+  /** A dyno at full pull: the whole body, metres per second. */
+  maxDynoSpeed: 4.6,
+  /** How much faster than the body the hands go on a dyno: the reach. */
+  dynoReach: 0.45,
+  /** How long the hands can still catch something on a dyno, seconds. */
+  dynoFlight: 1.4,
   /** Fraction of the launch speed the anchor gets: the body goes with it. */
   recoil: 0.12,
   /**
@@ -161,11 +167,19 @@ export type SlingState = {
   peelSign: number;
   /** How many limbs were holding on at the end of the last step. */
   heldLast: number;
+  /** True from a dyno's launch until a hand catches or both hands give up. */
+  dyno: boolean;
+  /** Whether that was true at the end of the last step. */
+  dynoLast: boolean;
 };
 
 export type SlingEvent =
   | { kind: 'launch'; limb: LimbId; from: Vec2; power: number }
-  | { kind: 'catch'; limb: LimbId; holdId: number; at: Vec2; grade: Exclude<MoveGrade, 'MISS' | 'YEET'>; seat: number; zone: string; speed: number }
+  /** Everything left the wall at once, on purpose. */
+  | { kind: 'dyno'; from: Vec2; power: number }
+  /** A dangling limb was put straight back on a hold. */
+  | { kind: 'place'; limb: LimbId; holdId: number; at: Vec2 }
+  | { kind: 'catch'; limb: LimbId; holdId: number; at: Vec2; grade: Exclude<MoveGrade, 'MISS' | 'YEET'>; seat: number; zone: string; speed: number; dyno: boolean }
   | { kind: 'miss'; limb: LimbId; at: Vec2; reason: string }
   | { kind: 'slip'; limb: LimbId; holdId: number | null; reason: string }
   /** The last thing holding on let go. The climber is airborne. */
@@ -266,7 +280,7 @@ export function initialSling(
   const state: SlingState = {
     hip: { ...seed.hip }, hipV: { x: 0, y: 0 },
     shoulder: { ...seed.shoulder }, shV: { x: 0, y: 0 },
-    limbs, overhang, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0,
+    limbs, overhang, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false,
   };
   state.heldLast = heldCount(state);
   // Let it settle. Heavy damping for the warm-up only, so the opening frame is
@@ -383,6 +397,116 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   bodyV.y += d.y * kick;
 
   events.push({ kind: 'launch', limb: aim.limb, from: { ...l.pos }, power: aim.power });
+  return true;
+}
+
+export type DynoAim = { dir: Vec2; power: number };
+
+/** Whether the climber has anything to jump off. */
+export function canDyno(state: SlingState): boolean {
+  return !state.fallen && !state.dyno && heldCount(state) > 0;
+}
+
+export function dynoSpeed(power: number): number {
+  return clamp01(power) * SLING.maxDynoSpeed;
+}
+
+/**
+ * The dyno. Everything lets go at once and the whole body is the thing that
+ * flies. The hands lead, reaching for whatever is up there, and either one
+ * of them finds a hold on the way past or the mat finds the climber. There
+ * is no partial credit: it is the most committing move on the wall and it
+ * should feel like it.
+ */
+export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = []): boolean {
+  if (!canDyno(state)) return false;
+  if (aim.power < SLING.minPower) return false;
+  const d = norm(aim.dir);
+  const speed = dynoSpeed(aim.power);
+  const from = { ...state.hip };
+
+  for (const id of LIMBS) {
+    const l = state.limbs[id];
+    l.leftHoldId = l.phase === 'held' ? l.holdId : l.leftHoldId;
+    l.holdId = null;
+    l.onFloor = false;
+    l.tension = 0;
+    l.capacity = 0;
+    l.seat = 0;
+    l.zone = null;
+    l.grade = null;
+    l.heldT = 0;
+    l.touch = null;
+    l.brushedChip = false;
+    l.prev = { ...l.pos };
+    if (isHand(id)) {
+      l.phase = 'flying';
+      l.flightT = 0;
+      l.vel = {
+        x: state.shV.x + d.x * speed * (1 + SLING.dynoReach),
+        y: state.shV.y + d.y * speed * (1 + SLING.dynoReach),
+      };
+    } else {
+      l.phase = 'free';
+      l.flightT = 0;
+      l.vel = { x: state.hipV.x + d.x * speed, y: state.hipV.y + d.y * speed };
+    }
+  }
+  state.hipV.x += d.x * speed;
+  state.hipV.y += d.y * speed;
+  state.shV.x += d.x * speed;
+  state.shV.y += d.y * speed;
+  state.dyno = true;
+  state.left = true;
+  events.push({ kind: 'dyno', from, power: aim.power });
+  return true;
+}
+
+/**
+ * Holds a dangling limb can simply be put back on: in reach of its anchor,
+ * usable by it, and not already full.
+ */
+export function placeableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
+  const l = state.limbs[limb];
+  if (l.phase !== 'free' || state.fallen) return [];
+  const anchor = anchorFor(limb, state.hip, state.shoulder);
+  const max = isHand(limb) ? ARM_MAX : LEG_MAX;
+  const blocked = blockedHolds(state, holds, limb);
+  return holds.filter((h) => {
+    if (!canUse(h.type, limb) || blocked.has(h.id)) return false;
+    const z = worldZones(h)[0];
+    return dist(anchor, z.pos) <= max;
+  });
+}
+
+/**
+ * Puts a dangling limb straight back on a hold. No flight, no throw: this is
+ * the climber reaching for something that is right there. It is only for
+ * limbs that are hanging — a limb that is holding on has to be flung.
+ */
+export function placeLimb(
+  state: SlingState, limb: LimbId, holdId: number, holds: Hold[], events: SlingEvent[] = [],
+): boolean {
+  const hold = placeableHolds(state, holds, limb).find((h) => h.id === holdId);
+  if (!hold) return false;
+  const l = state.limbs[limb];
+  const z = worldZones(hold)[0];
+  l.phase = 'held';
+  l.holdId = hold.id;
+  l.onFloor = false;
+  l.pos = { ...z.pos };
+  l.prev = { ...z.pos };
+  l.vel = { x: 0, y: 0 };
+  // Placed rather than thrown: a sound placement, never a perfect one.
+  l.seat = Math.min(0.72, z.quality * 0.8);
+  l.zone = z.name;
+  l.grade = gradeOfSeat(l.seat);
+  l.heldT = 0;
+  l.tension = 0;
+  l.touch = null;
+  l.leftHoldId = null;
+  l.capacity = capacityOf(hold, l, anchorFor(limb, state.hip, state.shoulder), state.overhang);
+  events.push({ kind: 'place', limb, holdId: hold.id, at: { ...l.pos } });
   return true;
 }
 
@@ -597,7 +721,7 @@ export function stepSling(
 
   const feetOnHolds = LIMBS.some((id) => !isHand(id) && state.limbs[id].phase === 'held' && state.limbs[id].holdId !== null);
   const dxT = state.shoulder.x - state.hip.x;
-  if (handsOn > 0) {
+  if (handsOn > 0 || state.dyno) {
     // Core: a torque that turns the torso back upright. Applied across the
     // torso rather than sideways, so it still has leverage when the body has
     // been swung a long way over. Beaten by a real swing, not by standing.
@@ -728,7 +852,7 @@ export function stepSling(
     // With a hand on, the climber does not invert: past about forty degrees
     // of lean it stops reading as a climber fighting a swing and starts
     // reading as a dropped puppet. Without a hand on, tumble away.
-    if (handsOn > 0) {
+    if (handsOn > 0 || state.dyno) {
       const tx = state.shoulder.x - state.hip.x;
       const ty = state.shoulder.y - state.hip.y;
       const theta = Math.atan2(tx, ty);
@@ -858,7 +982,10 @@ export function stepSling(
       l.capacity = capacityOf(caught.hold, l, anchorFor(id, state.hip, state.shoulder), state.overhang);
       events.push({
         kind: 'catch', limb: id, holdId: caught.hold.id, at: { ...l.pos }, grade, seat, zone, speed,
+        dyno: state.dyno,
       });
+      // A hand on something: the dyno is over, whatever the other hand does.
+      state.dyno = false;
       continue;
     }
 
@@ -868,12 +995,20 @@ export function stepSling(
     const limbLen = isHand(id) ? BODY.arm : BODY.leg;
     const hanging = l.flightT > 0.25 && l.pos.y < anchor.y - limbLen * 0.55 && len(l.vel) < 1.0;
     const floored = l.pos.y <= FLOOR + 0.025;
-    if (l.flightT >= SLING.flightMax || hanging || floored) {
+    const maxFlight = state.dyno ? SLING.dynoFlight : SLING.flightMax;
+    if (l.flightT >= maxFlight || (hanging && !state.dyno) || floored) {
       l.phase = 'free';
       l.touch = null;
       l.flightT = 0;
-      events.push({ kind: 'miss', limb: id, at: { ...l.pos }, reason: missReason(state, l, holds) });
+      events.push({
+        kind: 'miss', limb: id, at: { ...l.pos },
+        reason: state.dyno ? 'Caught nothing but air.' : missReason(state, l, holds),
+      });
     }
+  }
+  // Both hands gave up: the dyno has failed, and now it is just a fall.
+  if (state.dyno && !LIMBS.some((id) => isHand(id) && state.limbs[id].phase === 'flying')) {
+    state.dyno = false;
   }
 
   // --- 7. the mat -----------------------------------------------------------
@@ -898,11 +1033,15 @@ export function stepSling(
   }
 
   const heldNow = LIMBS.filter((id) => state.limbs[id].phase === 'held').length;
-  if (state.left && heldBefore > 0 && heldNow === 0) {
+  // Letting go of everything is a fall, unless it is a dyno, which is a jump
+  // until it isn't.
+  if (state.left && heldNow === 0 && !state.dyno && (heldBefore > 0 || state.dynoLast)) {
     events.push({ kind: 'off', at: { ...state.hip } });
   }
+  state.dynoLast = state.dyno;
   if (state.left && heldNow === 0 && state.hip.y <= SLING.matHip) {
     state.fallen = true;
+    state.dyno = false;
     events.push({ kind: 'fell', at: { ...state.hip }, from: peakOf(state) });
   }
   state.heldLast = heldNow;
@@ -1058,6 +1197,42 @@ export function predictLaunch(
     if (ghost.limbs[aim.limb].phase === 'free') break;
   }
   return { path, end: { ...ghost.limbs[aim.limb].pos }, caught, slips };
+}
+
+export type DynoPrediction = {
+  /** Hip positions over the jump, one per step. */
+  path: Vec2[];
+  /** Hands that find something, in the order they do. */
+  caught: { limb: LimbId; holdId: number; at: Vec2; grade: Exclude<MoveGrade, 'MISS' | 'YEET'> }[];
+  /** Where the hands end up if nothing is caught. */
+  hands: Vec2;
+};
+
+/** The dyno, run forward on a copy. What you see is what you get. */
+export function predictDyno(
+  state: SlingState, holds: Hold[], aim: DynoAim, seconds = 1.5,
+): DynoPrediction {
+  const ghost = cloneSling(state);
+  const events: SlingEvent[] = [];
+  const path: Vec2[] = [];
+  const caught: DynoPrediction['caught'] = [];
+  const hands = () => ({
+    x: (ghost.limbs.LH.pos.x + ghost.limbs.RH.pos.x) / 2,
+    y: (ghost.limbs.LH.pos.y + ghost.limbs.RH.pos.y) / 2,
+  });
+  if (!dyno(ghost, aim, events)) return { path, caught, hands: hands() };
+  const steps = Math.round(seconds / SLING.dt);
+  for (let i = 0; i < steps; i++) {
+    events.length = 0;
+    stepSling(ghost, holds, SLING.dt, 0, events);
+    path.push({ ...ghost.hip });
+    for (const e of events) {
+      if (e.kind === 'catch') caught.push({ limb: e.limb, holdId: e.holdId, at: e.at, grade: e.grade });
+    }
+    const flying = LIMBS.some((id) => isHand(id) && ghost.limbs[id].phase === 'flying');
+    if (!flying || ghost.fallen) break;
+  }
+  return { path, caught, hands: hands() };
 }
 
 /** Holds a limb could plausibly be thrown at from here: within the tether, usable, not taken. */

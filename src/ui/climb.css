@@ -126,39 +126,8 @@
 
 /* The stats row is click-through so it never eats an aim; this one button in
    it has to opt back in, or "let go" can be seen and not pressed. */
-.climb__held {
-  position: absolute;
-  top: 1.7rem;
-  left: 0;
-  white-space: nowrap;
-  pointer-events: auto;
-  padding: 0.35rem 0.7rem;
-  border: 1px solid rgba(0, 229, 255, 0.55);
-  border-radius: 999px;
-  background: rgba(12, 14, 19, 0.78);
-  color: var(--ink-dim);
-  font: inherit;
-  font-size: 0.74rem;
-  cursor: pointer;
-}
-.climb__held b { font-size: 0.74rem; color: #00e5ff; }
 
 /* --- feel --- */
-
-.climb__vignette {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 45%, rgba(150, 10, 20, 0.55) 85%, rgba(90, 0, 10, 0.85) 100%);
-  animation: throb 0.9s ease-in-out infinite;
-  transition: opacity 0.4s ease;
-}
-@keyframes throb {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.5); }
-}
 
 .flow {
   position: absolute;
@@ -351,76 +320,6 @@
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* --- endurance --- */
-
-.stamina {
-  position: absolute;
-  top: calc(var(--safe-t) + 3.5rem);
-  right: 0.85rem;
-  z-index: 4;
-  width: min(11rem, 42vw);
-  pointer-events: none;
-}
-.stamina__row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.4rem;
-  margin-bottom: 0.2rem;
-}
-.stamina__label {
-  font-size: 0.58rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-}
-.stamina__word {
-  font-size: 0.66rem;
-  white-space: nowrap;
-  color: rgba(255, 255, 255, 0.85);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-}
-.stamina__track {
-  height: 0.6rem;
-  border-radius: 0.3rem;
-  background: rgba(10, 12, 16, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  overflow: hidden;
-}
-.stamina__fill {
-  height: 100%;
-  transform-origin: left center;
-  background: linear-gradient(90deg, #ff5e4d, #f2c249 45%, #5fd1a0);
-  transition: none;
-}
-
-/* --- dyno --- */
-
-.dyno {
-  position: absolute;
-  right: 0.85rem;
-  bottom: calc(var(--safe-b) + 3.2rem);
-  z-index: 4;
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(18, 20, 26, 0.82);
-  color: var(--ink);
-  border-radius: 1.4rem;
-  padding: 0.7rem 1.05rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  min-height: 2.9rem;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-}
-.dyno.is-on {
-  background: #00e5ff;
-  border-color: transparent;
-  color: #08111a;
-}
-.dyno:disabled { opacity: 0.3; }
-
 
 .climb__top-note {
   position: absolute;
