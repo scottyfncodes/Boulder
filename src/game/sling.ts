@@ -193,7 +193,9 @@ export type SlingEvent =
   /** The last thing holding on let go. The climber is airborne. */
   | { kind: 'off'; at: Vec2 }
   /** The climber met the mat. */
-  | { kind: 'fell'; at: Vec2; from: number };
+  | { kind: 'fell'; at: Vec2; from: number }
+  /** The pool ran out: the hands opened on their own. */
+  | { kind: 'pumped'; at: Vec2 };
 
 export type LaunchAim = {
   limb: LimbId;
@@ -436,6 +438,47 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
 
   events.push({ kind: 'launch', limb: aim.limb, from: { ...l.pos }, power: aim.power });
   return true;
+}
+
+/**
+ * Pumping out. The hands open — that is all — and the physics does the rest:
+ * feet on holds peel, feet on nothing fall, and either way the mat is next.
+ */
+export function pumpOut(state: SlingState, events: SlingEvent[] = []): boolean {
+  if (state.fallen) return false;
+  let opened = 0;
+  for (const id of ['LH', 'RH'] as LimbId[]) {
+    const l = state.limbs[id];
+    if (l.phase !== 'held') continue;
+    release(state, l, [], 'Pumped stupid. Arms opened on their own.');
+    opened++;
+  }
+  if (opened === 0) return false;
+  events.push({ kind: 'pumped', at: { ...state.shoulder } });
+  return true;
+}
+
+/** Load through the hands that are holding something, body weights. */
+export function handLoad(state: SlingState): { load: number; hands: number } {
+  let load = 0;
+  let hands = 0;
+  for (const id of ['LH', 'RH'] as LimbId[]) {
+    const l = state.limbs[id];
+    if (l.phase !== 'held' || l.holdId === null) continue;
+    load += l.tension;
+    hands++;
+  }
+  return { load, hands };
+}
+
+/** True while settled on a hold from the given set, going nowhere. */
+export function restingOn(state: SlingState, restIds: Set<number>): boolean {
+  if (bodySpeed(state) > 0.4) return false;
+  if (LIMBS.some((id) => state.limbs[id].phase === 'flying')) return false;
+  return LIMBS.some((id) => {
+    const l = state.limbs[id];
+    return l.phase === 'held' && l.holdId !== null && restIds.has(l.holdId);
+  });
 }
 
 export type DynoAim = { dir: Vec2; power: number };
@@ -753,7 +796,9 @@ export function stepSling(
       sx += l.pos.x * w;
       sw += w;
     }
-    if (sw > 0) {
+    // Nothing rights a body with no hand on it: that is the whole reason it
+    // is about to leave.
+    if (sw > 0 && (handsOn > 0 || state.dyno)) {
       const a = (sx / sw - state.hip.x) * SLING.restore * g;
       state.hipV.x += a * dt;
       state.shV.x += a * dt;
@@ -784,6 +829,7 @@ export function stepSling(
   } else if (feetOnHolds && state.left) {
     if (Math.abs(dxT) > 0.015) state.peelSign = Math.sign(dxT);
     state.shV.x += state.peelSign * SLING.peel * g * dt;
+    state.hipV.x += state.peelSign * SLING.peel * 0.6 * g * dt;
   }
 
   damp(state.hipV, SLING.dampBody + extraDamp, dt);

@@ -29,3 +29,63 @@
 }
 .lab__name { margin-top: 0.15rem; font-size: 1.05rem; font-weight: 700; }
 .lab__meta { margin-top: 0.25rem; font-size: 0.78rem; color: var(--ink-dim); }
+
+/* --- the pump --- */
+
+.climb__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 45%, rgba(150, 10, 20, 0.55) 85%, rgba(90, 0, 10, 0.85) 100%);
+  animation: throb 0.9s ease-in-out infinite;
+  transition: opacity 0.4s ease;
+}
+@keyframes throb {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.5); }
+}
+
+.stamina {
+  position: absolute;
+  top: calc(var(--safe-t) + 3.5rem);
+  right: 0.85rem;
+  z-index: 4;
+  width: min(11rem, 42vw);
+  pointer-events: none;
+}
+.stamina__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+.stamina__label {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.stamina__word {
+  font-size: 0.66rem;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.stamina__track {
+  height: 0.6rem;
+  border-radius: 0.3rem;
+  background: rgba(10, 12, 16, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+.stamina__fill {
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #ff5e4d, #f2c249 45%, #5fd1a0);
+  transition: none;
+}
+.flash--pumped .flash__grade { color: #ff5e4d; }
