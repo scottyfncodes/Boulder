@@ -126,6 +126,19 @@ function note(step: number, base = 523.25): number {
   return base * 2 ** (oct + deg / 12);
 }
 
+/** The band creaking as it is drawn back: one tick per notch, rising with the pull. */
+export function sfxStretch(power: number): void {
+  const c = ready(); if (!c) return;
+  tone(c, 'triangle', 160 + power * 380, { attack: 0.003, release: 0.055, peak: 0.045 + power * 0.05 });
+  noise(c, 'bandpass', 700 + power * 1100, 4, { attack: 0.002, release: 0.03, peak: 0.035 });
+}
+
+/** The band letting go. A short, sharp thwip under the whoosh. */
+export function sfxSnap(power: number): void {
+  const c = ready(); if (!c) return;
+  tone(c, 'square', 520 + power * 380, { attack: 0.002, release: 0.05 + power * 0.03, peak: 0.07 + power * 0.06 }, 140);
+}
+
 /** The limb leaving. Harder throws are louder and brighter. */
 export function sfxThrow(power: number): void {
   const c = ready(); if (!c) return;

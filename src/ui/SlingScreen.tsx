@@ -6,19 +6,19 @@ import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf
 import {
   type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
   heldCount, initialSling, isSlingSent, launch, limbPositions, placeLimb, placeableHolds, poseOf,
-  predictDyno, predictLaunch, reachableHolds, stepSling,
+  predictDyno, predictLaunch, reachableHolds, stepSling, windupPos, SLING_LIMITS,
 } from '../game/sling';
 import { flowStreak } from '../game/scoring';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
 import type { Mood } from '../render/climber';
 import { LIMB_TOUCH_RADIUS, SHOUT_MS, introAlpha, shoutText } from '../render/overlay';
-import { drawSlingOverlay, type PullView, type Selection } from '../render/slingOverlay';
+import { drawSlingOverlay, type PullView, type Selection, type SnapView } from '../render/slingOverlay';
 import { GRADE_COLOR } from '../render/palette';
 import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z } from '../render/depths';
 import { Fx } from '../render/fx';
 import {
-  buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxLock, sfxSend, sfxSlip, sfxThrow,
-  sfxThud, unlockAudio,
+  buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxLock, sfxSend, sfxSlip, sfxSnap,
+  sfxStretch, sfxThrow, sfxThud, unlockAudio,
 } from '../render/sfx';
 import { setterOf } from '../content/setters';
 import { isLabRoute } from '../content/lab';
@@ -42,8 +42,14 @@ function maxDragPx(w: number, h: number): number {
   return Math.max(130, Math.min(Math.min(w, h) * 0.44, 260));
 }
 
-/** How long a clean catch holds the world still. */
-const HIT_STOP_MS = 70;
+/** How long a catch holds the world still: a scrape, a good one, a perfect one, a dyno. */
+const HIT_STOP: Record<string, number> = { SCRAPE: 0, GOOD: 40, PERFECT: 70, DYNO: 90 };
+/** How long the band takes to go slack after a release. */
+const SNAP_MS = 110;
+/** How long a caught limb takes to settle onto the hold. */
+const SETTLE_MS = 120;
+/** How many notches the pull ratchets through on its way to full. */
+const NOTCHES = 8;
 /** How long the top-out gets before the scorecard. */
 const CELEBRATE_MS = 1900;
 /** How long the climber lies on the mat before the screen admits it. */
@@ -116,6 +122,12 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
   const endedRef = useRef<{ at: number; outcome: 'sent' | 'fallen' } | null>(null);
   const flashTimer = useRef(0);
   const reasonRef = useRef<string | null>(null);
+  /** Where the pulled limb is wound back to, this frame. What it launches from. */
+  const windRef = useRef<Vec2 | null>(null);
+  const notchRef = useRef(0);
+  const snapRef = useRef<{ anchor: Vec2; from: Vec2; limb: LimbId; start: number } | null>(null);
+  const settleRef = useRef<Partial<Record<LimbId, { from: Vec2; start: number }>>>({});
+  const lastLimbsRef = useRef<Record<LimbId, Vec2> | null>(null);
 
   phaseRef.current = phase;
   selectedRef.current = selected;
@@ -246,15 +258,17 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           setStreak(streakNow);
           sfxGrab(e.grade, streakNow);
           fx.chalk(e.at, e.grade === 'PERFECT' ? 1.3 : e.grade === 'GOOD' ? 0.9 : 0.6);
+          const last = lastLimbsRef.current?.[e.limb];
+          if (last) settleRef.current[e.limb] = { from: { ...last }, start: now };
           if (e.grade === 'PERFECT' || e.dyno) {
             fx.perfect(e.at, e.dyno ? '#ff8f3c' : '#6ef2b4');
             fx.kick(e.dyno ? 0.35 : 0.2);
             buzz(e.dyno ? [14, 10, 24] : 12);
-            freezeRef.current = now + HIT_STOP_MS;
           } else {
             fx.kick(e.grade === 'GOOD' ? 0.1 : 0.15);
             buzz(8);
           }
+          freezeRef.current = now + (e.dyno ? HIT_STOP.DYNO : HIT_STOP[e.grade]);
           const zone = e.zone;
           if (e.dyno) say('STUCK', `Caught ${zone}. Hold on.`);
           else say(e.grade,
@@ -375,6 +389,20 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
       const pose = poseOf(sim);
       const limbs = limbPositions(sim);
       const mood = moodOf(sim, phaseRef.current);
+      lastLimbsRef.current = limbPositions(sim);
+
+      // A caught limb eases onto the hold rather than appearing there.
+      for (const limb of LIMBS) {
+        const st = settleRef.current[limb];
+        if (!st) continue;
+        const t = (now - st.start) / SETTLE_MS;
+        if (t >= 1) { delete settleRef.current[limb]; continue; }
+        const k = 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2; // overshoots a touch
+        limbs[limb] = {
+          x: st.from.x + (limbs[limb].x - st.from.x) * k,
+          y: st.from.y + (limbs[limb].y - st.from.y) * k,
+        };
+      }
 
       // Camera: follows the chest, slowly, and never jumps for a throw.
       const cam = camRef.current;
@@ -402,7 +430,6 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
       }
 
       scene.setCamera(cam);
-      scene.setClimber(pose, limbs, mood);
 
       // --- overlay ---
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -431,6 +458,31 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           }
           const aim = aimFromPull(body ? 'RH' : sel, { x: dx, y: -dy }, max);
           const pulling = drag?.kind === 'aim' && aim.power >= SLING.minPower;
+
+          // The wind-up. The limb itself comes back with the finger, the elbow
+          // bends, and that is where it fires from — so the release is the
+          // band snapping through, not a pip vanishing.
+          let wind: Vec2 | null = null;
+          if (pulling && !body) {
+            wind = windupPos(sim, sel, { x: dx, y: -dy }, aim.power);
+            limbs[sel] = wind;
+            aim.from = wind;
+          } else if (pulling && body) {
+            // The crouch: the body dips into the pull before it springs.
+            const l = Math.max(Math.hypot(dx, dy), 1);
+            const cx = (dx / l) * 0.11 * aim.power;
+            const cy = (-dy / l) * 0.11 * aim.power;
+            pose.hip = { x: pose.hip.x + cx, y: pose.hip.y + cy };
+            pose.shoulder = { x: pose.shoulder.x + cx * 0.7, y: pose.shoulder.y + cy * 0.7 };
+            pose.head = { x: pose.head.x + cx * 0.6, y: pose.head.y + cy * 0.6 };
+          }
+          windRef.current = wind;
+
+          // The ratchet: a creak every notch the band is drawn back.
+          const notch = pulling ? Math.floor(aim.power * NOTCHES) : 0;
+          if (notch > notchRef.current) { sfxStretch(aim.power); buzz(3); }
+          notchRef.current = notch;
+
           const prediction = pulling && !body ? predictLaunch(sim, route.holds, aim, 1.0) : null;
           const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, aim, 1.5) : null;
           const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
@@ -438,19 +490,34 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
             if (lockId !== null) { sfxLock(); buzz(4); }
             lockRef.current = lockId;
           }
+          const ghostPx = wind ? scene.project(wind, isHand(sel as LimbId) ? HAND_Z : FOOT_Z) : { x: fromPx.x + dx, y: fromPx.y + dy };
           pull = {
             limb: sel,
-            from,
+            from: wind ?? from,
             anchor: body ? pose.hip : anchorFor(sel, pose.hip, pose.shoulder),
-            ghost: { x: fromPx.x + dx, y: fromPx.y + dy },
+            ghost: { x: ghostPx.x, y: ghostPx.y },
             power: pulling ? aim.power : 0,
             prediction,
             dynoPrediction,
             reachable: body ? [] : reachableHolds(sim, route.holds, sel),
             placeable: body ? [] : placeableHolds(sim, route.holds, sel),
+            reach: body ? null : {
+              anchor: anchorFor(sel, pose.hip, pose.shoulder),
+              radius: isHand(sel) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX,
+            },
           };
         } else {
           lockRef.current = null;
+          windRef.current = null;
+          notchRef.current = 0;
+        }
+
+        const snapping = snapRef.current;
+        let snap: SnapView | null = null;
+        if (snapping) {
+          const t = (now - snapping.start) / SNAP_MS;
+          if (t >= 1) snapRef.current = null;
+          else snap = { anchor: snapping.anchor, from: snapping.from, to: limbs[snapping.limb], t };
         }
 
         const launchable = new Set<LimbId>();
@@ -466,6 +533,7 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
           launchable,
           canDyno: canDyno(sim),
           pull,
+          snap,
           trails: trailsRef.current,
           shout: shoutRef.current
             ? { text: shoutText(now - shoutRef.current.start), at: shoutRef.current.at, age: now - shoutRef.current.start }
@@ -477,6 +545,8 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
         fxRef.current.draw(ctx, scene);
       }
 
+      // Drawn last so the wind-up and the settle are what the rig shows.
+      scene.setClimber(pose, limbs, mood);
       scene.render();
     };
     rafRef.current = requestAnimationFrame(loop);
@@ -589,11 +659,22 @@ export function SlingScreen({ route, mode, onExit, onOutcome, attemptsNote }: Sl
     const rect = e.currentTarget.getBoundingClientRect();
     const aim = aimFromPull(sel === 'BODY' ? 'RH' : sel, { x: dx, y: -dy }, maxDragPx(rect.width, rect.height));
     const events: SlingEvent[] = [];
+    const now = performance.now();
+    const wind = windRef.current;
+    if (sel !== 'BODY' && wind) aim.from = wind;
     const went = sel === 'BODY'
       ? dyno(sim, { dir: aim.dir, power: aim.power }, events)
       : launch(sim, aim, events);
     if (went) {
-      handleEvents(events, performance.now());
+      if (sel !== 'BODY' && wind) {
+        const pose = poseOf(sim);
+        snapRef.current = { anchor: anchorFor(sel, pose.hip, pose.shoulder), from: wind, limb: sel, start: now };
+      }
+      sfxSnap(aim.power);
+      fxRef.current.kick(0.05 + 0.08 * aim.power);
+      windRef.current = null;
+      notchRef.current = 0;
+      handleEvents(events, now);
       setSelected(null);
       selectedRef.current = null;
       followRef.current = true;
