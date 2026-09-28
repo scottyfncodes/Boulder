@@ -35,6 +35,17 @@ export type PullView = {
   reachable: Hold[];
   /** Holds a dangling limb can simply be put back on. Tap one. */
   placeable: Hold[];
+  /** The tether: how far from its anchor this limb can possibly get. */
+  reach: { anchor: Vec2; radius: number } | null;
+};
+
+/** The band contracting after a release, drawn for a few frames. */
+export type SnapView = {
+  anchor: Vec2;
+  from: Vec2;
+  to: Vec2;
+  /** 0..1 through the snap. */
+  t: number;
 };
 
 export type SlingOverlayInput = {
@@ -51,6 +62,7 @@ export type SlingOverlayInput = {
   /** Whether the hips can be pulled: something to jump off. */
   canDyno: boolean;
   pull: PullView | null;
+  snap: SnapView | null;
   /** Recent positions of limbs in flight, oldest first. */
   trails: Partial<Record<LimbId, Vec2[]>>;
   shout: Shout | null;
@@ -64,7 +76,9 @@ export function drawSlingOverlay(input: SlingOverlayInput): void {
   const { ctx, width, height } = input;
   ctx.clearRect(0, 0, width, height);
 
+  if (input.pull) drawReachRing(input);
   if (input.pull) drawReachable(input);
+  if (input.snap) drawSnap(input);
   drawTrails(input);
   if (input.pull) drawPrediction(input);
   if (input.pull) drawDynoPrediction(input);
@@ -73,6 +87,45 @@ export function drawSlingOverlay(input: SlingOverlayInput): void {
   if (input.showLimbs) drawBodyPip(input);
   if (input.pull && input.pull.power > 0) drawGhost(input);
   if (input.shout) drawShout(ctx, input.scene, input.shout);
+}
+
+/** The hard edge of what this limb can do from here. */
+function drawReachRing({ ctx, scene, pull }: SlingOverlayInput): void {
+  if (!pull || !pull.reach) return;
+  const a = scene.project(pull.reach.anchor, ARM_Z);
+  const e = scene.project({ x: pull.reach.anchor.x + pull.reach.radius, y: pull.reach.anchor.y }, ARM_Z);
+  ctx.save();
+  ctx.setLineDash([5, 7]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.26)';
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, Math.abs(e.x - a.x), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** The elastic going slack: from where the limb was held back to where it is now. */
+function drawSnap({ ctx, scene, snap, accent }: SlingOverlayInput): void {
+  if (!snap) return;
+  const t = snap.t;
+  const a = scene.project(snap.anchor, ARM_Z);
+  const f = scene.project(snap.from, HAND_Z);
+  const to = scene.project(snap.to, HAND_Z);
+  const k = 1 - (1 - t) ** 3;
+  const x = f.x + (to.x - f.x) * k;
+  const y = f.y + (to.y - f.y) * k;
+  ctx.save();
+  ctx.globalAlpha = 1 - t;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 5 * (1 - t) + 1;
+  ctx.beginPath();
+  ctx.moveTo(a.x - 6, a.y);
+  ctx.lineTo(x, y);
+  ctx.moveTo(a.x + 6, a.y);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Faint rings on the holds this limb could get to; solid ones it can be tapped onto. */

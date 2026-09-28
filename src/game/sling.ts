@@ -42,8 +42,16 @@ export const SLING = {
   flyMassHand: 0.5,
   flyMassFoot: 0.62,
   /** Launch speed at full pull, metres per second. */
-  maxSpeedHand: 5.6,
-  maxSpeedFoot: 5.0,
+  maxSpeedHand: 4.6,
+  maxSpeedFoot: 4.2,
+  /**
+   * Gravity on a limb in flight, as a fraction of the real thing. An arm
+   * being thrown is muscle as well as mass: it flies flatter and longer than a
+   * dropped object, which also makes the arc something you can watch.
+   */
+  flyGravity: 0.6,
+  /** How far back a limb winds up for a full pull, metres. The stretch. */
+  windup: 0.34,
   /** Below this much pull the launch is treated as a cancelled drag. */
   minPower: 0.05,
   /** A dyno at full pull: the whole body, metres per second. */
@@ -193,6 +201,11 @@ export type LaunchAim = {
   dir: Vec2;
   /** 0..1 pull, full pull is full speed. */
   power: number;
+  /**
+   * Where the limb is when it lets go: the wound-up position, drawn back
+   * against the pull. Left out, it fires from wherever it is.
+   */
+  from?: Vec2;
 };
 
 function bodyMass(): number {
@@ -356,6 +369,30 @@ export function aimFromPull(limb: LimbId, pull: Vec2, maxPull: number): LaunchAi
   };
 }
 
+/**
+ * Where a limb is drawn back to while it is being pulled: along the pull, as
+ * far as the pull is long, and never further from its anchor than the limb is
+ * long. This is where it launches from, so the band visibly snaps through.
+ */
+export function windupPos(state: SlingState, limb: LimbId, pull: Vec2, power: number): Vec2 {
+  const l = state.limbs[limb];
+  const dir = norm(pull);
+  const target = {
+    x: l.pos.x + dir.x * SLING.windup * clamp01(power),
+    y: l.pos.y + dir.y * SLING.windup * clamp01(power),
+  };
+  const anchor = anchorFor(limb, state.hip, state.shoulder);
+  const max = (isHand(limb) ? ARM_MAX : LEG_MAX) * 0.97;
+  const d = sub(target, anchor);
+  const L = len(d);
+  if (L > max) {
+    target.x = anchor.x + (d.x / L) * max;
+    target.y = anchor.y + (d.y / L) * max;
+  }
+  if (target.y < FLOOR + 0.03) target.y = FLOOR + 0.03;
+  return target;
+}
+
 /** Launch speed for a pull, metres per second. */
 export function launchSpeed(limb: LimbId, power: number): number {
   return clamp01(power) * maxSpeedOf(limb);
@@ -378,6 +415,7 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   l.onFloor = false;
   l.touch = null;
   l.brushedChip = false;
+  if (aim.from) l.pos = { ...aim.from };
   l.phase = 'flying';
   l.flightT = 0;
   l.heldT = 0;
@@ -640,7 +678,10 @@ export function stepSling(
   for (const id of LIMBS) {
     const l = state.limbs[id];
     if (l.phase !== 'held') {
-      l.vel.y -= g * dt;
+      // A thrown limb flies flat; on a dyno the hands fall with the body,
+      // because the body is the thing that was thrown.
+      const flat = l.phase === 'flying' && !state.dyno;
+      l.vel.y -= g * (flat ? SLING.flyGravity : 1) * dt;
       continue;
     }
     const anchor = anchorFor(id, state.hip, state.shoulder);
