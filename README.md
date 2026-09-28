@@ -110,9 +110,14 @@ it never tells you which one to use.
 landed against a window that shrinks with overreach, bad angles, and a poor
 stance. Failure always says why.
 
-**Nothing is the clock.** There is no endurance bar, no pump and no timer.
-Stop, look, aim, change your mind. The difficulty is the physics, the holds
-and the shape your body is in.
+**The pump is the clock, and the physics is what fills it.** One bar, running
+from the moment you pull on. Every hand on the wall reads the load through it
+in body weights, so hanging on one arm burns fast, hanging on two burns less,
+and standing on your feet with slack arms barely burns at all. A fling costs a
+burst, a dyno costs a chunk, a limb in the air costs more than a limb on the
+wall, and a rest hold gives some back. Run it out and your hands open, and the
+fall is a real one because everything is. Capacity grows with your grade and
+your mileage. The practice wall gets a generous one.
 
 **The climber is Bernie.** Teal jacket, striped shirt, cream slacks, moustache,
 and sunglasses he is not taking off. Technically present, which is the same joke the original brief wanted from the Weekend at
