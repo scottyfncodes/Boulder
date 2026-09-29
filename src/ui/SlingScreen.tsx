@@ -19,7 +19,7 @@ import type { Mood } from '../render/climber';
 import { LIMB_TOUCH_RADIUS, SHOUT_MS, introAlpha, shoutText } from '../render/overlay';
 import { drawSlingOverlay, type PullView, type Selection, type SnapView } from '../render/slingOverlay';
 import { GRADE_COLOR } from '../render/palette';
-import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z } from '../render/depths';
+import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z, TORSO_Z } from '../render/depths';
 import { Fx } from '../render/fx';
 import {
   buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
@@ -37,7 +37,7 @@ import './sling.css';
  * Three layers stacked: the 3D wall, a 2D canvas for aiming, and React for
  * everything made of words. Underneath there is no turn: the body is a live
  * physics thing that runs every frame, and every input is a gesture. Press a
- * limb, pull it back, let go. Press the hips, pull, let go, and everything
+ * limb, pull it back, let go. Press the belly, pull, let go, and everything
  * leaves the wall at once. Tap a dangling limb, then tap a hold, and it goes
  * back on. No bar drains while you think about it.
  */
@@ -63,6 +63,14 @@ const MAT_MS = 900;
 const MAX_FRAME_MS = 50;
 /** A press that travels less than this is a tap. */
 const TAP_PX = 8;
+
+/**
+ * Where the dyno is grabbed: the belly, a little under halfway up the torso.
+ * The hips belong to the feet.
+ */
+function coreOf(hip: Vec2, shoulder: Vec2): Vec2 {
+  return { x: hip.x + (shoulder.x - hip.x) * 0.45, y: hip.y + (shoulder.y - hip.y) * 0.45 };
+}
 
 type Drag = {
   kind: 'aim' | 'look';
@@ -497,8 +505,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         let pull: PullView | null = null;
         if (sel && climbing) {
           const body = sel === 'BODY';
-          const from = body ? pose.hip : limbs[sel];
-          const fromPx = scene.project(from, body ? HIP_Z : isHand(sel) ? HAND_Z : FOOT_Z);
+          const from = body ? coreOf(pose.hip, pose.shoulder) : limbs[sel];
+          const fromPx = scene.project(from, body ? TORSO_Z : isHand(sel) ? HAND_Z : FOOT_Z);
           const max = maxDragPx(rect.width, rect.height);
           let dx = 0;
           let dy = 0;
@@ -581,7 +589,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           scene, ctx,
           width: rect.width, height: rect.height,
           limbs, phases,
-          hip: pose.hip,
+          core: coreOf(pose.hip, pose.shoulder),
           selected: sel,
           launchable,
           canDyno: canDyno(sim),
@@ -608,7 +616,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
   // --- input -------------------------------------------------------------
 
-  /** The limb, or the hips, under a screen point. Limbs win when they overlap. */
+  /**
+   * The limb, or the body, under a screen point. A limb can be grabbed by its
+   * tip, by the hold it is on, or where it joins the body: a hand at its
+   * shoulder, a foot at its hip. The belly is the dyno. Tips win when they
+   * overlap; otherwise the nearest thing that can be pulled right now.
+   */
   const targetAtPoint = useCallback((x: number, y: number): Selection | null => {
     const scene = sceneRef.current;
     if (!scene) return null;
@@ -616,16 +629,23 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     const limbs = limbPositions(sim);
     let best: Selection | null = null;
     let bestD = LIMB_TOUCH_RADIUS;
-    for (const limb of LIMBS) {
-      const p = scene.project(limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
+    const consider = (sel: Selection, at: Vec2, z: number) => {
+      if (sel === 'BODY' ? !canDyno(sim) : !canLaunch(sim, sel)) return;
+      const p = scene.project(at, z);
       const d = Math.hypot(p.x - x, p.y - y);
-      if (d < bestD) { best = limb; bestD = d; }
-    }
+      if (d < bestD) { best = sel; bestD = d; }
+    };
+    for (const limb of LIMBS) consider(limb, limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
     if (best) return best;
-    const hip = scene.project(sim.hip, HIP_Z);
-    if (Math.hypot(hip.x - x, hip.y - y) < LIMB_TOUCH_RADIUS * 0.8) return 'BODY';
-    return null;
-  }, []);
+    for (const limb of LIMBS) {
+      consider(limb, anchorFor(limb, sim.hip, sim.shoulder), isHand(limb) ? TORSO_Z : HIP_Z);
+      const l = sim.limbs[limb];
+      const hold = l.phase === 'held' && l.holdId !== null ? holdsById.get(l.holdId) : undefined;
+      if (hold) consider(limb, hold.pos, HOLD_Z);
+    }
+    consider('BODY', coreOf(sim.hip, sim.shoulder), TORSO_Z);
+    return best;
+  }, [holdsById]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     unlockAudio();
@@ -644,9 +664,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     if (phaseRef.current !== 'climbing') return;
 
     const hit = targetAtPoint(x, y);
-    const sim = simRef.current;
-    const usable = hit === 'BODY' ? canDyno(sim) : hit !== null && canLaunch(sim, hit);
-    if (hit && usable) {
+    if (hit) {
       // Press straight onto it and pull in one gesture, or tap to pick it up
       // and pull from anywhere. Thumbs differ.
       setSelected(hit);
@@ -823,7 +841,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     }
     if (selected) return `Pull ${LIMB_LABEL[selected].toLowerCase()} back and let go.`;
     if (heldCount(sim) === 0) return 'Airborne. Fling something at the wall.';
-    return 'Press a limb, pull it back, let go. Grab the hips to dyno.';
+    return 'Press a limb, pull it back, let go. Grab the belly to dyno.';
   })();
 
   return (
@@ -905,8 +923,9 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       {phase === 'inspect' && (
         <div className="inspect">
           <div className="inspect__hint">
-            <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot, pull
-            it back, let go. Grab the hips and pull to dyno the whole body. Tap a dangling limb,
+            <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot (or
+            its shoulder, its hip, or the hold it is on), pull it back, let go. Grab the belly and
+            pull to dyno the whole body. Tap a dangling limb,
             then a hold, to put it back on. The pump runs from the moment you pull on: hanging on
             your arms burns it, standing on your feet barely does.
           </div>

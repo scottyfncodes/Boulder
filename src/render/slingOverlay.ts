@@ -5,7 +5,7 @@ import type { DynoPrediction, LimbPhase, Prediction } from '../game/sling';
 import {
   AIM_HOT, AIM_TARGET, LIMB_PIP_RADIUS, type Shout, drawShout,
 } from './overlay';
-import { ARM_Z, FOOT_Z, HAND_Z, HIP_Z, HOLD_Z } from './depths';
+import { ARM_Z, FOOT_Z, HAND_Z, HIP_Z, HOLD_Z, TORSO_Z } from './depths';
 import type { WallScene } from './scene';
 
 /**
@@ -55,7 +55,8 @@ export type SlingOverlayInput = {
   height: number;
   limbs: Record<LimbId, Vec2>;
   phases: Record<LimbId, LimbPhase>;
-  hip: Vec2;
+  /** The belly: where the dyno is grabbed. */
+  core: Vec2;
   selected: Selection | null;
   /** Limbs that can be picked up right now. */
   launchable: Set<LimbId>;
@@ -284,7 +285,7 @@ function drawBand({ ctx, scene, pull, accent }: SlingOverlayInput): void {
   if (!pull) return;
   const body = pull.limb === 'BODY';
   const a = scene.project(pull.anchor, body ? HIP_Z : ARM_Z);
-  const f = scene.project(pull.from, pull.limb === 'BODY' ? HIP_Z : isHand(pull.limb) ? HAND_Z : FOOT_Z);
+  const f = scene.project(pull.from, pull.limb === 'BODY' ? TORSO_Z : isHand(pull.limb) ? HAND_Z : FOOT_Z);
   const g = pull.ghost;
   const hot = pull.power > 0.96;
 
@@ -388,11 +389,11 @@ function drawPips(input: SlingOverlayInput): void {
   }
 }
 
-/** The hips: grab them to dyno. Named while the introduction lasts, and when picked. */
+/** The belly: grab it to dyno. Named while the introduction lasts, and when picked. */
 function drawBodyPip(input: SlingOverlayInput): void {
   const { ctx, scene, selected, pull, canDyno } = input;
   if (pull && pull.limb === 'BODY' && pull.power > 0) return;
-  const p = scene.project(input.hip, HIP_Z);
+  const p = scene.project(input.core, TORSO_Z);
   if (!p.visible) return;
   const isSel = selected === 'BODY';
 
