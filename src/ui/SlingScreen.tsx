@@ -4,9 +4,9 @@ import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor } from '../game/body';
 import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf } from '../game/attempt';
 import {
-  type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
-  handLoad, heldCount, initialSling, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  poseOf, predictDyno, predictLaunch, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
+  type AssistedLaunch, type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
+  dynoWindup, handLoad, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
+  poseOf, assistLaunch, predictDyno, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
   SLING_LIMITS,
 } from '../game/sling';
 import {
@@ -19,7 +19,7 @@ import type { Mood } from '../render/climber';
 import { LIMB_TOUCH_RADIUS, SHOUT_MS, introAlpha, shoutText } from '../render/overlay';
 import { drawSlingOverlay, type PullView, type Selection, type SnapView } from '../render/slingOverlay';
 import { GRADE_COLOR } from '../render/palette';
-import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z } from '../render/depths';
+import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z, TORSO_Z } from '../render/depths';
 import { Fx } from '../render/fx';
 import {
   buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
@@ -37,7 +37,7 @@ import './sling.css';
  * Three layers stacked: the 3D wall, a 2D canvas for aiming, and React for
  * everything made of words. Underneath there is no turn: the body is a live
  * physics thing that runs every frame, and every input is a gesture. Press a
- * limb, pull it back, let go. Press the hips, pull, let go, and everything
+ * limb, pull it back, let go. Press the belly, pull, let go, and everything
  * leaves the wall at once. Tap a dangling limb, then tap a hold, and it goes
  * back on. No bar drains while you think about it.
  */
@@ -51,6 +51,8 @@ function maxDragPx(w: number, h: number): number {
 const HIT_STOP: Record<string, number> = { SCRAPE: 0, GOOD: 40, PERFECT: 70, DYNO: 90 };
 /** How long the band takes to go slack after a release. */
 const SNAP_MS = 110;
+/** How long a held-still aim reuses its assisted arc before working it out again. */
+const ASSIST_REFRESH_MS = 120;
 /** How long a caught limb takes to settle onto the hold. */
 const SETTLE_MS = 120;
 /** How many notches the pull ratchets through on its way to full. */
@@ -63,6 +65,14 @@ const MAT_MS = 900;
 const MAX_FRAME_MS = 50;
 /** A press that travels less than this is a tap. */
 const TAP_PX = 8;
+
+/**
+ * Where the dyno is grabbed: the belly, a little under halfway up the torso.
+ * The hips belong to the feet.
+ */
+function coreOf(hip: Vec2, shoulder: Vec2): Vec2 {
+  return { x: hip.x + (shoulder.x - hip.x) * 0.45, y: hip.y + (shoulder.y - hip.y) * 0.45 };
+}
 
 type Drag = {
   kind: 'aim' | 'look';
@@ -132,7 +142,19 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   /** Where the pulled limb is wound back to, this frame. What it launches from. */
   const windRef = useRef<Vec2 | null>(null);
   const notchRef = useRef(0);
-  const snapRef = useRef<{ anchor: Vec2; from: Vec2; limb: LimbId; start: number } | null>(null);
+  /**
+   * The bands going slack after a release. Each is fixed at one end and its
+   * other end follows the limb tip (a throw) or its joint on the body (a dyno).
+   */
+  const snapRef = useRef<{
+    bands: { anchor: Vec2; from: Vec2; limb: LimbId; follow: 'tip' | 'joint' }[];
+    start: number;
+  } | null>(null);
+  /** Where aim assist steered this frame's throw, if it did. */
+  const assistRef = useRef<{ dir: Vec2; power: number } | null>(null);
+  const assistCacheRef = useRef<{ key: string; at: number; result: AssistedLaunch } | null>(null);
+  /** How far the body is drawn back on a dyno pull, this frame. What it launches from. */
+  const dynoWindRef = useRef<Vec2 | null>(null);
   const settleRef = useRef<Partial<Record<LimbId, { from: Vec2; start: number }>>>({});
   const lastLimbsRef = useRef<Record<LimbId, Vec2> | null>(null);
   // The pump. Changes every frame, so it is written straight to the DOM
@@ -497,8 +519,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         let pull: PullView | null = null;
         if (sel && climbing) {
           const body = sel === 'BODY';
-          const from = body ? pose.hip : limbs[sel];
-          const fromPx = scene.project(from, body ? HIP_Z : isHand(sel) ? HAND_Z : FOOT_Z);
+          let from = body ? coreOf(pose.hip, pose.shoulder) : limbs[sel];
+          const fromPx = scene.project(from, body ? TORSO_Z : isHand(sel) ? HAND_Z : FOOT_Z);
           const max = maxDragPx(rect.width, rect.height);
           let dx = 0;
           let dy = 0;
@@ -516,34 +538,53 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           // bends, and that is where it fires from — so the release is the
           // band snapping through, not a pip vanishing.
           let wind: Vec2 | null = null;
+          let dynoWind: Vec2 | null = null;
           if (pulling && !body) {
             wind = windupPos(sim, sel, { x: dx, y: -dy }, aim.power);
             limbs[sel] = wind;
             aim.from = wind;
           } else if (pulling && body) {
-            // The crouch: the body dips into the pull before it springs.
-            const l = Math.max(Math.hypot(dx, dy), 1);
-            const cx = (dx / l) * 0.11 * aim.power;
-            const cy = (-dy / l) * 0.11 * aim.power;
-            pose.hip = { x: pose.hip.x + cx, y: pose.hip.y + cy };
-            pose.shoulder = { x: pose.shoulder.x + cx * 0.7, y: pose.shoulder.y + cy * 0.7 };
-            pose.head = { x: pose.head.x + cx * 0.6, y: pose.head.y + cy * 0.6 };
+            // The body is the stone and every limb on the wall is band: it
+            // draws back against them, they stretch, and they stay put.
+            const w = dynoWindup(sim, { x: dx, y: -dy }, aim.power);
+            const shift = (p: Vec2) => ({ x: p.x + w.x, y: p.y + w.y });
+            pose.hip = shift(pose.hip);
+            pose.shoulder = shift(pose.shoulder);
+            pose.head = shift(pose.head);
+            for (const id of LIMBS) if (!isBand(sim.limbs[id])) limbs[id] = shift(limbs[id]);
+            dynoWind = w;
           }
           windRef.current = wind;
+          dynoWindRef.current = dynoWind;
 
           // The ratchet: a creak every notch the band is drawn back.
           const notch = pulling ? Math.floor(aim.power * NOTCHES) : 0;
           if (notch > notchRef.current) { sfxStretch(aim.power); buzz(3); }
           notchRef.current = notch;
 
-          const prediction = pulling && !body ? predictLaunch(sim, route.holds, aim, 1.0) : null;
-          const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, aim, 1.5) : null;
+          // Aim assist runs the throw forward a few times; while the finger holds
+          // still, reuse the last answer for a moment rather than every frame.
+          let assist: AssistedLaunch | null = null;
+          if (pulling && !body) {
+            const key = `${sel}:${Math.round(dx)}:${Math.round(dy)}`;
+            const cached = assistCacheRef.current;
+            if (cached && cached.key === key && now - cached.at < ASSIST_REFRESH_MS) assist = cached.result;
+            else {
+              assist = assistLaunch(sim, route.holds, aim, 1.0);
+              assistCacheRef.current = { key, at: now, result: assist };
+            }
+          }
+          const prediction = assist?.prediction ?? null;
+          // What lets go is what the arc shows: the steered throw, if it was steered.
+          assistRef.current = assist?.assisted != null ? { dir: assist.aim.dir, power: assist.aim.power } : null;
+          const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, 1.5) : null;
           const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
           if (lockId !== lockRef.current) {
             if (lockId !== null) { sfxLock(); buzz(4); }
             lockRef.current = lockId;
           }
           const ghostPx = wind ? scene.project(wind, isHand(sel as LimbId) ? HAND_Z : FOOT_Z) : { x: fromPx.x + dx, y: fromPx.y + dy };
+          if (dynoWind) from = coreOf(pose.hip, pose.shoulder);
           pull = {
             limb: sel,
             from: wind ?? from,
@@ -554,6 +595,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
             dynoPrediction,
             reachable: body ? [] : reachableHolds(sim, route.holds, sel),
             placeable: body ? [] : placeableHolds(sim, route.holds, sel),
+            bands: body && pulling
+              ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => ({
+                limb: id, at: limbs[id], anchor: anchorFor(id, pose.hip, pose.shoulder),
+              }))
+              : [],
             reach: body ? null : {
               anchor: anchorFor(sel, pose.hip, pose.shoulder),
               radius: isHand(sel) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX,
@@ -562,6 +608,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         } else {
           lockRef.current = null;
           windRef.current = null;
+          dynoWindRef.current = null;
+          assistRef.current = null;
           notchRef.current = 0;
         }
 
@@ -570,7 +618,16 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         if (snapping) {
           const t = (now - snapping.start) / SNAP_MS;
           if (t >= 1) snapRef.current = null;
-          else snap = { anchor: snapping.anchor, from: snapping.from, to: limbs[snapping.limb], t };
+          else {
+            snap = {
+              t,
+              bands: snapping.bands.map((b) => ({
+                anchor: b.anchor,
+                from: b.from,
+                to: b.follow === 'tip' ? limbs[b.limb] : anchorFor(b.limb, pose.hip, pose.shoulder),
+              })),
+            };
+          }
         }
 
         const launchable = new Set<LimbId>();
@@ -581,7 +638,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           scene, ctx,
           width: rect.width, height: rect.height,
           limbs, phases,
-          hip: pose.hip,
+          core: coreOf(pose.hip, pose.shoulder),
           selected: sel,
           launchable,
           canDyno: canDyno(sim),
@@ -608,7 +665,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
   // --- input -------------------------------------------------------------
 
-  /** The limb, or the hips, under a screen point. Limbs win when they overlap. */
+  /**
+   * The limb, or the body, under a screen point. A limb can be grabbed by its
+   * tip, by the hold it is on, or where it joins the body: a hand at its
+   * shoulder, a foot at its hip. The belly is the dyno. Tips win when they
+   * overlap; otherwise the nearest thing that can be pulled right now.
+   */
   const targetAtPoint = useCallback((x: number, y: number): Selection | null => {
     const scene = sceneRef.current;
     if (!scene) return null;
@@ -616,16 +678,23 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     const limbs = limbPositions(sim);
     let best: Selection | null = null;
     let bestD = LIMB_TOUCH_RADIUS;
-    for (const limb of LIMBS) {
-      const p = scene.project(limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
+    const consider = (sel: Selection, at: Vec2, z: number) => {
+      if (sel === 'BODY' ? !canDyno(sim) : !canLaunch(sim, sel)) return;
+      const p = scene.project(at, z);
       const d = Math.hypot(p.x - x, p.y - y);
-      if (d < bestD) { best = limb; bestD = d; }
-    }
+      if (d < bestD) { best = sel; bestD = d; }
+    };
+    for (const limb of LIMBS) consider(limb, limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
     if (best) return best;
-    const hip = scene.project(sim.hip, HIP_Z);
-    if (Math.hypot(hip.x - x, hip.y - y) < LIMB_TOUCH_RADIUS * 0.8) return 'BODY';
-    return null;
-  }, []);
+    for (const limb of LIMBS) {
+      consider(limb, anchorFor(limb, sim.hip, sim.shoulder), isHand(limb) ? TORSO_Z : HIP_Z);
+      const l = sim.limbs[limb];
+      const hold = l.phase === 'held' && l.holdId !== null ? holdsById.get(l.holdId) : undefined;
+      if (hold) consider(limb, hold.pos, HOLD_Z);
+    }
+    consider('BODY', coreOf(sim.hip, sim.shoulder), TORSO_Z);
+    return best;
+  }, [holdsById]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     unlockAudio();
@@ -644,9 +713,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     if (phaseRef.current !== 'climbing') return;
 
     const hit = targetAtPoint(x, y);
-    const sim = simRef.current;
-    const usable = hit === 'BODY' ? canDyno(sim) : hit !== null && canLaunch(sim, hit);
-    if (hit && usable) {
+    if (hit) {
       // Press straight onto it and pull in one gesture, or tap to pick it up
       // and pull from anywhere. Thumbs differ.
       setSelected(hit);
@@ -715,17 +782,37 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     const now = performance.now();
     const wind = windRef.current;
     if (sel !== 'BODY' && wind) aim.from = wind;
+    if (sel !== 'BODY' && assistRef.current) {
+      aim.dir = assistRef.current.dir;
+      aim.power = assistRef.current.power;
+    }
+    const dynoWind = sel === 'BODY' ? dynoWindRef.current : null;
+    // The bands of a dyno, caught before everything lets go: hold to body.
+    const dynoBands = sel === 'BODY' && dynoWind
+      ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => {
+        const hip = { x: sim.hip.x + dynoWind.x, y: sim.hip.y + dynoWind.y };
+        const shoulder = { x: sim.shoulder.x + dynoWind.x, y: sim.shoulder.y + dynoWind.y };
+        return { anchor: { ...sim.limbs[id].pos }, from: anchorFor(id, hip, shoulder), limb: id, follow: 'joint' as const };
+      })
+      : [];
     const went = sel === 'BODY'
-      ? dyno(sim, { dir: aim.dir, power: aim.power }, events)
+      ? dyno(sim, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, events)
       : launch(sim, aim, events);
     if (went) {
       if (sel !== 'BODY' && wind) {
         const pose = poseOf(sim);
-        snapRef.current = { anchor: anchorFor(sel, pose.hip, pose.shoulder), from: wind, limb: sel, start: now };
+        snapRef.current = {
+          bands: [{ anchor: anchorFor(sel, pose.hip, pose.shoulder), from: wind, limb: sel, follow: 'tip' }],
+          start: now,
+        };
+      } else if (dynoBands.length) {
+        snapRef.current = { bands: dynoBands, start: now };
       }
+      dynoWindRef.current = null;
       sfxSnap(aim.power);
       fxRef.current.kick(0.05 + 0.08 * aim.power);
       windRef.current = null;
+      assistRef.current = null;
       notchRef.current = 0;
       handleEvents(events, now);
       setSelected(null);
@@ -823,7 +910,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     }
     if (selected) return `Pull ${LIMB_LABEL[selected].toLowerCase()} back and let go.`;
     if (heldCount(sim) === 0) return 'Airborne. Fling something at the wall.';
-    return 'Press a limb, pull it back, let go. Grab the hips to dyno.';
+    return 'Press a limb, pull it back, let go. Grab the belly to dyno.';
   })();
 
   return (
@@ -905,8 +992,9 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       {phase === 'inspect' && (
         <div className="inspect">
           <div className="inspect__hint">
-            <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot, pull
-            it back, let go. Grab the hips and pull to dyno the whole body. Tap a dangling limb,
+            <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot (or
+            its shoulder, its hip, or the hold it is on), pull it back, let go. Grab the belly and
+            pull to dyno the whole body. Tap a dangling limb,
             then a hold, to put it back on. The pump runs from the moment you pull on: hanging on
             your arms burns it, standing on your feet barely does.
           </div>

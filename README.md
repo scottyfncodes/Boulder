@@ -42,11 +42,20 @@ The game asks one question: can you work out where to fling the next limb
 without screwing up the entire body?
 
 **One gesture.** Press a hand or a foot, pull it back, let go. The pull is the
-input: the limb fires the opposite way, as hard as you pulled. Tap a limb first
-and pull from anywhere if your thumb is in the way; `Q`/`W`/`A`/`S` pick limbs
-on a keyboard, `E` picks the hips.
+input: the limb fires the opposite way, as hard as you pulled. A limb can be
+grabbed where it joins the body instead — a hand at its shoulder, a foot at its
+hip — or by the hold it is on. Tap a limb first and pull from anywhere if your
+thumb is in the way; `Q`/`W`/`A`/`S` pick limbs on a keyboard, `E` picks the
+body.
 
-**The dyno.** Press the hips, pull, let go. Everything leaves the wall at once
+**Aim assist.** A throw that is nearly at an empty hold in reach — a few
+degrees off, a little short — is steered onto it, and the arc and the ringed
+hold show that before you let go. The miss that was there stays in where on
+the hold it lands. Anything further off flies where you pulled.
+
+**The dyno.** Press the belly, pull, let go. The body is the stone and every
+limb on the wall is a band: it draws back against them, only as far as they
+stretch, and fires from there. Everything leaves the wall at once
 and the whole body is the thing that flies; the hands lead and either one of
 them catches something on the way past or the mat catches the climber. The
 preview shows the body's arc and says whether it will be one hand or both.
