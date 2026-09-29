@@ -54,6 +54,11 @@ export const SLING = {
   windup: 0.34,
   /** Below this much pull the launch is treated as a cancelled drag. */
   minPower: 0.05,
+  /**
+   * How far back the body winds up for a full dyno, metres. Whatever is on
+   * the wall is the band, so it only goes as far as the limbs let it.
+   */
+  dynoWindup: 0.24,
   /** A dyno at full pull: the whole body, metres per second. */
   maxDynoSpeed: 4.6,
   /** How much faster than the body the hands go on a dyno: the reach. */
@@ -481,7 +486,58 @@ export function restingOn(state: SlingState, restIds: Set<number>): boolean {
   });
 }
 
-export type DynoAim = { dir: Vec2; power: number };
+export type DynoAim = {
+  dir: Vec2;
+  power: number;
+  /**
+   * How far the body has been drawn back against its limbs when it lets go,
+   * from where it is. Left out, it fires from where it is.
+   */
+  wind?: Vec2;
+};
+
+/** A limb that is on something: a hold or the mat. On a dyno, these are the bands. */
+export function isBand(l: SlingLimb): boolean {
+  return l.phase === 'held' || l.onFloor;
+}
+
+/**
+ * How far the body is drawn back for a dyno: along the pull, as far as the
+ * pull is long, and no further than every limb that is on something can
+ * stretch. Those limbs stay put; they are the band.
+ */
+export function dynoWindup(state: SlingState, pull: Vec2, power: number): Vec2 {
+  const dir = norm(pull);
+  const full = SLING.dynoWindup * clamp01(power);
+  const fits = (k: number) => {
+    const off = { x: dir.x * full * k, y: dir.y * full * k };
+    const hip = { x: state.hip.x + off.x, y: state.hip.y + off.y };
+    const shoulder = { x: state.shoulder.x + off.x, y: state.shoulder.y + off.y };
+    return LIMBS.every((id) => {
+      const l = state.limbs[id];
+      if (!isBand(l)) return true;
+      const max = (isHand(id) ? ARM_MAX : LEG_MAX) * 0.97;
+      const d = dist(anchorFor(id, hip, shoulder), l.pos);
+      // Already past it: fine as long as the pull does not make it worse.
+      return d <= Math.max(max, dist(anchorFor(id, state.hip, state.shoulder), l.pos));
+    });
+  };
+  let k = 1;
+  if (!fits(1)) {
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid; else hi = mid;
+    }
+    k = lo;
+  }
+  const off = { x: dir.x * full * k, y: dir.y * full * k };
+  // The hips do not go through the mat.
+  const floorHip = FOOT_FLOOR + LEG_STAND * 0.45;
+  if (state.hip.y + off.y < floorHip) off.y = Math.min(0, floorHip - state.hip.y);
+  return off;
+}
 
 /** Whether the climber has anything to jump off. */
 export function canDyno(state: SlingState): boolean {
@@ -504,6 +560,18 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
   if (aim.power < SLING.minPower) return false;
   const d = norm(aim.dir);
   const speed = dynoSpeed(aim.power);
+  if (aim.wind) {
+    // The body lets go from where it was drawn back to. Whatever was not
+    // holding on comes with it; the limbs that were are where they are.
+    const w = aim.wind;
+    const shift = (p: Vec2) => { p.x += w.x; p.y += w.y; };
+    shift(state.hip);
+    shift(state.shoulder);
+    for (const id of LIMBS) {
+      const l = state.limbs[id];
+      if (!isBand(l)) shift(l.pos);
+    }
+  }
   const from = { ...state.hip };
 
   for (const id of LIMBS) {

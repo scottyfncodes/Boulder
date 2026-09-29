@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Hold, LimbId } from './types';
-import { LIMBS } from './types';
+import { LIMBS, isHand } from './types';
 import { SLING_LAB } from '../content/lab';
 import {
   type SlingEvent, type SlingState,
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
-  predictDyno, predictLaunch, seatOn, stepSling,
+  predictDyno, predictLaunch, seatOn, stepSling, dynoWindup, isBand, SLING_LIMITS,
 } from './sling';
+import { anchorFor } from './body';
+import { dist } from './vec';
 import { beginAttempt, pullOn } from './attempt';
 
 const holds = SLING_LAB.holds;
@@ -420,6 +422,34 @@ describe('the dyno', () => {
     const held = LIMBS.filter((l) => s.limbs[l].phase === 'held');
     expect(held).toHaveLength(1);
     expect(s.fallen).toBe(false);
+  });
+
+  it('draws back against the limbs on the wall, and lets go from there', () => {
+    const s = start();
+    run(s, 0.5);
+    const pull = { x: 0, y: -1 };
+    const wind = dynoWindup(s, pull, 1);
+    expect(wind.y).toBeLessThan(0);
+    expect(wind.y).toBeGreaterThanOrEqual(-SLING.dynoWindup - 1e-9);
+    // No band is stretched past what the limb can do.
+    const hip = { x: s.hip.x + wind.x, y: s.hip.y + wind.y };
+    const shoulder = { x: s.shoulder.x + wind.x, y: s.shoulder.y + wind.y };
+    for (const id of LIMBS) {
+      if (!isBand(s.limbs[id])) continue;
+      const before = dist(anchorFor(id, s.hip, s.shoulder), s.limbs[id].pos);
+      const max = Math.max(before, (isHand(id) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX) * 0.97);
+      expect(dist(anchorFor(id, hip, shoulder), s.limbs[id].pos)).toBeLessThanOrEqual(max + 1e-6);
+    }
+    const aim = { dir: { x: 0, y: 1 }, power: 0.8, wind };
+    const guess = predictDyno(s, holds, aim);
+    const events: SlingEvent[] = [];
+    const hipBefore = { ...s.hip };
+    expect(dyno(s, aim, events)).toBe(true);
+    const ev = events[0];
+    expect(ev.kind === 'dyno' && ev.from.y).toBeCloseTo(hipBefore.y + wind.y, 9);
+    run(s, 2.5, events);
+    const caught = events.filter((e) => e.kind === 'catch').map((e) => e.kind === 'catch' && e.holdId);
+    expect(caught.slice(0, guess.caught.length)).toEqual(guess.caught.map((c) => c.holdId));
   });
 
   it('a weak one is a fall, not a dangle', () => {

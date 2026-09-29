@@ -48,7 +48,9 @@ hip — or by the hold it is on. Tap a limb first and pull from anywhere if your
 thumb is in the way; `Q`/`W`/`A`/`S` pick limbs on a keyboard, `E` picks the
 body.
 
-**The dyno.** Press the belly, pull, let go. Everything leaves the wall at once
+**The dyno.** Press the belly, pull, let go. The body is the stone and every
+limb on the wall is a band: it draws back against them, only as far as they
+stretch, and fires from there. Everything leaves the wall at once
 and the whole body is the thing that flies; the hands lead and either one of
 them catches something on the way past or the mat catches the climber. The
 preview shows the body's arc and says whether it will be one hand or both.

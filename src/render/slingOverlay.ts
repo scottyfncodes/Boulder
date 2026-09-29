@@ -31,6 +31,11 @@ export type PullView = {
   power: number;
   prediction: Prediction | null;
   dynoPrediction: DynoPrediction | null;
+  /**
+   * On a dyno, every limb that is on something is a band: from where it is
+   * on the wall to its joint on the drawn-back body.
+   */
+  bands: { limb: LimbId; at: Vec2; anchor: Vec2 }[];
   /** Holds this limb could plausibly reach from here, for a subtle ring. */
   reachable: Hold[];
   /** Holds a dangling limb can simply be put back on. Tap one. */
@@ -39,11 +44,10 @@ export type PullView = {
   reach: { anchor: Vec2; radius: number } | null;
 };
 
-/** The band contracting after a release, drawn for a few frames. */
+/** The bands contracting after a release, drawn for a few frames. */
 export type SnapView = {
-  anchor: Vec2;
-  from: Vec2;
-  to: Vec2;
+  /** Each band: its fixed end, where its free end let go from, and where that end is now. */
+  bands: { anchor: Vec2; from: Vec2; to: Vec2 }[];
   /** 0..1 through the snap. */
   t: number;
 };
@@ -109,22 +113,24 @@ function drawReachRing({ ctx, scene, pull }: SlingOverlayInput): void {
 function drawSnap({ ctx, scene, snap, accent }: SlingOverlayInput): void {
   if (!snap) return;
   const t = snap.t;
-  const a = scene.project(snap.anchor, ARM_Z);
-  const f = scene.project(snap.from, HAND_Z);
-  const to = scene.project(snap.to, HAND_Z);
   const k = 1 - (1 - t) ** 3;
-  const x = f.x + (to.x - f.x) * k;
-  const y = f.y + (to.y - f.y) * k;
   ctx.save();
   ctx.globalAlpha = 1 - t;
   ctx.lineCap = 'round';
   ctx.strokeStyle = accent;
   ctx.lineWidth = 5 * (1 - t) + 1;
   ctx.beginPath();
-  ctx.moveTo(a.x - 6, a.y);
-  ctx.lineTo(x, y);
-  ctx.moveTo(a.x + 6, a.y);
-  ctx.lineTo(x, y);
+  for (const band of snap.bands) {
+    const a = scene.project(band.anchor, ARM_Z);
+    const f = scene.project(band.from, HAND_Z);
+    const to = scene.project(band.to, HAND_Z);
+    const x = f.x + (to.x - f.x) * k;
+    const y = f.y + (to.y - f.y) * k;
+    ctx.moveTo(a.x - 6, a.y);
+    ctx.lineTo(x, y);
+    ctx.moveTo(a.x + 6, a.y);
+    ctx.lineTo(x, y);
+  }
   ctx.stroke();
   ctx.restore();
 }
@@ -299,6 +305,21 @@ function drawBand({ ctx, scene, pull, accent }: SlingOverlayInput): void {
     ctx.lineTo(g.x, g.y);
     ctx.moveTo(a.x + 6, a.y);
     ctx.lineTo(g.x, g.y);
+    ctx.stroke();
+  } else {
+    // Four bands, or however many limbs are on something: each one from the
+    // wall to the body, thinning as it stretches.
+    ctx.strokeStyle = hot ? AIM_HOT : accent;
+    ctx.lineWidth = 4 - 2 * pull.power;
+    ctx.beginPath();
+    for (const band of pull.bands) {
+      const w = scene.project(band.at, isHand(band.limb) ? HAND_Z : FOOT_Z);
+      const j = scene.project(band.anchor, isHand(band.limb) ? ARM_Z : HIP_Z);
+      ctx.moveTo(w.x - 4, w.y);
+      ctx.lineTo(j.x, j.y);
+      ctx.moveTo(w.x + 4, w.y);
+      ctx.lineTo(j.x, j.y);
+    }
     ctx.stroke();
   }
   // The stretch: where it is, to where it has been pulled.

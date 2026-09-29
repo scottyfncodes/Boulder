@@ -5,7 +5,7 @@ import { anchorFor } from '../game/body';
 import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf } from '../game/attempt';
 import {
   type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
-  handLoad, heldCount, initialSling, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
+  dynoWindup, handLoad, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
   poseOf, predictDyno, predictLaunch, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
   SLING_LIMITS,
 } from '../game/sling';
@@ -140,7 +140,16 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   /** Where the pulled limb is wound back to, this frame. What it launches from. */
   const windRef = useRef<Vec2 | null>(null);
   const notchRef = useRef(0);
-  const snapRef = useRef<{ anchor: Vec2; from: Vec2; limb: LimbId; start: number } | null>(null);
+  /**
+   * The bands going slack after a release. Each is fixed at one end and its
+   * other end follows the limb tip (a throw) or its joint on the body (a dyno).
+   */
+  const snapRef = useRef<{
+    bands: { anchor: Vec2; from: Vec2; limb: LimbId; follow: 'tip' | 'joint' }[];
+    start: number;
+  } | null>(null);
+  /** How far the body is drawn back on a dyno pull, this frame. What it launches from. */
+  const dynoWindRef = useRef<Vec2 | null>(null);
   const settleRef = useRef<Partial<Record<LimbId, { from: Vec2; start: number }>>>({});
   const lastLimbsRef = useRef<Record<LimbId, Vec2> | null>(null);
   // The pump. Changes every frame, so it is written straight to the DOM
@@ -505,7 +514,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         let pull: PullView | null = null;
         if (sel && climbing) {
           const body = sel === 'BODY';
-          const from = body ? coreOf(pose.hip, pose.shoulder) : limbs[sel];
+          let from = body ? coreOf(pose.hip, pose.shoulder) : limbs[sel];
           const fromPx = scene.project(from, body ? TORSO_Z : isHand(sel) ? HAND_Z : FOOT_Z);
           const max = maxDragPx(rect.width, rect.height);
           let dx = 0;
@@ -524,20 +533,24 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           // bends, and that is where it fires from — so the release is the
           // band snapping through, not a pip vanishing.
           let wind: Vec2 | null = null;
+          let dynoWind: Vec2 | null = null;
           if (pulling && !body) {
             wind = windupPos(sim, sel, { x: dx, y: -dy }, aim.power);
             limbs[sel] = wind;
             aim.from = wind;
           } else if (pulling && body) {
-            // The crouch: the body dips into the pull before it springs.
-            const l = Math.max(Math.hypot(dx, dy), 1);
-            const cx = (dx / l) * 0.11 * aim.power;
-            const cy = (-dy / l) * 0.11 * aim.power;
-            pose.hip = { x: pose.hip.x + cx, y: pose.hip.y + cy };
-            pose.shoulder = { x: pose.shoulder.x + cx * 0.7, y: pose.shoulder.y + cy * 0.7 };
-            pose.head = { x: pose.head.x + cx * 0.6, y: pose.head.y + cy * 0.6 };
+            // The body is the stone and every limb on the wall is band: it
+            // draws back against them, they stretch, and they stay put.
+            const w = dynoWindup(sim, { x: dx, y: -dy }, aim.power);
+            const shift = (p: Vec2) => ({ x: p.x + w.x, y: p.y + w.y });
+            pose.hip = shift(pose.hip);
+            pose.shoulder = shift(pose.shoulder);
+            pose.head = shift(pose.head);
+            for (const id of LIMBS) if (!isBand(sim.limbs[id])) limbs[id] = shift(limbs[id]);
+            dynoWind = w;
           }
           windRef.current = wind;
+          dynoWindRef.current = dynoWind;
 
           // The ratchet: a creak every notch the band is drawn back.
           const notch = pulling ? Math.floor(aim.power * NOTCHES) : 0;
@@ -545,13 +558,14 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           notchRef.current = notch;
 
           const prediction = pulling && !body ? predictLaunch(sim, route.holds, aim, 1.0) : null;
-          const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, aim, 1.5) : null;
+          const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, 1.5) : null;
           const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
           if (lockId !== lockRef.current) {
             if (lockId !== null) { sfxLock(); buzz(4); }
             lockRef.current = lockId;
           }
           const ghostPx = wind ? scene.project(wind, isHand(sel as LimbId) ? HAND_Z : FOOT_Z) : { x: fromPx.x + dx, y: fromPx.y + dy };
+          if (dynoWind) from = coreOf(pose.hip, pose.shoulder);
           pull = {
             limb: sel,
             from: wind ?? from,
@@ -562,6 +576,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
             dynoPrediction,
             reachable: body ? [] : reachableHolds(sim, route.holds, sel),
             placeable: body ? [] : placeableHolds(sim, route.holds, sel),
+            bands: body && pulling
+              ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => ({
+                limb: id, at: limbs[id], anchor: anchorFor(id, pose.hip, pose.shoulder),
+              }))
+              : [],
             reach: body ? null : {
               anchor: anchorFor(sel, pose.hip, pose.shoulder),
               radius: isHand(sel) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX,
@@ -570,6 +589,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         } else {
           lockRef.current = null;
           windRef.current = null;
+          dynoWindRef.current = null;
           notchRef.current = 0;
         }
 
@@ -578,7 +598,16 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         if (snapping) {
           const t = (now - snapping.start) / SNAP_MS;
           if (t >= 1) snapRef.current = null;
-          else snap = { anchor: snapping.anchor, from: snapping.from, to: limbs[snapping.limb], t };
+          else {
+            snap = {
+              t,
+              bands: snapping.bands.map((b) => ({
+                anchor: b.anchor,
+                from: b.from,
+                to: b.follow === 'tip' ? limbs[b.limb] : anchorFor(b.limb, pose.hip, pose.shoulder),
+              })),
+            };
+          }
         }
 
         const launchable = new Set<LimbId>();
@@ -733,14 +762,29 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     const now = performance.now();
     const wind = windRef.current;
     if (sel !== 'BODY' && wind) aim.from = wind;
+    const dynoWind = sel === 'BODY' ? dynoWindRef.current : null;
+    // The bands of a dyno, caught before everything lets go: hold to body.
+    const dynoBands = sel === 'BODY' && dynoWind
+      ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => {
+        const hip = { x: sim.hip.x + dynoWind.x, y: sim.hip.y + dynoWind.y };
+        const shoulder = { x: sim.shoulder.x + dynoWind.x, y: sim.shoulder.y + dynoWind.y };
+        return { anchor: { ...sim.limbs[id].pos }, from: anchorFor(id, hip, shoulder), limb: id, follow: 'joint' as const };
+      })
+      : [];
     const went = sel === 'BODY'
-      ? dyno(sim, { dir: aim.dir, power: aim.power }, events)
+      ? dyno(sim, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, events)
       : launch(sim, aim, events);
     if (went) {
       if (sel !== 'BODY' && wind) {
         const pose = poseOf(sim);
-        snapRef.current = { anchor: anchorFor(sel, pose.hip, pose.shoulder), from: wind, limb: sel, start: now };
+        snapRef.current = {
+          bands: [{ anchor: anchorFor(sel, pose.hip, pose.shoulder), from: wind, limb: sel, follow: 'tip' }],
+          start: now,
+        };
+      } else if (dynoBands.length) {
+        snapRef.current = { bands: dynoBands, start: now };
       }
+      dynoWindRef.current = null;
       sfxSnap(aim.power);
       fxRef.current.kick(0.05 + 0.08 * aim.power);
       windRef.current = null;
