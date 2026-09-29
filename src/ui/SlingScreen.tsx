@@ -4,9 +4,9 @@ import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor } from '../game/body';
 import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf } from '../game/attempt';
 import {
-  type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
+  type AssistedLaunch, type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
   dynoWindup, handLoad, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  poseOf, predictDyno, predictLaunch, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
+  poseOf, assistLaunch, predictDyno, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
   SLING_LIMITS,
 } from '../game/sling';
 import {
@@ -51,6 +51,8 @@ function maxDragPx(w: number, h: number): number {
 const HIT_STOP: Record<string, number> = { SCRAPE: 0, GOOD: 40, PERFECT: 70, DYNO: 90 };
 /** How long the band takes to go slack after a release. */
 const SNAP_MS = 110;
+/** How long a held-still aim reuses its assisted arc before working it out again. */
+const ASSIST_REFRESH_MS = 120;
 /** How long a caught limb takes to settle onto the hold. */
 const SETTLE_MS = 120;
 /** How many notches the pull ratchets through on its way to full. */
@@ -148,6 +150,9 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     bands: { anchor: Vec2; from: Vec2; limb: LimbId; follow: 'tip' | 'joint' }[];
     start: number;
   } | null>(null);
+  /** Where aim assist steered this frame's throw, if it did. */
+  const assistRef = useRef<{ dir: Vec2; power: number } | null>(null);
+  const assistCacheRef = useRef<{ key: string; at: number; result: AssistedLaunch } | null>(null);
   /** How far the body is drawn back on a dyno pull, this frame. What it launches from. */
   const dynoWindRef = useRef<Vec2 | null>(null);
   const settleRef = useRef<Partial<Record<LimbId, { from: Vec2; start: number }>>>({});
@@ -557,7 +562,21 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           if (notch > notchRef.current) { sfxStretch(aim.power); buzz(3); }
           notchRef.current = notch;
 
-          const prediction = pulling && !body ? predictLaunch(sim, route.holds, aim, 1.0) : null;
+          // Aim assist runs the throw forward a few times; while the finger holds
+          // still, reuse the last answer for a moment rather than every frame.
+          let assist: AssistedLaunch | null = null;
+          if (pulling && !body) {
+            const key = `${sel}:${Math.round(dx)}:${Math.round(dy)}`;
+            const cached = assistCacheRef.current;
+            if (cached && cached.key === key && now - cached.at < ASSIST_REFRESH_MS) assist = cached.result;
+            else {
+              assist = assistLaunch(sim, route.holds, aim, 1.0);
+              assistCacheRef.current = { key, at: now, result: assist };
+            }
+          }
+          const prediction = assist?.prediction ?? null;
+          // What lets go is what the arc shows: the steered throw, if it was steered.
+          assistRef.current = assist?.assisted != null ? { dir: assist.aim.dir, power: assist.aim.power } : null;
           const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, 1.5) : null;
           const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
           if (lockId !== lockRef.current) {
@@ -590,6 +609,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           lockRef.current = null;
           windRef.current = null;
           dynoWindRef.current = null;
+          assistRef.current = null;
           notchRef.current = 0;
         }
 
@@ -762,6 +782,10 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     const now = performance.now();
     const wind = windRef.current;
     if (sel !== 'BODY' && wind) aim.from = wind;
+    if (sel !== 'BODY' && assistRef.current) {
+      aim.dir = assistRef.current.dir;
+      aim.power = assistRef.current.power;
+    }
     const dynoWind = sel === 'BODY' ? dynoWindRef.current : null;
     // The bands of a dyno, caught before everything lets go: hold to body.
     const dynoBands = sel === 'BODY' && dynoWind
@@ -788,6 +812,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       sfxSnap(aim.power);
       fxRef.current.kick(0.05 + 0.08 * aim.power);
       windRef.current = null;
+      assistRef.current = null;
       notchRef.current = 0;
       handleEvents(events, now);
       setSelected(null);

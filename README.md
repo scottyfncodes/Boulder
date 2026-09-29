@@ -48,6 +48,11 @@ hip — or by the hold it is on. Tap a limb first and pull from anywhere if your
 thumb is in the way; `Q`/`W`/`A`/`S` pick limbs on a keyboard, `E` picks the
 body.
 
+**Aim assist.** A throw that is nearly at an empty hold in reach — a few
+degrees off, a little short — is steered onto it, and the arc and the ringed
+hold show that before you let go. The miss that was there stays in where on
+the hold it lands. Anything further off flies where you pulled.
+
 **The dyno.** Press the belly, pull, let go. The body is the stone and every
 limb on the wall is a band: it draws back against them, only as far as they
 stretch, and fires from there. Everything leaves the wall at once

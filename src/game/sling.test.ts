@@ -6,7 +6,7 @@ import {
   type SlingEvent, type SlingState,
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
-  predictDyno, predictLaunch, seatOn, stepSling, dynoWindup, isBand, SLING_LIMITS,
+  predictDyno, predictLaunch, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
 } from './sling';
 import { anchorFor } from './body';
 import { dist } from './vec';
@@ -354,6 +354,41 @@ describe('the aim preview is honest', () => {
     const snap = JSON.stringify(s);
     predictLaunch(s, holds, { limb: 'LF', dir: { x: 0, y: 1 }, power: 0.9 });
     expect(JSON.stringify(s)).toBe(snap);
+  });
+});
+
+describe('aim assist', () => {
+  const rotate = (deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    return { x: Math.sin(a), y: Math.cos(a) };
+  };
+
+  it('steers a near miss onto the hold it was meant for, and the real throw agrees', () => {
+    const s = start();
+    // Walk the throw off the jug until it misses outright.
+    let aim: LaunchAim | null = null;
+    for (let deg = 4; deg <= 20; deg += 1) {
+      const a = { limb: 'RH' as LimbId, dir: rotate(deg), power: 0.62 };
+      if (!predictLaunch(s, holds, a).caught) { aim = a; break; }
+    }
+    expect(aim).not.toBeNull();
+    const help = assistLaunch(s, holds, aim!);
+    expect(help.assisted).not.toBeNull();
+    expect(help.prediction.caught?.holdId).toBe(help.assisted);
+    expect(Math.abs(help.aim.power - aim!.power)).toBeLessThanOrEqual(0.12 + 1e-9);
+    const events: SlingEvent[] = [];
+    launch(s, help.aim, events);
+    run(s, 1.2, events);
+    const real = events.find((e) => e.kind === 'catch');
+    expect(real && real.kind === 'catch' && real.holdId).toBe(help.assisted);
+  });
+
+  it('leaves a throw alone that already catches, or is nowhere near anything', () => {
+    const s = start();
+    const good = { limb: 'RH' as LimbId, dir: { x: 0, y: 1 }, power: 0.62 };
+    expect(assistLaunch(s, holds, good)).toMatchObject({ aim: good, assisted: null });
+    const wild = { limb: 'RH' as LimbId, dir: { x: 0, y: -1 }, power: 0.6 };
+    expect(assistLaunch(s, holds, wild)).toMatchObject({ aim: wild, assisted: null });
   });
 });
 

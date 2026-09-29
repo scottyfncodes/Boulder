@@ -116,7 +116,7 @@ export const SLING = {
 /** Where a leg stands: the length it pushes out to when there is a foot below the hip. */
 const LEG_STAND = BODY.leg * 0.9;
 const LEG_MIN = BODY.leg * 0.2;
-const LEG_MAX = BODY.leg * 1.02;
+const LEG_MAX = BODY.leg * 1.15;
 const ARM_MIN = BODY.arm * 0.08;
 const ARM_MAX = BODY.arm * OVERREACH;
 /** Arm length the lock-off pulls toward. */
@@ -1398,6 +1398,122 @@ export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): 
   return holds.filter((h) =>
     canUse(h.type, limb) && !blocked.has(h.id) && dist(anchor, h.pos) <= max + contactRadius(h.size, h.type),
   );
+}
+
+/** How far off a hold a throw can be and still be steered onto it, radians. */
+const ASSIST_CONE = 0.28;
+/** How much the assist may add to or take off the pull, tried in this order. */
+const ASSIST_POWER = [0, 0.06, 0.12, -0.06];
+/** Most throws the assist will play forward looking for a catch, per aim. */
+const ASSIST_TRIES = 12;
+
+/**
+ * Launch angle that puts a thrown limb through a point, ignoring the tether
+ * and the air: the plain arc. Of the two answers (flat and lobbed), the one
+ * nearer the angle the player chose. Null when the throw is too weak to get
+ * there at all.
+ */
+function arcAngle(from: Vec2, to: Vec2, speed: number, near: number): number | null {
+  const g = SLING.gravity * SLING.flyGravity;
+  const x = to.x - from.x;
+  const y = to.y - from.y;
+  const v2 = speed * speed;
+  if (Math.abs(x) < 1e-4) return y > 0 && v2 >= 2 * g * y ? Math.PI / 2 : null;
+  const disc = v2 * v2 - g * (g * x * x + 2 * y * v2);
+  if (disc < 0) return null;
+  const r = Math.sqrt(disc);
+  const flip = x < 0 ? Math.PI : 0;
+  const a = Math.atan((v2 - r) / (g * x)) + flip;
+  const b = Math.atan((v2 + r) / (g * x)) + flip;
+  return angleGap(a, near) <= angleGap(b, near) ? a : b;
+}
+
+function angleGap(a: number, b: number): number {
+  const d = Math.abs(((a - b) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+  return d;
+}
+
+function closestOnPath(path: Vec2[], p: Vec2): Vec2 | null {
+  let best: Vec2 | null = null;
+  let bestD = Infinity;
+  for (const q of path) {
+    const d = dist(q, p);
+    if (d < bestD) { bestD = d; best = q; }
+  }
+  return best;
+}
+
+export type AssistedLaunch = {
+  aim: LaunchAim;
+  prediction: Prediction;
+  /** The hold the throw was steered onto, when it needed steering. */
+  assisted: number | null;
+};
+
+/**
+ * Aim assist. A throw that is roughly at a hold in reach — pulled within a
+ * few degrees of the arc that would get there, and about hard enough — is
+ * steered onto it. The power moves as little as it can, and where on the hold
+ * it lands stays the player's, as near as the hold allows. A throw that already catches something, or is nowhere near
+ * anything, is left alone. What comes back is checked against the real
+ * physics, so the arc on screen is still the arc that happens.
+ */
+export function assistLaunch(
+  state: SlingState, holds: Hold[], aim: LaunchAim, seconds = 1.0,
+): AssistedLaunch {
+  const raw = predictLaunch(state, holds, aim, seconds);
+  if (raw.caught || aim.power < SLING.minPower) return { aim, prediction: raw, assisted: null };
+  const l = state.limbs[aim.limb];
+  const from = aim.from ?? l.pos;
+  const chosen = Math.atan2(aim.dir.y, aim.dir.x);
+  // Only empty holds: matching is something to mean, not something to be steered into.
+  const taken = new Set(LIMBS.map((id) => state.limbs[id].holdId).filter((id) => id !== null));
+  const inReach = reachableHolds(state, holds, aim.limb).filter((h) => !taken.has(h.id));
+  let budget = ASSIST_TRIES;
+
+  // The player's power first; then a touch more, then a touch less. Judging
+  // the pull is half of what makes an arc hard to read.
+  for (const extra of ASSIST_POWER) {
+    const power = clamp(aim.power + extra, SLING.minPower, 1);
+    if (extra !== 0 && power === aim.power) continue;
+    const speed = launchSpeed(aim.limb, power);
+    const candidates: { hold: Hold; gap: number }[] = [];
+    for (const h of inReach) {
+      const a = arcAngle(from, h.pos, speed, chosen);
+      if (a === null) continue;
+      const gap = angleGap(a, chosen);
+      if (gap <= ASSIST_CONE) candidates.push({ hold: h, gap });
+    }
+    candidates.sort((p, q) => p.gap - q.gap);
+
+    for (const { hold } of candidates.slice(0, 2)) {
+      // Keep the player's miss, shrunk to fit on the hold: a throw that was
+      // low stays lowish, it just stops being a miss.
+      const r = contactRadius(hold.size, hold.type);
+      const near = closestOnPath(raw.path, hold.pos);
+      let target = hold.pos;
+      if (near) {
+        const off = sub(near, hold.pos);
+        const L = len(off);
+        const keep = Math.min(L, r * 0.5);
+        if (L > 1e-6) target = { x: hold.pos.x + (off.x / L) * keep, y: hold.pos.y + (off.y / L) * keep };
+      }
+      for (const t of [target, hold.pos]) {
+        const a = arcAngle(from, t, speed, chosen);
+        if (a === null) continue;
+        // The tether and the body pull the real arc off the plain one a
+        // little; feel either side of it.
+        for (const nudge of [0, 0.05, -0.05]) {
+          if (angleGap(a + nudge, chosen) > ASSIST_CONE) continue;
+          if (budget-- <= 0) return { aim, prediction: raw, assisted: null };
+          const steered = { ...aim, power, dir: { x: Math.cos(a + nudge), y: Math.sin(a + nudge) } };
+          const prediction = predictLaunch(state, holds, steered, seconds);
+          if (prediction.caught?.holdId === hold.id) return { aim: steered, prediction, assisted: hold.id };
+        }
+      }
+    }
+  }
+  return { aim, prediction: raw, assisted: null };
 }
 
 export const SLING_LIMITS = { ARM_MAX, LEG_MAX, ARM_LOCK, LEG_STAND } as const;
