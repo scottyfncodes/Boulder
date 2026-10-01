@@ -6,7 +6,7 @@ import {
   type SlingEvent, type SlingState,
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
-  predictDyno, predictLaunch, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
+  predictDyno, predictLaunch, reachableHolds, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
 } from './sling';
 import { anchorFor } from './body';
 import { dist } from './vec';
@@ -115,6 +115,36 @@ describe('the launch', () => {
     expect(limbPositions(a)).toEqual(limbPositions(b));
     expect(a.hip).toEqual(b.hip);
     expect(a.shoulder).toEqual(b.shoulder);
+  });
+});
+
+describe('reach', () => {
+  it('a thrown limb reaches past its own length, and past the old limit', () => {
+    expect(SLING_LIMITS.ARM_MAX).toBeGreaterThan(0.9);
+    expect(SLING_LIMITS.LEG_MAX).toBeGreaterThan(1.05);
+    // Nothing up there to catch: watch how far the hand gets from the shoulder.
+    const bare = holds.filter((h) => h.pos.y < 1.6);
+    const s = initialSling(bare, SLING_LAB.start);
+    for (let i = 0; i < Math.round(0.5 / SLING.dt); i++) stepSling(s, bare, SLING.dt);
+    launch(s, { limb: 'RH', dir: { x: 0.2, y: 0.98 }, power: 1 });
+    let furthest = 0;
+    for (let i = 0; i < Math.round(0.8 / SLING.dt); i++) {
+      stepSling(s, bare, SLING.dt);
+      furthest = Math.max(furthest, dist(anchorFor('RH', s.hip, s.shoulder), s.limbs.RH.pos));
+    }
+    expect(furthest).toBeGreaterThan(0.86);
+    expect(furthest).toBeLessThanOrEqual(SLING_LIMITS.ARM_MAX + 0.02);
+  });
+
+  it('counts a hold the old reach missed as one you can throw at', () => {
+    const s = start();
+    run(s, 0.5);
+    const anchor = anchorFor('RH', s.hip, s.shoulder);
+    const far: Hold = {
+      id: 999, type: 'jug', size: 0.115, dir: -Math.PI / 2,
+      pos: { x: anchor.x, y: anchor.y + 1.02 },
+    };
+    expect(reachableHolds(s, [...holds, far], 'RH').some((h) => h.id === 999)).toBe(true);
   });
 });
 
