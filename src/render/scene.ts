@@ -19,13 +19,18 @@ import { Climber, type Mood } from './climber';
 export type CameraState = {
   /** Height the camera is looking at, metres. */
   focusY: number;
+  /**
+   * Distance along the wall the camera is looking at, metres. Zero is the
+   * middle; routes that wander across the wall pull it sideways after them.
+   */
+  focusX: number;
   /** Vertical extent of wall visible, metres. Smaller is more zoomed in. */
   frame: number;
   /** Orbit around the wall's vertical axis, radians. Clamped small. */
   orbit: number;
 };
 
-export const DEFAULT_CAMERA: CameraState = { focusY: 1.9, frame: 3.9, orbit: 0 };
+export const DEFAULT_CAMERA: CameraState = { focusY: 1.9, focusX: 0, frame: 3.9, orbit: 0 };
 export const FRAME_MIN = 2.3;
 export const FRAME_MAX = 6.0;
 export const ORBIT_LIMIT = 0.5;
@@ -228,7 +233,7 @@ export class WallScene {
 
   private applyCamera(): void {
     const dist = (this.cam.frame / 2) / Math.tan((FOV * Math.PI) / 360);
-    const { focusY, orbit } = this.cam;
+    const { focusY, focusX, orbit } = this.cam;
 
     // focusY is a height up the wall, and on a pitched wall that is not a
     // height in the world: the tilt swings it back and down. Aiming the camera
@@ -243,11 +248,11 @@ export class WallScene {
     // so an overhang reads the way it does from the mat — wall leaning away
     // overhead — rather than as a view from underneath.
     this.camera.position.set(
-      Math.sin(orbit) * dist,
+      focusX + Math.sin(orbit) * dist,
       fy + Math.sin(orbit) * 0.1,
       fz + Math.cos(orbit) * dist,
     );
-    this.camera.lookAt(0, fy, fz);
+    this.camera.lookAt(focusX, fy, fz);
     this.camera.updateMatrixWorld();
   }
 
@@ -277,6 +282,16 @@ export class WallScene {
       y: (-v.y * 0.5 + 0.5) * rect.height,
       visible: v.z < 1,
     };
+  }
+
+  /**
+   * How far sideways the camera may look before it shows more gym than wall.
+   * On a wide screen that is nowhere; on a phone held upright it is most of
+   * the way to the edge.
+   */
+  focusXLimit(frame: number = this.cam.frame): number {
+    const halfWidth = (frame / 2) * this.camera.aspect;
+    return Math.max(0, WALL.maxX + 0.05 - halfWidth);
   }
 
   /** Metres per pixel at the wall plane. Keeps drag feel consistent at any zoom. */

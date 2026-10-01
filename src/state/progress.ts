@@ -118,7 +118,11 @@ export function applySend(
   };
 
   const prevTop = profile.topGrade;
-  const raised = prevTop === null || gradeIndex(route.grade) > gradeIndex(prevTop);
+  // Generated routes are scored and remembered like any other, but your grade
+  // is what you have sent on the board. A route you can reroll until it suits
+  // you does not get to open the next rung.
+  const counts = !route.blueprint;
+  const raised = counts && (prevTop === null || gradeIndex(route.grade) > gradeIndex(prevTop));
   const topGrade = raised ? route.grade : prevTop;
 
   const next: Profile = {

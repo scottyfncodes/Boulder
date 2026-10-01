@@ -1,5 +1,6 @@
 import type { Route } from '../game/types';
 import { LAB_ROUTES } from './lab';
+import { generatedRouteById } from './generator';
 import {
   crimp, foot, gaston, jug, pinch, pocket, sidepull, sloper, undercling, volume,
   DOWN, DOWN_LEFT, DOWN_RIGHT, LEFT, OUT_LEFT, OUT_RIGHT, RIGHT, UP, deg,
@@ -454,5 +455,5 @@ void [LEFT, RIGHT, UP, deg];
 export const ROUTES_BY_ID: Map<string, Route> = new Map(ROUTES.map((r) => [r.id, r]));
 
 export function routeById(id: string): Route | undefined {
-  return ROUTES_BY_ID.get(id) ?? LAB_ROUTES.find((r) => r.id === id);
+  return ROUTES_BY_ID.get(id) ?? LAB_ROUTES.find((r) => r.id === id) ?? generatedRouteById(id);
 }

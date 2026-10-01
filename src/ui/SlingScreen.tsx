@@ -192,6 +192,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     scene.setRoute(route);
     scene.setOverhang(overhangOf(route));
     scene.resize();
+    camRef.current.focusX = startFocusX(route, scene);
 
     const onResize = () => {
       scene.resize();
@@ -484,6 +485,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       if (followRef.current) {
         const want = clamp(pose.com.y + 0.55, 1.7, 3.6);
         cam.focusY += (want - cam.focusY) * 0.045;
+        // Sideways too, but only as far as the wall goes — a route that
+        // traverses off the edge of a phone screen should not leave you there.
+        const lim = scene.focusXLimit(cam.frame);
+        const wantX = clamp(pose.com.x, -lim, lim);
+        cam.focusX += (wantX - cam.focusX) * 0.04;
       }
       if (shoutRef.current) {
         if (now - shoutRef.current.start > SHOUT_MS) shoutRef.current = null;
@@ -892,6 +898,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     setPhase('inspect');
     phaseRef.current = 'inspect';
     camRef.current = { ...DEFAULT_CAMERA };
+    if (sceneRef.current) camRef.current.focusX = startFocusX(route, sceneRef.current);
     followRef.current = true;
   };
 
@@ -1062,4 +1069,14 @@ function holdAtScreen(scene: WallScene | null, x: number, y: number, route: Rout
     if (d < bestD) { best = h.id; bestD = d; }
   }
   return best;
+}
+
+/** Where to look sideways before the climb starts: at the start holds, as far as the wall allows. */
+function startFocusX(route: Route, scene: WallScene): number {
+  const ids = [route.start.LH, route.start.RH].filter((x): x is number => x !== undefined);
+  const hands = route.holds.filter((h) => ids.includes(h.id));
+  if (hands.length === 0) return 0;
+  const x = hands.reduce((sum, h) => sum + h.pos.x, 0) / hands.length;
+  const lim = scene.focusXLimit();
+  return clamp(x, -lim, lim);
 }

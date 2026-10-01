@@ -213,4 +213,17 @@ export type Route = {
   overhang?: number;
   /** Set for generated routes so they can be rebuilt rather than stored. */
   seed?: number;
+  /**
+   * How a generated route was put together: its difficulty tier, the sections
+   * it links, in order, and the cruxes it hides. Hand-set routes have none.
+   */
+  blueprint?: RouteBlueprint;
+};
+
+export type RouteBlueprint = {
+  difficulty: string;
+  sections: string[];
+  cruxes: string[];
+  /** How many notches the generator backed the route off to get it to go. */
+  relax: number;
 };

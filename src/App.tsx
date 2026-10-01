@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Grade, Route } from './game/types';
 import { GRADES } from './game/types';
 import { ROUTES, routeById } from './content/routes';
@@ -18,6 +18,10 @@ import { Title } from './ui/Title';
 import { Standings } from './ui/Standings';
 import { isLabRoute } from './content/lab';
 import { capacityFor } from './game/endurance';
+import { type Difficulty, generatedRouteById } from './content/generator';
+import { nextRoute, prefetchRoute } from './content/generator/client';
+import type { SetterState } from './ui/RouteSetter';
+import { loadSetterChoice, saveSetterChoice } from './state/setterChoice';
 import './app.css';
 
 /**
@@ -37,6 +41,58 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ kind: 'title' });
 
   const daily = useMemo(() => refreshDaily(profile.daily), [profile.daily]);
+
+  // --- the route setter ---
+  // Lives up here rather than on the board so a route being set keeps being
+  // set while you climb something else, and is still there when you come back.
+  const choice = useRef(loadSetterChoice());
+  const [setter, setSetter] = useState<SetterState>(() => {
+    const d = choice.current.difficulty;
+    const id = choice.current.current[d];
+    return { difficulty: d, route: id ? generatedRouteById(id) ?? null : null, busy: false, error: null };
+  });
+  const setterToken = useRef(0);
+
+  const rollRoute = useCallback((d: Difficulty) => {
+    const token = ++setterToken.current;
+    setSetter((s) => ({ ...s, difficulty: d, busy: true, error: null }));
+    nextRoute(d).then(
+      (route) => {
+        choice.current = { difficulty: d, current: { ...choice.current.current, [d]: route.id } };
+        saveSetterChoice(choice.current);
+        if (token === setterToken.current) setSetter({ difficulty: d, route, busy: false, error: null });
+        prefetchRoute(d);
+      },
+      (err: unknown) => {
+        if (token === setterToken.current) {
+          setSetter((s) => ({ ...s, busy: false, error: String(err) }));
+        }
+      },
+    );
+  }, []);
+
+  const pickDifficulty = useCallback((d: Difficulty) => {
+    const id = choice.current.current[d];
+    const kept = id ? generatedRouteById(id) ?? null : null;
+    choice.current = { ...choice.current, difficulty: d };
+    saveSetterChoice(choice.current);
+    if (kept) {
+      setterToken.current++;
+      setSetter({ difficulty: d, route: kept, busy: false, error: null });
+      prefetchRoute(d);
+    } else {
+      setSetter({ difficulty: d, route: null, busy: true, error: null });
+      rollRoute(d);
+    }
+  }, [rollRoute]);
+
+  // First visit to the board: set something to look at, and get the next one going.
+  const onBoard = screen.kind === 'board';
+  useEffect(() => {
+    if (!onBoard) return;
+    if (!setter.route && !setter.busy && !setter.error) rollRoute(setter.difficulty);
+    else if (setter.route) prefetchRoute(setter.difficulty);
+  }, [onBoard, setter.route, setter.busy, setter.error, setter.difficulty, rollRoute]);
 
   const startClimb = useCallback((route: Route, opts: { daily?: boolean }) => {
     const mode: AttemptMode = onsightAvailable(profile, route.id) ? 'onsight' : 'project';
@@ -127,6 +183,9 @@ export default function App() {
           onClimb={startClimb}
           onToggleProject={(id) => update((p) => toggleProject(p, id))}
           onStandings={() => setScreen({ kind: 'standings' })}
+          setter={setter}
+          onSetterPick={pickDifficulty}
+          onSetterReroll={() => rollRoute(setter.difficulty)}
         />
       );
 

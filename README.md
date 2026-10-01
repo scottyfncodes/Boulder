@@ -7,19 +7,22 @@ Fling. Stick. Send.
 You control four limbs, one at a time. Press one, pull it back like a
 slingshot, and let go. It flies, and then the rest of the body has to deal with
 whatever that was. Grab the hips and pull, and the whole body goes: a dyno,
-everything off the wall, one or two hands to catch it. Fourteen handcrafted
-routes from V0 to V7, five route setters with strong opinions and poor
-judgement, and a climber who is technically cooperating.
+everything off the wall, one or two hands to catch it. Seventeen handcrafted
+routes from V0 to V10, a route setter that will set you a new problem at any of
+five difficulties, five route setters with strong opinions and poor judgement,
+and a climber who is technically cooperating.
 
 ## Run it
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 188 tests, all logic, no DOM
+npm test           # all logic, no DOM
 npm run typecheck
 npm run build      # -> dist/, static, deploys anywhere as-is
 npm run gen:beta   # regenerates community betas after changing routes or the sim
+npm run show:routes              # prints generated routes as ASCII wall maps
+npm run show:routes -- brutal 5  # five of one difficulty
 
 # Needs a browser and a running dev server, so it is not part of npm test:
 npm run check:overlay   # asserts the 2D overlay agrees with the 3D scene
@@ -233,14 +236,86 @@ found, plus room for a human — and generates the alternative betas the send
 screen compares you against. It caught seven unclimbable routes and two real
 sim bugs during the build, which is most of why it exists.
 
+### The route setter
+
+`src/content/generator/` sets new problems on demand, at five difficulties —
+Easy, Moderate, Hard, Very Hard and Brutal. The point is that a harder route is
+a *different shape*, not the same ladder tipped back further: the question a
+hard route asks is "how does this want to be climbed?", not "can you hang on".
+
+**Archetypes.** A route is built from sections, each with a movement identity:
+*slab* (wandering, small holds, lots of feet), *zigzag* (repeated changes of
+direction; on hard routes it staircases across the wall), *traverse* (a hold
+rail running sideways, feet underneath), *roof* (in under it, out along pinches
+with the feet up high, then over the lip to a jug), *overhang* (big moves
+between good holds, feet every other move), *dihedral* (hands on opposing walls
+pulling in, feet stemmed wide), *crack* (a narrow split, everything pulled
+toward the middle), *arête* (hands on an edge, feet out on the face, swapping
+sides halfway) and *compression* (two lines of holds too wide to pull on —
+squeeze them). None of these labels are shown on the wall; the board just says
+which parts a route has.
+
+**Difficulty combines archetypes.** `difficulty.ts` is one table. Easy is one
+or two rising sections on jugs, no cruxes, nothing sideways. Moderate links two
+different sections, one of them a zigzag, traverse or arête. Hard
+links two or three, must include a traverse or roof, and always has one crux.
+Very Hard links three and must include a traverse *and* a roof or steep
+section. Brutal links four — traverse, zigzag, roof or steep, and something
+technical — with two cruxes, the last of them near the top. The same table
+sets zigzag widths, traverse lengths, how long the route may go sideways
+before it has to go up, hold shapes and hardness, foot density, and a modest
+pitch range; roofs and steep sections add a few degrees, and that is the only
+way pitch moves much.
+
+**Cruxes.** Not every move is hard. A crux is two or three moves inserted into
+the plan — a long *span* sideways off small holds, a *reversal* where the next
+hold is back the way you came, a *drop* down and across before you are allowed
+up, a *lunge* between bad holds, or a *squeeze* of three bad holds with almost
+nothing for the feet. The last crux goes 60–95% of the way through the route,
+and the move before it is a jug — a marked rest on the two hardest tiers — so
+you reach it thinking you have this.
+
+**The line crosses the wall once.** Hard routes start near one edge and drift
+toward the other; sideways sections share out the width that is left between
+them. On a wall this short, anything set above an earlier section is in reach
+of it, so a route that doubled back would just be climbed straight up the
+middle. Reversals are local and deliberate — they are cruxes.
+
+**Validation.** Every candidate is checked before anyone sees it, cheapest
+first: real data, nothing off the wall or overlapping, a start that stands,
+a finish at the top, no gap along the line longer than a limb; a shape that
+suits the tier (enough sideways travel and direction changes, not too wide,
+not too noisy); then the same headless climber that proves the hand-set
+routes go has to send it, *and* the send has to follow the route — touching
+nearly every section and covering most of the line's width — rather than
+finding a shortcut round it. Rejected candidates are thrown away and the next
+seed is tried; geometry is cheap, so up to 400 candidates, but only a handful
+get climbed, and every four failed climbs the setter backs the route off a
+notch (more feet, softer holds, smaller zigzags). Par comes from the send,
+tightened by dropping every move it can do without.
+
+**Determinism.** A generated route's id records the seed and notch that
+passed, plus its par, so the route can be rebuilt from the id alone without
+climbing it again — that is how records and the setter's "last route" survive
+a reload. Generation runs on worker threads (one for the route you asked for,
+one quietly setting the next one at the same difficulty, so *Set another* is
+usually instant).
+
+**Progression.** Generated routes are scored, kept in your records and show
+personal bests, but they never move your grade or open new rungs on the board
+— a route you can reroll until it suits you does not get to do that.
+
+**Camera.** Routes that use the whole wall would run off a phone screen, so
+the camera now follows the climber sideways as well as up, as far as the wall
+goes, and starts on the start holds.
+
 ## What is not built
 
 - **No backend.** Standings are local to the device and say so. The community
   betas are sequences the route-checker found, not lines real people took, and
   the send screen says that too. Both are shaped like what a server would send.
-- **No procedural generation.** The generator hook is there and the validator
-  it would need already exists, but handcrafted routes are the primary content
-  and generated ones would need to clear the same bar before shipping.
+- **No community betas for generated routes.** They are set on the device, so
+  there is nobody else's beta to compare against.
 - **One wall.** Routes name their wall, so more can be added without touching
   the sim.
 
@@ -256,4 +331,14 @@ src/game/feel.test.ts      flow streaks, the shout, and the introductory labels
 src/content/routes.test.ts every route: valid data, inside the wall, a start
                            that stands up, a finish near the top, actually
                            climbable, and a par a clean climb could hit
+src/content/generator/generator.test.ts
+                           generated routes at every difficulty, end to end:
+                           the same checks as the hand-set routes, an
+                           independent send, rebuilt identically from the id,
+                           deterministic per seed; and over hundreds of
+                           candidates per tier, that harder tiers go further
+                           sideways with more direction changes, combine more
+                           archetypes, get traverses, roofs and cruxes at the
+                           right tiers with the last crux late, vary from one
+                           route to the next, and never move your grade
 ```
