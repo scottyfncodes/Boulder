@@ -38,12 +38,13 @@ const rows = await page.evaluate(async () => {
   const scene = new WallScene(canvas);
   const out = [];
 
-  for (const id of ['warmup', 'full-send', 'grip-it']) {
+  // The camera follows wide routes sideways too, so check it looking off-centre.
+  for (const [id, focusX] of [['warmup', 0], ['full-send', 0], ['grip-it', 0], ['grip-it', 0.9]]) {
     const route = routeById(id);
     const deg = route.overhang ?? 0;
     scene.setRoute(route);
     scene.setOverhang((deg * Math.PI) / 180);
-    scene.setCamera({ focusY: 2.4, frame: 3.9, orbit: 0 });
+    scene.setCamera({ focusY: 2.4, focusX, frame: 3.9, orbit: 0 });
     scene.resize();
     scene.render();
 
@@ -65,7 +66,7 @@ const rows = await page.evaluate(async () => {
       const d = Math.hypot(actual.x - drawn.x, actual.y - drawn.y);
       if (d > worst) { worst = d; worstHold = hold.id; }
     }
-    out.push({ id, deg, count, worst, worstHold });
+    out.push({ id, deg, focusX, count, worst, worstHold });
   }
   return out;
 });
@@ -75,7 +76,7 @@ for (const r of rows) {
   const ok = r.worst <= TOLERANCE_PX;
   if (!ok) failed = true;
   const note = ok ? 'aligned' : `OFF by ${r.worst.toFixed(1)}px at hold #${r.worstHold}`;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(12)} pitch ${String(r.deg).padStart(2)}°  ${String(r.count).padStart(2)} holds  ${note}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(12)} pitch ${String(r.deg).padStart(2)}°  look ${r.focusX.toFixed(1)}m  ${String(r.count).padStart(2)} holds  ${note}`);
 }
 
 await browser.close();

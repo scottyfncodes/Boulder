@@ -7,6 +7,8 @@ import { type Profile, isUnlocked, projectStatus, recordFor, onsightAvailable } 
 import { attemptsRemaining, type DailyState } from '../game/daily';
 import { GRADE_COLOR } from '../render/palette';
 import { SLING_LAB } from '../content/lab';
+import type { Difficulty } from '../content/generator';
+import { RouteSetter, type SetterState } from './RouteSetter';
 import './routelist.css';
 import './sling.css';
 
@@ -24,10 +26,13 @@ export type RouteListProps = {
   onClimb: (route: Route, opts: { daily?: boolean }) => void;
   onToggleProject: (routeId: string) => void;
   onStandings: () => void;
+  setter: SetterState;
+  onSetterPick: (d: Difficulty) => void;
+  onSetterReroll: () => void;
 };
 
 export function RouteList({
-  profile, daily, onClimb, onToggleProject, onStandings,
+  profile, daily, onClimb, onToggleProject, onStandings, setter, onSetterPick, onSetterReroll,
 }: RouteListProps) {
   const [tab, setTab] = useState<'board' | 'projects'>('board');
 
@@ -92,6 +97,14 @@ export function RouteList({
           </div>
         </button>
       )}
+
+      <RouteSetter
+        state={setter}
+        profile={profile}
+        onPick={onSetterPick}
+        onReroll={onSetterReroll}
+        onClimb={(r) => onClimb(r, {})}
+      />
 
       <nav className="board__tabs">
         <button className={tab === 'board' ? 'is-on' : ''} onClick={() => setTab('board')}>

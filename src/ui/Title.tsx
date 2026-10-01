@@ -17,7 +17,7 @@ export function Title({
   onStandings: () => void;
 }) {
   const returning = profile.totalSends > 0 || profile.totalFalls > 0;
-  const sent = Object.values(profile.records).filter((r) => r.sent).length;
+  const sent = ROUTES.filter((r) => profile.records[r.id]?.sent).length;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
