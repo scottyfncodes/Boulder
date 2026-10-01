@@ -452,11 +452,43 @@ describe('the dyno', () => {
     const s = start();
     run(s, 0.5);
     const events: SlingEvent[] = [];
-    dyno(s, { dir: { x: 0.55, y: 0.83 }, power: 1 }, events);
+    const x = -0.7;
+    dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.8 }, events);
     run(s, 2.5, events);
     const held = LIMBS.filter((l) => s.limbs[l].phase === 'held');
     expect(held).toHaveLength(1);
     expect(s.fallen).toBe(false);
+  });
+
+  it('does not stop on fingertips: a scrappy catch rips off, and the preview says so', () => {
+    const s = start();
+    run(s, 0.5);
+    const x = -0.15;
+    const aim = { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.8 };
+    const guess = predictDyno(s, holds, aim);
+    expect(guess.caught).toHaveLength(0);
+    expect(guess.ripped.map((r) => r.holdId).sort()).toEqual([7, 8]);
+    const events: SlingEvent[] = [];
+    dyno(s, aim, events);
+    run(s, 3, events);
+    expect(kinds(events)).toContain('rip');
+    expect(kinds(events)).not.toContain('catch');
+    expect(s.fallen).toBe(true);
+  });
+
+  it('a hand only sticks a dyno with a good catch or better', () => {
+    for (const x of [-0.75, -0.7, -0.6, -0.25, 0, 0.05]) {
+      for (const power of [0.7, 0.8, 0.9, 1]) {
+        const s = start();
+        run(s, 0.5);
+        const events: SlingEvent[] = [];
+        dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power }, events);
+        run(s, 2.5, events);
+        for (const e of events) {
+          if (e.kind === 'catch' && e.dyno) expect(e.grade).not.toBe('SCRAPE');
+        }
+      }
+    }
   });
 
   it('draws back against the limbs on the wall, and lets go from there', () => {

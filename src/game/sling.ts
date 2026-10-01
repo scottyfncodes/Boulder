@@ -194,6 +194,8 @@ export type SlingEvent =
   | { kind: 'place'; limb: LimbId; holdId: number; at: Vec2 }
   | { kind: 'catch'; limb: LimbId; holdId: number; at: Vec2; grade: Exclude<MoveGrade, 'MISS' | 'YEET'>; seat: number; zone: string; speed: number; dyno: boolean }
   | { kind: 'miss'; limb: LimbId; at: Vec2; reason: string }
+  /** A dyno hand got fingertips on a hold and could not stop the body with them. */
+  | { kind: 'rip'; limb: LimbId; holdId: number; at: Vec2; reason: string }
   | { kind: 'slip'; limb: LimbId; holdId: number | null; reason: string }
   /** The last thing holding on let go. The climber is airborne. */
   | { kind: 'off'; at: Vec2 }
@@ -553,7 +555,9 @@ export function dynoSpeed(power: number): number {
  * flies. The hands lead, reaching for whatever is up there, and either one
  * of them finds a hold on the way past or the mat finds the climber. There
  * is no partial credit: it is the most committing move on the wall and it
- * should feel like it.
+ * should feel like it. A hand has to land it GOOD or better to hold the body
+ * — fingertips at that speed rip straight off. Whether the climber has earned
+ * a dyno at all is the meter's business (`juice.ts`), not the body's.
  */
 export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = []): boolean {
   if (!canDyno(state)) return false;
@@ -1116,6 +1120,20 @@ export function stepSling(
       // moving limb, and some of the precision goes into that instead.
       const seat = clamp01(raw * (1 - 0.22 * clamp01((speed - 2.6) / 3)));
       const grade = gradeOfSeat(seat);
+      if (state.dyno && grade === 'SCRAPE') {
+        // A whole body arriving at speed does not stop on fingertips. The hand
+        // skids off the hold and keeps going; the other one had better be good.
+        l.phase = 'free';
+        l.leftHoldId = caught.hold.id;
+        l.touch = null;
+        l.flightT = 0;
+        l.vel = { x: l.vel.x * 0.35, y: l.vel.y * 0.35 };
+        events.push({
+          kind: 'rip', limb: id, holdId: caught.hold.id, at: { ...caught.at },
+          reason: `Fingertips on ${zone}. Not enough to stop a dyno.`,
+        });
+        continue;
+      }
       l.phase = 'held';
       l.holdId = caught.hold.id;
       l.onFloor = false;
@@ -1359,6 +1377,8 @@ export type DynoPrediction = {
   path: Vec2[];
   /** Hands that find something, in the order they do. */
   caught: { limb: LimbId; holdId: number; at: Vec2; grade: Exclude<MoveGrade, 'MISS' | 'YEET'> }[];
+  /** Hands that get fingertips on something and rip straight off it. */
+  ripped: { limb: LimbId; holdId: number; at: Vec2 }[];
   /** Where the hands end up if nothing is caught. */
   hands: Vec2;
 };
@@ -1371,11 +1391,12 @@ export function predictDyno(
   const events: SlingEvent[] = [];
   const path: Vec2[] = [];
   const caught: DynoPrediction['caught'] = [];
+  const ripped: DynoPrediction['ripped'] = [];
   const hands = () => ({
     x: (ghost.limbs.LH.pos.x + ghost.limbs.RH.pos.x) / 2,
     y: (ghost.limbs.LH.pos.y + ghost.limbs.RH.pos.y) / 2,
   });
-  if (!dyno(ghost, aim, events)) return { path, caught, hands: hands() };
+  if (!dyno(ghost, aim, events)) return { path, caught, ripped, hands: hands() };
   const steps = Math.round(seconds / SLING.dt);
   for (let i = 0; i < steps; i++) {
     events.length = 0;
@@ -1383,11 +1404,12 @@ export function predictDyno(
     path.push({ ...ghost.hip });
     for (const e of events) {
       if (e.kind === 'catch') caught.push({ limb: e.limb, holdId: e.holdId, at: e.at, grade: e.grade });
+      if (e.kind === 'rip') ripped.push({ limb: e.limb, holdId: e.holdId, at: e.at });
     }
     const flying = LIMBS.some((id) => isHand(id) && ghost.limbs[id].phase === 'flying');
     if (!flying || ghost.fallen) break;
   }
-  return { path, caught, hands: hands() };
+  return { path, caught, ripped, hands: hands() };
 }
 
 /** Holds a limb could plausibly be thrown at from here: within the tether, usable, not taken. */

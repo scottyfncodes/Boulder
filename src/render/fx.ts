@@ -107,6 +107,50 @@ export class Fx {
     }
   }
 
+  /**
+   * The dyno landing: rings going out like a shockwave, a ring of hot sparks,
+   * and a cloud of chalk. Bigger than anything else on the wall, on purpose.
+   */
+  shockwave(at: Vec2, color: string, power = 1): void {
+    for (let i = 0; i < 4; i++) {
+      this.parts.push({
+        kind: 'ring', x: at.x, y: at.y, z: HOLD_Z + 0.05, vx: 0, vy: 0,
+        age: -i * 0.07, life: 0.55 + i * 0.1, size: (0.35 + i * 0.28) * power,
+        color: i % 2 ? '#ffffff' : color, spin: 0, rot: 0,
+      });
+    }
+    const n = Math.round(22 * power);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.2;
+      const s = (2.6 + Math.random() * 2.6) * power;
+      this.parts.push({
+        kind: 'spark', x: at.x, y: at.y, z: HOLD_Z + 0.06,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s + 0.8,
+        age: 0, life: 0.45 + Math.random() * 0.35,
+        size: 2.6 + Math.random() * 1.6, color: i % 3 === 0 ? '#ffffff' : color, spin: 0, rot: 0,
+      });
+    }
+    this.chalk(at, 2.2 * power);
+  }
+
+  /** The launch: chalk blown off every hold at once, and a ring under the body. */
+  launch(at: Vec2, holds: Vec2[]): void {
+    for (const h of holds) this.chalk(h, 1.1, 'rgba(255,255,255,0.8)');
+    this.parts.push({
+      kind: 'ring', x: at.x, y: at.y, z: HOLD_Z + 0.2, vx: 0, vy: 0,
+      age: 0, life: 0.45, size: 0.7, color: '#ff8f3c', spin: 0, rot: 0,
+    });
+  }
+
+  /** Embers peeling off a body in flight: speed you can see. */
+  ember(at: Vec2, vel: Vec2, color: string): void {
+    this.parts.push({
+      kind: 'spark', x: at.x + (Math.random() - 0.5) * 0.12, y: at.y + (Math.random() - 0.5) * 0.12, z: 0.3,
+      vx: -vel.x * 0.35 + (Math.random() - 0.5) * 0.4, vy: -vel.y * 0.35 + (Math.random() - 0.5) * 0.4,
+      age: 0, life: 0.25 + Math.random() * 0.2, size: 1.6 + Math.random() * 1.8, color, spin: 0, rot: 0,
+    });
+  }
+
   kick(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
   }

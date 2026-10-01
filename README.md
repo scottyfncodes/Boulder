@@ -56,12 +56,22 @@ degrees off, a little short — is steered onto it, and the arc and the ringed
 hold show that before you let go. The miss that was there stays in where on
 the hold it lands. Anything further off flies where you pulled.
 
-**The dyno.** Press the belly, pull, let go. The body is the stone and every
-limb on the wall is a band: it draws back against them, only as far as they
-stretch, and fires from there. Everything leaves the wall at once
-and the whole body is the thing that flies; the hands lead and either one of
-them catches something on the way past or the mat catches the climber. The
-preview shows the body's arc and says whether it will be one hand or both.
+**The dyno.** It is earned. Every limb that sticks puts juice in the dyno
+meter — a PERFECT about a quarter of the tank, a GOOD a sixth, a scrape next
+to nothing, and a flow streak pays extra — and every whiff, slip and pump-out
+drains it. Fill it and the belly lights up and breathes: the dyno is live.
+Press the belly, pull, let go. The body is the stone and every limb on the
+wall is a band: it draws back against them, only as far as they stretch, and
+fires from there. Firing spends the whole tank, whatever happens next.
+Everything leaves the wall at once and the whole body is the thing that flies;
+the clock drops into bullet time over the top of the arc, embers peel off the
+body, and the hands either catch something or the mat catches the climber.
+It has to be precise: a hand needs a GOOD catch or better to stop a body at
+that speed, and fingertips rip straight off. The preview shows the body's
+arc and marks every hold as STICKS, STICKS CLEAN or RIPS before you let go.
+Stick it and the wall shakes, a shockwave goes out and the screen says so;
+stick it dead centre and some of the juice comes back for style. The
+practice wall's dynos are free.
 
 **Putting a limb back.** A limb that is dangling can be tapped, and then a
 hold in reach can be tapped, and it goes straight on — a sound placement, never
@@ -324,8 +334,11 @@ goes, and starts on the start holds.
 ```
 src/game/sling.test.ts     the body: picking limbs, the pull, launches, dynos,
                            putting limbs back, catching, missing, slipping,
-                           swinging, rotating, falling, the honest preview, and
-                           that nothing drains
+                           swinging, rotating, falling, the honest preview,
+                           dynos that rip off on fingertips, and that nothing
+                           drains
+src/game/juice.test.ts     the dyno meter: earned by clean sticks, drained by
+                           whiffs, fired only when full, emptied by firing
 src/game/sim.test.ts       the validator's static solver and move resolution
 src/game/feel.test.ts      flow streaks, the shout, and the introductory labels
 src/content/routes.test.ts every route: valid data, inside the wall, a start

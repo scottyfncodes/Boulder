@@ -14,6 +14,9 @@ import {
   routeDrain, spend,
 } from '../game/endurance';
 import { flowStreak } from '../game/scoring';
+import {
+  type Juice, freshJuice, isFull, juiceWord, onDynoStuck, onMiss, onPumped, onSlip, onStick, spendDyno,
+} from '../game/juice';
 import { WallScene, DEFAULT_CAMERA, FRAME_MAX, FRAME_MIN, ORBIT_LIMIT } from '../render/scene';
 import type { Mood } from '../render/climber';
 import { LIMB_TOUCH_RADIUS, SHOUT_MS, introAlpha, shoutText } from '../render/overlay';
@@ -24,6 +27,7 @@ import { Fx } from '../render/fx';
 import {
   buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
   sfxSnap, sfxStretch, sfxThrow, sfxThud, unlockAudio,
+  sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice, sfxRip,
 } from '../render/sfx';
 import { setterOf } from '../content/setters';
 import { isLabRoute } from '../content/lab';
@@ -48,7 +52,15 @@ function maxDragPx(w: number, h: number): number {
 }
 
 /** How long a catch holds the world still: a scrape, a good one, a perfect one, a dyno. */
-const HIT_STOP: Record<string, number> = { SCRAPE: 0, GOOD: 40, PERFECT: 70, DYNO: 90 };
+const HIT_STOP: Record<string, number> = { SCRAPE: 0, GOOD: 40, PERFECT: 70, DYNO: 220 };
+/**
+ * Bullet time. A dyno in flight runs slower than the clock — slowest over the
+ * top of the arc, where the hands are deciding — so the most committing move
+ * on the wall is also the one you get to watch. Only the clock is stretched;
+ * the sim steps exactly as it always does.
+ */
+const DYNO_TIME = 0.62;
+const DYNO_APEX_TIME = 0.28;
 /** How long the band takes to go slack after a release. */
 const SNAP_MS = 110;
 /** How long a held-still aim reuses its assisted arc before working it out again. */
@@ -167,6 +179,18 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   const pumpRef = useRef<HTMLSpanElement>(null);
   const vignetteRef = useRef<HTMLDivElement>(null);
   const heartRef = useRef(0);
+  // The dyno meter. Earned by sticking moves, spent all at once.
+  const juiceRef = useRef<Juice>(freshJuice(lab0));
+  const juiceBarRef = useRef<HTMLDivElement>(null);
+  const juiceWordRef = useRef<HTMLSpanElement>(null);
+  const juiceBoxRef = useRef<HTMLDivElement>(null);
+  const dynoTimeRef = useRef<HTMLDivElement>(null);
+  /** How fast the clock is running, 1 = real time. Eased, never snapped. */
+  const timeScaleRef = useRef(1);
+  /** Extra camera frame on top of the player's zoom: a punch out on launch, in on the catch. */
+  const framePunchRef = useRef(0);
+  /** When a dyno last stuck. The other hand landing just after belongs to the same move. */
+  const dynoCaughtAtRef = useRef(-Infinity);
 
   phaseRef.current = phase;
   selectedRef.current = selected;
@@ -181,6 +205,30 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     window.clearTimeout(flashTimer.current);
     flashTimer.current = window.setTimeout(() => setFlash(null), ms);
   }, []);
+
+  /** Moves the meter, and makes a moment of it when it tops out. */
+  const setJuice = useCallback((next: Juice) => {
+    const before = juiceRef.current;
+    juiceRef.current = lab0 ? freshJuice(true) : next;
+    const after = juiceRef.current;
+    const box = juiceBoxRef.current;
+    if (after.level > before.level + 1e-6) {
+      sfxJuice(after.level);
+      if (box) {
+        box.classList.remove('is-bump');
+        void box.offsetWidth;
+        box.classList.add('is-bump');
+      }
+    }
+    if (isFull(after) && !isFull(before)) {
+      sfxDynoReady();
+      buzz([10, 30, 10, 30, 40]);
+      fxRef.current.kick(0.15);
+      window.setTimeout(() => say('DYNO READY', 'The belly is live. Make it count.', 1700), 320);
+    }
+    box?.classList.toggle('is-ready', isFull(after));
+    bump((n) => n + 1);
+  }, [lab0, say]);
 
   // --- scene lifecycle ---------------------------------------------------
 
@@ -254,11 +302,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           break;
         }
         case 'dyno': {
-          sfxThrow(1);
-          buzz([10, 20, 30]);
+          sfxDynoLaunch(e.power);
+          buzz([10, 20, 40]);
           enduranceRef.current = spend(enduranceRef.current, DYNO_COST).endurance;
-          fx.kick(0.25);
-          fx.chalk(e.from, 0.8, 'rgba(255,255,255,0.7)');
+          fx.kick(0.45);
+          fx.launch(e.from, []);
+          framePunchRef.current = 0.7;
           movesRef.current.push({
             dyno: true, limb: 'RH', holdId: null, grade: 'MISS',
             aim: { limb: 'RH', dir: { x: 0, y: 1 }, power: e.power },
@@ -269,7 +318,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           trailsRef.current.LH = [];
           trailsRef.current.RH = [];
           setLaunches(movesRef.current.length);
-          say('DYNO', 'Everything off. Go.', 900);
+          say('DYNO', 'Everything off. Stick it.', 900);
           break;
         }
         case 'place': {
@@ -299,29 +348,54 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           const streakNow = flowStreak(movesRef.current);
           setStreak(streakNow);
           sfxGrab(e.grade, streakNow);
+          // The juice. A dyno's own catch is paid back by the dyno; the second
+          // hand arriving after it is part of the same move, not a new one.
+          const secondHand = !e.dyno && now - dynoCaughtAtRef.current < 800;
+          if (e.dyno) {
+            dynoCaughtAtRef.current = now;
+            setJuice(onDynoStuck(juiceRef.current, e.grade));
+          } else if (!secondHand) {
+            setJuice(onStick(juiceRef.current, e.grade, streakNow));
+          }
           fx.chalk(e.at, e.grade === 'PERFECT' ? 1.3 : e.grade === 'GOOD' ? 0.9 : 0.6);
           const last = lastLimbsRef.current?.[e.limb];
           if (last) settleRef.current[e.limb] = { from: { ...last }, start: now };
-          if (e.grade === 'PERFECT' || e.dyno) {
-            fx.perfect(e.at, e.dyno ? '#ff8f3c' : '#6ef2b4');
-            fx.kick(e.dyno ? 0.35 : 0.2);
-            buzz(e.dyno ? [14, 10, 24] : 12);
+          if (e.dyno) {
+            // The biggest thing that happens on the wall short of the top.
+            const clean = e.grade === 'PERFECT';
+            fx.shockwave(e.at, clean ? '#ffd75e' : '#ff8f3c', clean ? 1.25 : 1);
+            if (clean) fx.confetti(e.at);
+            fx.kick(clean ? 0.85 : 0.7);
+            sfxDynoStick(clean);
+            buzz([30, 15, 60]);
+            framePunchRef.current = -0.55;
+            timeScaleRef.current = 1;
+          } else if (e.grade === 'PERFECT') {
+            fx.perfect(e.at, '#6ef2b4');
+            fx.kick(0.2);
+            buzz(12);
           } else {
             fx.kick(e.grade === 'GOOD' ? 0.1 : 0.15);
             buzz(8);
           }
           freezeRef.current = now + (e.dyno ? HIT_STOP.DYNO : HIT_STOP[e.grade]);
           const zone = e.zone;
-          if (e.dyno) say('STUCK', `Caught ${zone}. Hold on.`);
-          else say(e.grade,
-            e.grade === 'PERFECT' ? `Right on ${zone}.`
-            : e.grade === 'GOOD' ? `Got ${zone}.`
-            : `${zone.charAt(0).toUpperCase()}${zone.slice(1)}, barely.`);
+          if (e.dyno) {
+            say(e.grade === 'PERFECT' ? 'STUCK IT' : 'STUCK',
+              e.grade === 'PERFECT' ? `Dead centre of ${zone}. Some juice back for style.` : `Caught ${zone}. Hold on.`, 2000);
+          } else if (!secondHand) {
+            // (The second hand of a dyno that already stuck leaves the banner to the first.)
+            say(e.grade,
+              e.grade === 'PERFECT' ? `Right on ${zone}.`
+              : e.grade === 'GOOD' ? `Got ${zone}.`
+              : `${zone.charAt(0).toUpperCase()}${zone.slice(1)}, barely.`);
+          }
           break;
         }
         case 'miss': {
           delete pendingRef.current[e.limb];
           setStreak(0);
+          setJuice(onMiss(juiceRef.current));
           sfxSlip();
           fx.chalk(e.at, 0.4, 'rgba(255,255,255,0.6)');
           fx.kick(0.1);
@@ -330,8 +404,20 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           say('MISS', e.reason);
           break;
         }
+        case 'rip': {
+          setStreak(0);
+          sfxRip();
+          fx.chalk(e.at, 1.4, 'rgba(255,255,255,0.8)');
+          fx.perfect(e.at, '#e8564f');
+          fx.kick(0.4);
+          buzz([40, 20, 40]);
+          reasonRef.current = e.reason;
+          say('RIPPED', e.reason, 1600);
+          break;
+        }
         case 'slip': {
           setStreak(0);
+          setJuice(onSlip(juiceRef.current));
           sfxSlip();
           fx.kick(0.2);
           buzz([20, 20, 20]);
@@ -341,6 +427,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         }
         case 'pumped': {
           sfxSlip();
+          setJuice(onPumped(juiceRef.current));
           buzz([30, 20, 30, 20, 60]);
           fx.kick(0.25);
           reasonRef.current = 'Pumped stupid. Arms opened on their own.';
@@ -373,7 +460,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         }
       }
     }
-  }, [say, startShout]);
+  }, [say, startShout, setJuice]);
 
   const celebrate = useCallback((now: number) => {
     const sim = simRef.current;
@@ -411,8 +498,16 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
       // The sim runs on a fixed step, however the frames come. It keeps
       // running after a fall — that is the fall — and stops when it is over.
+      // Bullet time while a dyno is in the air, slowest over the top.
+      {
+        const want = sim.dyno ? (Math.abs(sim.hipV.y) < 1.4 ? DYNO_APEX_TIME : DYNO_TIME) : 1;
+        timeScaleRef.current += (want - timeScaleRef.current) * (want < timeScaleRef.current ? 0.25 : 0.12);
+        if (dynoTimeRef.current) {
+          dynoTimeRef.current.style.opacity = String(clamp((1 - timeScaleRef.current) / 0.72, 0, 1));
+        }
+      }
       if ((ph === 'climbing' || ph === 'fallen') && now >= freezeRef.current) {
-        accRef.current += dt / 1000;
+        accRef.current += (dt / 1000) * timeScaleRef.current;
         const events: SlingEvent[] = [];
         let steps = 0;
         while (accRef.current >= SLING.dt && steps < 12) {
@@ -459,6 +554,22 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         if (low > 0 && now >= heartRef.current) {
           sfxHeartbeat(low);
           heartRef.current = now + 1100 - low * 620;
+        }
+      }
+
+      // The dyno meter.
+      {
+        const j = juiceRef.current.level;
+        if (juiceBarRef.current) juiceBarRef.current.style.transform = `scaleX(${j})`;
+        if (juiceWordRef.current) juiceWordRef.current.textContent = lab ? 'free here' : juiceWord(j);
+      }
+      // Embers off a body in flight.
+      if (sim.dyno && dt > 0) {
+        const hot = timeScaleRef.current < 0.5 ? '#ffd75e' : '#ff8f3c';
+        fxRef.current.ember(sim.hip, sim.hipV, hot);
+        for (const id of ['LH', 'RH'] as LimbId[]) {
+          const l = sim.limbs[id];
+          if (l.phase === 'flying') fxRef.current.ember(l.pos, l.vel, '#ffffff');
         }
       }
 
@@ -510,7 +621,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           : '';
       }
 
-      scene.setCamera(cam);
+      // The punch: out on the launch, in on the catch, and drawn in a little
+      // while the belly is wound back — the camera leaning in to watch.
+      framePunchRef.current *= Math.exp(-dt / 260);
+      const windIn = selectedRef.current === 'BODY' && dynoWindRef.current ? -0.35 * Math.min(1, Math.hypot(dynoWindRef.current.x, dynoWindRef.current.y) / SLING.dynoWindup) : 0;
+      scene.setCamera({ ...cam, frame: clamp(cam.frame + framePunchRef.current + windIn, FRAME_MIN, FRAME_MAX) });
 
       // --- overlay ---
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -565,7 +680,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
           // The ratchet: a creak every notch the band is drawn back.
           const notch = pulling ? Math.floor(aim.power * NOTCHES) : 0;
-          if (notch > notchRef.current) { sfxStretch(aim.power); buzz(3); }
+          if (notch > notchRef.current) {
+            sfxStretch(aim.power);
+            if (body) sfxDynoWind(aim.power);
+            buzz(body ? 6 : 3);
+          }
           notchRef.current = notch;
 
           // Aim assist runs the throw forward a few times; while the finger holds
@@ -647,7 +766,9 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           core: coreOf(pose.hip, pose.shoulder),
           selected: sel,
           launchable,
-          canDyno: canDyno(sim),
+          canDyno: canDyno(sim) && isFull(juiceRef.current),
+          dynoCharge: juiceRef.current.level,
+          now,
           pull,
           snap,
           trails: trailsRef.current,
@@ -685,7 +806,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     let best: Selection | null = null;
     let bestD = LIMB_TOUCH_RADIUS;
     const consider = (sel: Selection, at: Vec2, z: number) => {
-      if (sel === 'BODY' ? !canDyno(sim) : !canLaunch(sim, sel)) return;
+      if (sel === 'BODY' ? !(canDyno(sim) && isFull(juiceRef.current)) : !canLaunch(sim, sel)) return;
       const p = scene.project(at, z);
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < bestD) { best = sel; bestD = d; }
@@ -801,9 +922,18 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         return { anchor: { ...sim.limbs[id].pos }, from: anchorFor(id, hip, shoulder), limb: id, follow: 'joint' as const };
       })
       : [];
+    const spent = sel === 'BODY' ? spendDyno(juiceRef.current) : null;
+    if (sel === 'BODY' && !spent) return;
+    const handsBefore = sel === 'BODY'
+      ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => ({ ...sim.limbs[id].pos }))
+      : [];
     const went = sel === 'BODY'
       ? dyno(sim, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, events)
       : launch(sim, aim, events);
+    if (went && spent) {
+      setJuice(spent);
+      fxRef.current.launch(sim.hip, handsBefore);
+    }
     if (went) {
       if (sel !== 'BODY' && wind) {
         const pose = poseOf(sim);
@@ -825,7 +955,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       selectedRef.current = null;
       followRef.current = true;
     }
-  }, [handleEvents, route]);
+  }, [handleEvents, route, setJuice]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     camRef.current.frame = clamp(camRef.current.frame + e.deltaY * 0.0035, FRAME_MIN, FRAME_MAX);
@@ -848,7 +978,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       };
       const pick = map[e.key];
       const sim = simRef.current;
-      if (pick && (pick === 'BODY' ? canDyno(sim) : canLaunch(sim, pick))) {
+      if (pick && (pick === 'BODY' ? canDyno(sim) && isFull(juiceRef.current) : canLaunch(sim, pick))) {
         setSelected((cur) => (cur === pick ? null : pick));
       }
       if (e.key === 'Escape') setSelected(null);
@@ -890,6 +1020,10 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     reasonRef.current = null;
     shoutRef.current = null;
     enduranceRef.current = freshEndurance(lab0 ? capacity * 2.5 : capacity);
+    juiceRef.current = freshJuice(lab0);
+    juiceBoxRef.current?.classList.toggle('is-ready', lab0);
+    timeScaleRef.current = 1;
+    framePunchRef.current = 0;
     setLaunches(0);
     setStreak(0);
     setSelected(null);
@@ -917,7 +1051,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     }
     if (selected) return `Pull ${LIMB_LABEL[selected].toLowerCase()} back and let go.`;
     if (heldCount(sim) === 0) return 'Airborne. Fling something at the wall.';
-    return 'Press a limb, pull it back, let go. Grab the belly to dyno.';
+    if (isFull(juiceRef.current)) return 'Dyno ready. Grab the belly, pull, and stick it — fingertips will not hold.';
+    return 'Press a limb, pull it back, let go. Clean sticks charge the dyno.';
   })();
 
   return (
@@ -935,6 +1070,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         />
       </div>
       <div className="climb__vignette" ref={vignetteRef} />
+      <div className="climb__dynotime" ref={dynoTimeRef} />
 
       <header className="climb__top">
         <button className="climb__back" onClick={onExit} aria-label="Back to routes">←</button>
@@ -964,6 +1100,16 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           <div className="stamina__track">
             <div className="stamina__fill" ref={baseBarRef} />
           </div>
+          <div className={`juice${lab ? ' is-ready' : ''}`} ref={juiceBoxRef}>
+            <div className="stamina__row">
+              <span className="stamina__label juice__label">Dyno</span>
+              <span className="stamina__word juice__word" ref={juiceWordRef}>empty</span>
+            </div>
+            <div className="juice__track">
+              <div className="juice__fill" ref={juiceBarRef} />
+              {[0.25, 0.5, 0.75].map((t) => <i key={t} style={{ left: `${t * 100}%` }} />)}
+            </div>
+          </div>
         </div>
       )}
 
@@ -990,7 +1136,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       )}
 
       {flash && (
-        <div className={`flash flash--${flash.grade.toLowerCase()}`} key={`${launches}-${flash.grade}-${flash.reason}`}>
+        <div className={`flash flash--${flash.grade.toLowerCase().replace(/ /g, '-')}`} key={`${launches}-${flash.grade}-${flash.reason}`}>
           <div className="flash__grade">{flash.grade}</div>
           <div className="flash__reason">{flash.reason}</div>
         </div>
@@ -1001,7 +1147,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           <div className="inspect__hint">
             <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot (or
             its shoulder, its hip, or the hold it is on), pull it back, let go. Grab the belly and
-            pull to dyno the whole body. Tap a dangling limb,
+            pull to dyno the whole body — once you have earned it: every clean stick fills the
+            dyno meter, every whiff drains it, and a dyno spends the lot. Tap a dangling limb,
             then a hold, to put it back on. The pump runs from the moment you pull on: hanging on
             your arms burns it, standing on your feet barely does.
           </div>
