@@ -1,6 +1,6 @@
 import type { Contact, Hold, LimbId, MoveGrade, Pose, Vec2 } from './types';
 import { LIMBS, isHand } from './types';
-import { BODY, OVERREACH, anchorFor, analyseStance, footShare, seedPoseFor } from './body';
+import { BODY, anchorFor, analyseStance, footShare, seedPoseFor } from './body';
 import {
   affinityFactor, canShare, canUse, contactRadius, profileOf, worldZones,
 } from './holds';
@@ -41,6 +41,15 @@ export const SLING = {
    */
   flyMassHand: 0.5,
   flyMassFoot: 0.62,
+  /**
+   * How far a thrown limb can get from its shoulder or hip before the tether
+   * goes taut, as a multiple of the limb's length. A thrown arm is the whole
+   * climber reaching — shoulder out, side long, on tiptoe — so it goes past
+   * the arm's own length. The route checker plays with the shorter, static
+   * reach in body.ts, so every route stays climbable with room to spare.
+   */
+  armReach: 1.24,
+  legReach: 1.27,
   /** Launch speed at full pull, metres per second. */
   maxSpeedHand: 4.6,
   maxSpeedFoot: 4.2,
@@ -116,9 +125,9 @@ export const SLING = {
 /** Where a leg stands: the length it pushes out to when there is a foot below the hip. */
 const LEG_STAND = BODY.leg * 0.9;
 const LEG_MIN = BODY.leg * 0.2;
-const LEG_MAX = BODY.leg * 1.15;
+const LEG_MAX = BODY.leg * SLING.legReach;
 const ARM_MIN = BODY.arm * 0.08;
-const ARM_MAX = BODY.arm * OVERREACH;
+const ARM_MAX = BODY.arm * SLING.armReach;
 /** Arm length the lock-off pulls toward. */
 const ARM_LOCK = BODY.arm * 0.62;
 
