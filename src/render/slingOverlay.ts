@@ -66,6 +66,10 @@ export type SlingOverlayInput = {
   launchable: Set<LimbId>;
   /** Whether the hips can be pulled: something to jump off. */
   canDyno: boolean;
+  /** The dyno meter, 0..1. The belly shows it filling; full is when it lights up. */
+  dynoCharge: number;
+  /** Frame time, ms, for the things that pulse. */
+  now: number;
   pull: PullView | null;
   snap: SnapView | null;
   /** Recent positions of limbs in flight, oldest first. */
@@ -269,6 +273,23 @@ function drawDynoPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
   }
   ctx.restore();
 
+  // Fingertips: the hand gets there and rips off. Shown, because the preview
+  // never lies — the precision is in letting go where it says STICKS.
+  for (const rip of p.ripped) {
+    const at = scene.project(rip.at, HOLD_Z);
+    ctx.save();
+    ctx.strokeStyle = '#e8564f';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(at.x - 8, at.y - 8); ctx.lineTo(at.x + 8, at.y + 8);
+    ctx.moveTo(at.x + 8, at.y - 8); ctx.lineTo(at.x - 8, at.y + 8);
+    ctx.stroke();
+    ctx.font = '800 11px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#e8564f';
+    ctx.fillText('RIPS', at.x, at.y + 22);
+    ctx.restore();
+  }
   if (p.caught.length) {
     for (const c of p.caught) drawEndMarker(ctx, scene.project(c.at, HOLD_Z), true);
     const first = scene.project(p.caught[0].at, HOLD_Z);
@@ -276,9 +297,10 @@ function drawDynoPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
     ctx.font = '800 12px ui-sans-serif, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = AIM_TARGET;
-    ctx.fillText(p.caught.length === 2 ? 'BOTH HANDS' : 'ONE HAND', first.x, first.y - 20);
+    const how = p.caught[0].grade === 'PERFECT' ? 'STICKS CLEAN' : 'STICKS';
+    ctx.fillText(`${how} · ${p.caught.length === 2 ? 'BOTH HANDS' : 'ONE HAND'}`, first.x, first.y - 20);
     ctx.restore();
-  } else {
+  } else if (!p.ripped.length) {
     drawEndMarker(ctx, scene.project(p.hands, HAND_Z), false);
   }
 }
@@ -412,27 +434,51 @@ function drawPips(input: SlingOverlayInput): void {
 
 /** The belly: grab it to dyno. Named while the introduction lasts, and when picked. */
 function drawBodyPip(input: SlingOverlayInput): void {
-  const { ctx, scene, selected, pull, canDyno } = input;
+  const { ctx, scene, selected, pull, canDyno, dynoCharge, now } = input;
   if (pull && pull.limb === 'BODY' && pull.power > 0) return;
   const p = scene.project(input.core, TORSO_Z);
   if (!p.visible) return;
   const isSel = selected === 'BODY';
+  const live = canDyno;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 140);
 
   ctx.save();
-  ctx.globalAlpha = canDyno ? 1 : 0.3;
+  if (live) {
+    // Live: it glows and it breathes, so nobody can miss that it is on.
+    const glow = ctx.createRadialGradient(p.x, p.y, 10, p.x, p.y, 48 + pulse * 10);
+    glow.addColorStop(0, 'rgba(255,143,60,0.55)');
+    glow.addColorStop(1, 'rgba(255,143,60,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 58 + pulse * 10, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = live ? 1 : 0.42;
+  const r = isSel ? 27 : live ? 24 + pulse * 3 : 21;
   ctx.beginPath();
-  ctx.arc(p.x, p.y, isSel ? 27 : 23, 0, Math.PI * 2);
-  ctx.fillStyle = isSel ? AIM_HOT : 'rgba(18,20,26,0.62)';
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = isSel ? AIM_HOT : live ? '#ff8f3c' : 'rgba(18,20,26,0.62)';
   ctx.fill();
   ctx.lineWidth = isSel ? 3 : 2;
-  ctx.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.7)';
+  ctx.strokeStyle = isSel || live ? '#fff' : 'rgba(255,255,255,0.45)';
   ctx.stroke();
-  const nameAlpha = isSel ? 1 : Math.max(input.intro, 0.55);
+  if (!live && dynoCharge > 0.001) {
+    // Charging: the meter, wrapped round the belly.
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = '#ff8f3c';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, dynoCharge));
+    ctx.stroke();
+    ctx.globalAlpha = 0.42;
+  }
+  const nameAlpha = isSel || live ? 1 : Math.max(input.intro, 0.55);
   ctx.globalAlpha *= nameAlpha;
-  ctx.fillStyle = isSel ? '#11141a' : '#fff';
-  ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillStyle = isSel || live ? '#11141a' : '#fff';
+  ctx.font = `${live ? 900 : 700} ${live ? 12 : 11}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('DYNO', p.x, p.y + 0.5);
+  ctx.fillText(live ? 'DYNO!' : 'DYNO', p.x, p.y + 0.5);
   ctx.restore();
 }

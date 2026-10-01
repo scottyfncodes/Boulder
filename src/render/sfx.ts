@@ -234,3 +234,61 @@ export function sfxTap(): void {
   const c = ready(); if (!c) return;
   tone(c, 'sine', 880, { attack: 0.002, release: 0.05, peak: 0.08 }, 660);
 }
+
+// --- the dyno --------------------------------------------------------------
+
+/** Juice going into the tank: a small blip that climbs with the level. */
+export function sfxJuice(level: number): void {
+  const c = ready(); if (!c) return;
+  tone(c, 'sine', 330 + level * 520, { attack: 0.004, release: 0.09, peak: 0.06 }, 420 + level * 640);
+}
+
+/** The tank is full. A rising arpeggio and a shimmer: the belly is live. */
+export function sfxDynoReady(): void {
+  const c = ready(); if (!c) return;
+  [0, 4, 7, 12, 16].forEach((st, i) => {
+    const f = 261.63 * 2 ** (st / 12);
+    tone(c, 'sawtooth', f, { at: i * 0.055, attack: 0.004, release: 0.18, peak: 0.05 });
+    tone(c, 'triangle', f * 2, { at: i * 0.055, attack: 0.004, release: 0.22, peak: 0.09 });
+  });
+  noise(c, 'highpass', 6000, 0.6, { at: 0.2, attack: 0.05, release: 0.6, peak: 0.07 });
+}
+
+/** Wound back on the belly, at full pull: a held, rising hum. */
+export function sfxDynoWind(power: number): void {
+  const c = ready(); if (!c) return;
+  tone(c, 'sawtooth', 55 + power * 55, { attack: 0.01, release: 0.12, peak: 0.04 + power * 0.05 }, 70 + power * 80);
+}
+
+/** Everything leaves the wall. A boom underneath and a whoosh that climbs. */
+export function sfxDynoLaunch(power: number): void {
+  const c = ready(); if (!c) return;
+  tone(c, 'sine', 90, { attack: 0.003, release: 0.4, peak: 0.6 }, 40);
+  noise(c, 'lowpass', 900, 0.8, { attack: 0.003, release: 0.25, peak: 0.45 }, 200);
+  noise(c, 'bandpass', 300, 1.2, { attack: 0.06, release: 0.55 + power * 0.3, peak: 0.25 + power * 0.15 }, 4200);
+  tone(c, 'square', 180, { at: 0.02, attack: 0.05, release: 0.5, peak: 0.04 }, 900);
+}
+
+/**
+ * Stuck it. The slap, a hit that you feel in your chest, a power chord, and
+ * a cymbal on top. A perfect one gets the octave too.
+ */
+export function sfxDynoStick(perfect: boolean): void {
+  const c = ready(); if (!c) return;
+  noise(c, 'lowpass', 3000, 0.8, { attack: 0.002, release: 0.1, peak: 0.7 });
+  tone(c, 'sine', 70, { attack: 0.002, release: 0.5, peak: 0.75 }, 34);
+  const root = 146.83;
+  for (const m of perfect ? [1, 1.5, 2, 3] : [1, 1.5, 2]) {
+    tone(c, 'sawtooth', root * m, { at: 0.02, attack: 0.006, hold: 0.12, release: 0.7, peak: 0.07 });
+    tone(c, 'square', root * m * 1.004, { at: 0.02, attack: 0.006, hold: 0.1, release: 0.5, peak: 0.03 });
+  }
+  noise(c, 'highpass', 5200, 0.5, { at: 0.03, attack: 0.004, release: 1.3, peak: 0.2 });
+}
+
+/** Fingertips skidding off a hold at speed. */
+export function sfxRip(): void {
+  const c = ready(); if (!c) return;
+  noise(c, 'bandpass', 3400, 2, { attack: 0.004, release: 0.32, peak: 0.32 }, 700);
+  tone(c, 'sawtooth', 640, { attack: 0.004, release: 0.35, peak: 0.08 }, 120);
+  tone(c, 'sine', 120, { at: 0.02, attack: 0.004, release: 0.2, peak: 0.25 }, 60);
+}
