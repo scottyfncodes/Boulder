@@ -36,7 +36,7 @@ angle. `src/render/depths.ts` is the single set of numbers both sides read.
 
 Mobile-first — it is built for iPhone Safari and works with a mouse, trackpad
 and keyboard on desktop (`Q`/`W` for hands, `A`/`S` for feet, `E` for the body,
-`space` to pull on). Nothing is fetched at runtime and there is no backend; progress lives in
+`space` to pull on, `R` to restart). Nothing is fetched at runtime and there is no backend; progress lives in
 local storage.
 
 ## Slingshot limbs
@@ -76,6 +76,11 @@ practice wall's dynos are free.
 **Putting a limb back.** A limb that is dangling can be tapped, and then a
 hold in reach can be tapped, and it goes straight on — a sound placement, never
 a perfect one. A limb that is holding on has to be flung.
+
+**Restart.** The ↺ in the corner (or `R`) puts you back at the start and
+pulls straight back on. Before your first throw it is free and the onsight
+survives; after it, tap twice — it counts the way coming off does, a fall on
+the record and the onsight gone, so it is not a way round either.
 
 **No clock.** Nothing drains. Stop, look, aim, change your mind, aim again.
 The difficulty is the physics, the holds, and the shape your body is in.

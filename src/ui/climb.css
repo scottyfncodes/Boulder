@@ -94,6 +94,28 @@
   cursor: pointer;
 }
 
+.climb__restart {
+  min-width: 2.1rem;
+  height: 2.1rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 1.05rem;
+  background: rgba(18, 20, 26, 0.75);
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.climb__restart.is-confirm {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  border-color: var(--bad);
+  background: rgba(232, 86, 79, 0.85);
+  color: #fff;
+}
+
 .climb__mode {
   flex: none;
   align-self: center;

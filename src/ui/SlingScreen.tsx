@@ -124,6 +124,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   const [sentBanner, setSentBanner] = useState(false);
   const [landed, setLanded] = useState(false);
   const [muted, setMutedState] = useState(isMuted);
+  /** The restart button's second tap: armed for a moment after the first. */
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const confirmTimer = useRef(0);
+  /** Until when a second tap restarts. A ref, so the check never reads a stale render. */
+  const restartArmedRef = useRef(0);
   const [, bump] = useState(0);
 
   // The sim and everything the frame loop reads live in refs: sixty renders a
@@ -972,6 +977,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         return;
       }
       if (phaseRef.current !== 'climbing') return;
+      if (e.key === 'r' || e.key === 'R') {
+        // Straight away on a keyboard: nobody presses R by accident twice.
+        restartClimbRef.current();
+        return;
+      }
       const map: Record<string, Selection> = {
         q: 'LH', w: 'RH', a: 'LF', s: 'RF', e: 'BODY',
         Q: 'LH', W: 'RH', A: 'LF', S: 'RF', E: 'BODY',
@@ -1010,12 +1020,25 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   const startClimbRef = useRef(startClimb);
   startClimbRef.current = startClimb;
 
-  const restart = () => {
+  /** Back to the start of the route. The onsight survives only if nothing was thrown yet. */
+  const restart = (keepMode = false) => {
     simRef.current = initialSling(route.holds, route.start, overhangOf(route));
     movesRef.current = [];
     pendingRef.current = {};
     trailsRef.current = {};
-    modeRef.current = 'project';
+    settleRef.current = {};
+    snapRef.current = null;
+    dragRef.current = null;
+    windRef.current = null;
+    dynoWindRef.current = null;
+    endedRef.current = null;
+    freezeRef.current = 0;
+    dynoCaughtAtRef.current = -Infinity;
+    selectedRef.current = null;
+    if (!keepMode) modeRef.current = 'project';
+    setFlash(null);
+    setSentBanner(false);
+    setConfirmRestart(false);
     accRef.current = 0;
     reasonRef.current = null;
     shoutRef.current = null;
@@ -1034,6 +1057,39 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     camRef.current = { ...DEFAULT_CAMERA };
     if (sceneRef.current) camRef.current.focusX = startFocusX(route, sceneRef.current);
     followRef.current = true;
+  };
+
+  /**
+   * Restart mid-climb. Before the first throw it is free. After it, it counts
+   * the way coming off counts — a fall on the record, the onsight gone, a daily
+   * attempt spent — because otherwise it is a way round all three. Then it
+   * pulls straight back on rather than making you read the route again.
+   */
+  const restartClimb = () => {
+    window.clearTimeout(confirmTimer.current);
+    const moved = movesRef.current.length > 0;
+    if (moved && !lab) {
+      fallsRef.current += 1;
+      onOutcome(buildAttempt('fallen'), 'fallen');
+    }
+    restart(!moved);
+    startClimb();
+  };
+  const restartClimbRef = useRef(restartClimb);
+  restartClimbRef.current = restartClimb;
+
+  const onRestartTap = () => {
+    unlockAudio();
+    const now = performance.now();
+    if (movesRef.current.length === 0 || now < restartArmedRef.current) {
+      restartArmedRef.current = 0;
+      restartClimb();
+      return;
+    }
+    restartArmedRef.current = now + 4000;
+    setConfirmRestart(true);
+    window.clearTimeout(confirmTimer.current);
+    confirmTimer.current = window.setTimeout(() => setConfirmRestart(false), 4000);
   };
 
   const toggleMute = () => {
@@ -1085,6 +1141,16 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           <div className={`climb__mode climb__mode--${modeRef.current}`}>
             {lab ? 'PRACTICE' : modeRef.current === 'onsight' ? 'ONSIGHT' : 'PROJECT'}
           </div>
+          {phase === 'climbing' && (
+            <button
+              className={`climb__restart${confirmRestart ? ' is-confirm' : ''}`}
+              onClick={onRestartTap}
+              aria-label={confirmRestart ? 'Tap again to restart' : 'Restart the climb'}
+              title="Restart (R)"
+            >
+              {confirmRestart ? 'Restart?' : '↺'}
+            </button>
+          )}
           <button className="climb__mute" onClick={toggleMute} aria-label={muted ? 'Sound on' : 'Sound off'}>
             {muted ? '🔇' : '🔊'}
           </button>
@@ -1177,7 +1243,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           <div className="falloff__reason">{lastReason ?? 'You are on the mat.'}</div>
           <div className="falloff__row">
             <button className="btn" onClick={onExit}>Leave it</button>
-            <button className="btn btn--primary" onClick={restart}>Try again</button>
+            <button className="btn btn--primary" onClick={() => restart()}>Try again</button>
           </div>
         </div>
       )}
