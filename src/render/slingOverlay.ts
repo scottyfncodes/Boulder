@@ -242,16 +242,9 @@ function drawPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
 
   const end = p.caught ? p.caught.at : p.end;
   const e = scene.project(end, p.caught ? HOLD_Z : z);
+  // What else lets go because of the throw is not spelled out: reading the
+  // body is the game, and the arc already shows where it is going.
   drawEndMarker(ctx, e, !!p.caught);
-
-  if (p.slips.length > 0) {
-    ctx.save();
-    ctx.font = '700 12px ui-sans-serif, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = AIM_HOT;
-    ctx.fillText(`${p.slips.map((l) => LIMB_SHORT[l]).join(' ')} will let go`, e.x, e.y - 18);
-    ctx.restore();
-  }
 }
 
 /** The whole body's arc for a dyno, and where the hands end up. */

@@ -115,8 +115,8 @@ your hips below it lets go at once. The face still says how it is going.
 
 **The preview is honest.** While you pull, the arc on screen is the launch run
 forward on a copy of the body — tether, yank and all — so what it shows is
-what will happen. If something else is going to let go because of the throw,
-it says so.
+what will happen. It does not warn you that something else is about to let
+go because of the throw — working that out is the game.
 
 **The practice wall.** The route board has a *Sling Lab* at the top: a wall
 with one of everything on it, set so short throws, long throws, diagonals,
