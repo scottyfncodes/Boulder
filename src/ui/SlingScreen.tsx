@@ -505,6 +505,16 @@ export function SlingScreen({
 
       if (ph === 'climbing' && introRef.current === -Infinity) introRef.current = now;
 
+      // Aiming holds the body still. While a finger is drawing a limb or the
+      // belly back, the climber is set and waiting — no sway, no settle, no
+      // swing — so the arc, the reach ring and the reticle stay exactly where
+      // they are until you let go, and the throw fires from exactly the state
+      // the preview was run on. Not while something is already in the air:
+      // that is happening whether you aim or not. The pump still drains.
+      const aiming = ph === 'climbing' && dragRef.current?.kind === 'aim' && selectedRef.current !== null
+        && !sim.dyno && !LIMBS.some((id) => sim.limbs[id].phase === 'flying');
+      if (aiming) accRef.current = 0;
+
       // The sim runs on a fixed step, however the frames come. It keeps
       // running after a fall — that is the fall — and stops when it is over.
       // Bullet time while a dyno is in the air, slowest over the top.
@@ -519,7 +529,7 @@ export function SlingScreen({
         accRef.current += (dt / 1000) * timeScaleRef.current;
         const events: SlingEvent[] = [];
         let steps = 0;
-        while (accRef.current >= SLING.dt && steps < 12) {
+        while (!aiming && accRef.current >= SLING.dt && steps < 12) {
           stepSling(sim, route.holds, SLING.dt, 0, events);
           accRef.current -= SLING.dt;
           steps++;
@@ -602,7 +612,9 @@ export function SlingScreen({
 
       // Camera: follows the chest, slowly, and never jumps for a throw.
       const cam = camRef.current;
-      if (followRef.current) {
+      // It holds still while you aim, too, so the arc does not drift across
+      // the screen under your finger.
+      if (followRef.current && !aiming) {
         const want = clamp(pose.com.y + 0.55, 1.7, 3.6);
         cam.focusY += (want - cam.focusY) * 0.045;
         // Sideways too, but only as far as the wall goes — a route that

@@ -84,6 +84,13 @@ pulls straight back on. Before your first throw it is free and the onsight
 survives; after it, tap twice — it counts the way coming off does, a fall on
 the record and the onsight gone, so it is not a way round either.
 
+**Aiming holds the body still.** While you are drawing a limb or the belly
+back, the climber is set and waiting: no sway, no settle, no swing, and the
+camera stops following. The arc, the reach ring and the reticle stay exactly
+where they are until you let go, and the throw fires from exactly the state
+the preview showed. Anything already in the air keeps flying, so it does not
+apply then.
+
 **No clock.** Nothing drains. Stop, look, aim, change your mind, aim again.
 The difficulty is the physics, the holds, and the shape your body is in.
 
