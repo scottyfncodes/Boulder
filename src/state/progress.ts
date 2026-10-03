@@ -3,6 +3,7 @@ import { GRADES, gradeIndex } from '../game/types';
 import type { Beta } from '../game/attempt';
 import type { ScoreCard } from '../game/scoring';
 import type { DailyState } from '../game/daily';
+import { attemptTraining, breakthroughTraining, strengthNote } from '../game/strength';
 
 /**
  * What the player keeps.
@@ -44,6 +45,11 @@ export type Profile = {
   points: number;
   /** Dynos actually stuck. */
   totalDynos: number;
+  /**
+   * Hidden training total: every attempt adds to it, a new grade adds a lot.
+   * Read through `strengthMods`; never shown as a number.
+   */
+  training: number;
 };
 
 export function freshProfile(now = Date.now()): Profile {
@@ -58,6 +64,7 @@ export function freshProfile(now = Date.now()): Profile {
     totalFalls: 0,
     points: 0,
     totalDynos: 0,
+    training: 0,
   };
 }
 
@@ -91,7 +98,12 @@ export function isUnlocked(profile: Profile, grade: Grade): boolean {
   return unlockedGrades(profile).includes(grade);
 }
 
-export type Breakthrough = { grade: Grade; previous: Grade | null };
+export type Breakthrough = {
+  grade: Grade;
+  previous: Grade | null;
+  /** A line about feeling stronger, when the boost was enough to notice. */
+  stronger?: string | null;
+};
 
 /** Folds a completed attempt into the profile. */
 export function applySend(
@@ -124,6 +136,12 @@ export function applySend(
   const counts = !route.blueprint;
   const raised = counts && (prevTop === null || gradeIndex(route.grade) > gradeIndex(prevTop));
   const topGrade = raised ? route.grade : prevTop;
+  // Every send is a session's training. The first send of a new grade is a
+  // step on its own — the body finds something it did not have before.
+  const firstAtGrade = raised && !profile.celebrated.includes(route.grade);
+  const before = profile.training ?? 0;
+  const training = before + attemptTraining(route.grade, true)
+    + (firstAtGrade ? breakthroughTraining(route.grade) : 0);
 
   const next: Profile = {
     ...profile,
@@ -131,12 +149,12 @@ export function applySend(
     topGrade,
     totalSends: profile.totalSends + 1,
     points: profile.points + (better ? card.points - (prev.best?.points ?? 0) : 0),
+    training,
   };
 
-  const breakthrough =
-    raised && !profile.celebrated.includes(route.grade)
-      ? { grade: route.grade, previous: prevTop }
-      : null;
+  const breakthrough = firstAtGrade
+    ? { grade: route.grade, previous: prevTop, stronger: strengthNote(before, training) }
+    : null;
 
   return { profile: next, breakthrough };
 }
@@ -156,6 +174,8 @@ export function applyFall(profile: Profile, route: Route, movesReached: number, 
     ...profile,
     records: { ...profile.records, [route.id]: record },
     totalFalls: profile.totalFalls + 1,
+    // Falling off is most of how anyone gets stronger.
+    training: (profile.training ?? 0) + attemptTraining(route.grade, false),
   };
 }
 

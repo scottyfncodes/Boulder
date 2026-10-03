@@ -185,8 +185,8 @@ describe('difficulty changes the shape, not just the pitch', () => {
 
   it('pitch is the smallest lever: a brutal route is not just a steeper easy one', () => {
     const pitch = (d: Difficulty) => mean(POP[d].map((b) => b.route.overhang ?? 0));
-    // Hand-set V8-V10s sit at 30-34 degrees; generated brutal routes stay below that.
-    expect(pitch('brutal')).toBeLessThan(30);
+    // Hand-set V8-V10s sit at 34-36 degrees; generated brutal routes stay below that.
+    expect(pitch('brutal')).toBeLessThan(36);
     const lat = (d: Difficulty) => mean(POP[d].map((b) => shapeOf(b.path).lateralTravel));
     expect(lat('brutal') / Math.max(0.01, lat('easy'))).toBeGreaterThan(5);
   });

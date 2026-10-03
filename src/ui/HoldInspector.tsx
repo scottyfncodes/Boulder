@@ -1,5 +1,5 @@
 import type { Hold, LimbId } from '../game/types';
-import { profileOf } from '../game/holds';
+import { holdName, profileOf } from '../game/holds';
 import './hold-inspector.css';
 
 /**
@@ -37,12 +37,14 @@ export function HoldInspector({ hold, onClose }: { hold: Hold; onClose: () => vo
   return (
     <div className="holdinfo" role="dialog" aria-label={`${p.label} details`}>
       <button className="holdinfo__close" onClick={onClose} aria-label="Close">×</button>
-      <div className="holdinfo__type">{p.label}</div>
+      <div className="holdinfo__type">{holdName(hold)}</div>
       <div className="holdinfo__note">{p.note}</div>
       <dl className="holdinfo__facts">
         <div><dt>Takes</dt><dd>{USES[p.affinity]}</dd></div>
         <div><dt>Wants</dt><dd>{p.push ? 'push away from you' : facing(hold.dir)}</dd></div>
         <div><dt>Size</dt><dd>{sizeWord(hold.size, p.zoneScale)}</dd></div>
+        <div><dt>Steep</dt><dd>{steepWord(p.steep)}</dd></div>
+        <div><dt>Swing</dt><dd>{swingWord(p.swing)}</dd></div>
       </dl>
     </div>
   );
@@ -55,6 +57,18 @@ function sizeWord(size: number, zoneScale: number): string {
   if (r > 0.08) return 'fair';
   if (r > 0.06) return 'small';
   return 'barely there';
+}
+
+function steepWord(steep: number): string {
+  if (steep <= 0.6) return 'loves an overhang';
+  if (steep <= 1.2) return 'copes with an overhang';
+  return 'hates an overhang';
+}
+
+function swingWord(swing: number): string {
+  if (swing <= 0.15) return 'take a swing on it';
+  if (swing <= 0.35) return 'some swing is fine';
+  return 'keep still on it';
 }
 
 export type { LimbId };

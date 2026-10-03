@@ -6,9 +6,9 @@ import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf
 import {
   type AssistedLaunch, type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
   dynoWindup, handLoad, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  poseOf, assistLaunch, predictDyno, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
-  SLING_LIMITS,
+  poseOf, assistLaunch, predictDyno, pumpOut, reachOf, reachableHolds, restingOn, stepSling, windupPos,
 } from '../game/sling';
+import { type StrengthMods, UNTRAINED } from '../game/strength';
 import {
   type Endurance, DYNO_COST, FLING_COST, drainEndurance, freshEndurance, isRest, pumpWord,
   routeDrain, spend,
@@ -101,6 +101,8 @@ export type SlingScreenProps = {
   mode: AttemptMode;
   /** Endurance capacity this player has earned, seconds of hanging. */
   capacity: number;
+  /** How strong this player has quietly become. */
+  strength?: StrengthMods;
   onExit: () => void;
   onOutcome: (attempt: Attempt, outcome: 'sent' | 'fallen') => void;
   attemptsNote?: string;
@@ -108,7 +110,9 @@ export type SlingScreenProps = {
 
 type Phase = 'inspect' | 'climbing' | 'fallen' | 'sent';
 
-export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attemptsNote }: SlingScreenProps) {
+export function SlingScreen({
+  route, mode, capacity, strength = UNTRAINED, onExit, onOutcome, attemptsNote,
+}: SlingScreenProps) {
   const glRef = useRef<HTMLCanvasElement>(null);
   const uiRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<WallScene | null>(null);
@@ -133,7 +137,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
   // The sim and everything the frame loop reads live in refs: sixty renders a
   // second of React would make the drag stutter on a phone.
-  const simRef = useRef<SlingState>(initialSling(route.holds, route.start, overhangOf(route)));
+  const simRef = useRef<SlingState>(initialSling(route.holds, route.start, overhangOf(route), undefined, strength));
   const phaseRef = useRef<Phase>('inspect');
   const selectedRef = useRef<Selection | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -732,7 +736,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
               : [],
             reach: body ? null : {
               anchor: anchorFor(sel, pose.hip, pose.shoulder),
-              radius: isHand(sel) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX,
+              radius: reachOf(sim, sel),
             },
           };
         } else {
@@ -1022,7 +1026,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
   /** Back to the start of the route. The onsight survives only if nothing was thrown yet. */
   const restart = (keepMode = false) => {
-    simRef.current = initialSling(route.holds, route.start, overhangOf(route));
+    simRef.current = initialSling(route.holds, route.start, overhangOf(route), undefined, strength);
     movesRef.current = [];
     pendingRef.current = {};
     trailsRef.current = {};

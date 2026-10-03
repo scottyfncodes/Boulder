@@ -21,7 +21,12 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 1.0,
     push: false,
     crossUse: 0.9,
-    note: 'A handle. Hard to get wrong.',
+    swing: 0.05,
+    stab: 0.4,
+    steep: 0.5,
+    squeeze: false,
+    fingers: 0.4,
+    note: 'A handle. Takes a swing, a slap and a steep wall. Hard to get wrong.',
   },
   crimp: {
     type: 'crimp',
@@ -38,7 +43,12 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.74,
     push: false,
     crossUse: 0.82,
-    note: 'An edge. Wants a straight downward pull.',
+    swing: 0.5,
+    stab: 1.3,
+    steep: 1.0,
+    squeeze: false,
+    fingers: 1.5,
+    note: 'An edge. Wants a straight pull down and a still body. Better as your fingers get stronger.',
   },
   sloper: {
     type: 'sloper',
@@ -54,7 +64,12 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.62,
     push: false,
     crossUse: 0.8,
-    note: 'Big and round. Only holds if your weight hangs under it.',
+    swing: 0.65,
+    stab: 1.7,
+    steep: 3.0,
+    squeeze: false,
+    fingers: 0.9,
+    note: 'Big and round. Holds while your weight hangs still under it. Hopeless on a steep wall.',
   },
   pinch: {
     type: 'pinch',
@@ -70,7 +85,12 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.7,
     push: false,
     crossUse: 0.78,
-    note: 'Squeeze it. Needs the approach it was set for.',
+    swing: 0.25,
+    stab: 1.0,
+    steep: 0.4,
+    squeeze: true,
+    fingers: 1.2,
+    note: 'Squeeze it. Thumb against fingers, so it holds pulled sideways either way. Made for steep walls.',
   },
   pocket: {
     type: 'pocket',
@@ -86,7 +106,12 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.8,
     push: false,
     crossUse: 0.7,
-    note: 'Small opening. You either find it or you do not.',
+    swing: 0.4,
+    stab: 1.5,
+    steep: 0.9,
+    squeeze: false,
+    fingers: 1.4,
+    note: 'Small opening. Find it gently; stab at it and it is gone.',
   },
   sidepull: {
     type: 'sidepull',
@@ -102,6 +127,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.78,
     push: false,
     crossUse: 0.8,
+    swing: 0.3,
+    stab: 1.0,
+    steep: 1.0,
+    squeeze: false,
+    fingers: 1.0,
     note: 'Pull it sideways, into your body. Needs tension to work.',
   },
   undercling: {
@@ -118,6 +148,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.8,
     push: false,
     crossUse: 0.72,
+    swing: 0.3,
+    stab: 1.0,
+    steep: 0.8,
+    squeeze: false,
+    fingers: 0.9,
     note: 'Faces down. Only useful once your hips are above it.',
   },
   gaston: {
@@ -134,6 +169,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.68,
     push: true,
     crossUse: 0.76,
+    swing: 0.35,
+    stab: 1.1,
+    steep: 1.2,
+    squeeze: false,
+    fingers: 1.0,
     note: 'Thumb down, elbow out, push away. Feels wrong. Is correct.',
   },
   foothold: {
@@ -151,6 +191,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.85,
     push: false,
     crossUse: 0.35,
+    swing: 0.15,
+    stab: 0.8,
+    steep: 1.0,
+    squeeze: false,
+    fingers: 0.3,
     note: 'For feet. Trust it more than you want to.',
   },
   volume: {
@@ -169,6 +214,11 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     gripBase: 0.66,
     push: false,
     crossUse: 1.0,
+    swing: 0.4,
+    stab: 0.8,
+    steep: 2.0,
+    squeeze: false,
+    fingers: 0.6,
     note: 'A large shape. Generous with position, stingy with security.',
   },
 };
@@ -251,4 +301,28 @@ export function canShare(size: number, type: HoldType): boolean {
 /** Unit vector of the force direction a hold instance accepts best. */
 export function holdAxis(dir: number): Vec2 {
   return { x: Math.cos(dir), y: Math.sin(dir) };
+}
+
+/**
+ * What a setter would call this particular hold. Every gym has a bucket and a
+ * jug you can barely get four fingers on, a fat incut crimp and a razor blade,
+ * and they are not the same hold — the per-instance hardness says which one
+ * this is, and so does the name.
+ */
+export function holdName(hold: { type: HoldType; hard?: number }): string {
+  const h = hold.hard ?? 1;
+  const tier = h <= 0.9 ? 0 : h <= 1.1 ? 1 : h <= 1.25 ? 2 : 3;
+  const names: Partial<Record<HoldType, readonly [string, string, string, string]>> = {
+    jug: ['Bucket', 'Jug', 'Shallow jug', 'Thank-god-it-is-a-jug'],
+    crimp: ['Incut crimp', 'Crimp', 'Thin crimp', 'Razor crimp'],
+    sloper: ['Dish', 'Sloper', 'Blank sloper', 'Glass sloper'],
+    pinch: ['Wide pinch', 'Pinch', 'Narrow pinch', 'Bad pinch'],
+    pocket: ['Three-finger pocket', 'Two-finger pocket', 'Shallow pocket', 'Mono'],
+    sidepull: ['Incut sidepull', 'Sidepull', 'Flat sidepull', 'Bad sidepull'],
+    undercling: ['Deep undercling', 'Undercling', 'Shallow undercling', 'Bad undercling'],
+    gaston: ['Incut gaston', 'Gaston', 'Flat gaston', 'Bad gaston'],
+    foothold: ['Big foot', 'Foothold', 'Foot chip', 'Smear'],
+    volume: ['Volume', 'Volume', 'Steep volume', 'Blank volume'],
+  };
+  return names[hold.type]?.[tier] ?? HOLD_PROFILES[hold.type].label;
 }

@@ -18,6 +18,7 @@ import { Title } from './ui/Title';
 import { Standings } from './ui/Standings';
 import { isLabRoute } from './content/lab';
 import { capacityFor } from './game/endurance';
+import { strengthMods } from './game/strength';
 import { type Difficulty, generatedRouteById } from './content/generator';
 import { nextRoute, prefetchRoute } from './content/generator/client';
 import type { SetterState } from './ui/RouteSetter';
@@ -200,6 +201,7 @@ export default function App() {
           route={screen.route}
           mode={screen.mode}
           capacity={capacityFor(profile.topGrade, profile.totalSends)}
+          strength={strengthMods(profile.training ?? 0)}
           onExit={() => setScreen({ kind: 'board' })}
           onOutcome={handleOutcome}
           attemptsNote={screen.daily ? `daily · ${left} left` : undefined}
@@ -225,6 +227,7 @@ export default function App() {
           grade={screen.data.grade}
           previous={screen.data.previous}
           unlockedCount={screen.unlocked}
+          stronger={screen.data.stronger}
           onContinue={() => setScreen({ kind: 'board' })}
         />
       );

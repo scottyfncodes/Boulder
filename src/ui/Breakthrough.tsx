@@ -27,10 +27,12 @@ export type BreakthroughProps = {
   grade: Grade;
   previous: Grade | null;
   unlockedCount: number;
+  /** A line about getting stronger, if the breakthrough made a difference. */
+  stronger?: string | null;
   onContinue: () => void;
 };
 
-export function Breakthrough({ grade, previous, unlockedCount, onContinue }: BreakthroughProps) {
+export function Breakthrough({ grade, previous, unlockedCount, stronger, onContinue }: BreakthroughProps) {
   const color = GRADE_COLOR[grade];
   return (
     <div className="brk" style={{ ['--accent' as string]: color }}>
@@ -43,6 +45,7 @@ export function Breakthrough({ grade, previous, unlockedCount, onContinue }: Bre
             : 'Your first send.'}
         </p>
         <p className="brk__sub">{LINES[grade] ?? 'That is a harder number than the last number.'}</p>
+        {stronger && <p className="brk__sub brk__stronger">{stronger}</p>}
         {unlockedCount > 0 && (
           <div className="brk__unlocks">
             <span className="label">Now on the board</span>

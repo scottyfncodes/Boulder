@@ -32,6 +32,7 @@
   color: var(--ink-dim);
   line-height: 1.5;
 }
+.brk__stronger { font-style: italic; color: var(--accent); }
 .brk__unlocks {
   margin-top: 1.6rem;
   padding-top: 1.1rem;

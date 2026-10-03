@@ -117,7 +117,9 @@ is not graded, scored or counted.
 **Known limits.** The sim is planar, so the body never peels away from the
 wall in depth; a barn door is a swing, not a rotation out of the plane. Routes
 were set before the physics existed and some will be harder or easier than
-their grade says. Steepness only scales leg and hand authority.
+their grade says. Steepness scales leg and hand authority and each shape's
+grip; the route checker only knows the first part, which is what caps the
+hand-set walls at about 36 degrees.
 
 ## How the game works
 
@@ -132,6 +134,32 @@ below it and solid once they are above it, and a sidepull wants tension across
 the body rather than a straight pull. Ten shapes, each with its own patience
 for a bad angle. The inspect panel tells you what a shape is and what it wants;
 it never tells you which one to use.
+
+**Every shape has a temper, like the real ones.** On top of the angle, each
+shape minds different things. A jug takes a swing, a slap and a steep wall. A
+crimp wants a still body and a straight pull down, and gets far better as your
+fingers do. A sloper only holds while your weight hangs still under it, and on
+a steep wall it is barely a hold. A pinch is squeezed, thumb against fingers,
+so it holds pulled sideways either way, and it is what overhangs are set with.
+A pocket has to be found gently; stab at it at full speed and you land on the
+rim. Each hold also has its own hardness, and the inspect panel names it the
+way a setter would — a bucket or a shallow jug, an incut crimp or a razor, a
+wide pinch or a bad one, a three-finger pocket or a mono — and says whether it
+likes an overhang and whether you can swing on it.
+
+**You get stronger.** Every attempt is a session, and sessions add up: a fall
+trains a little, a send a little more, a harder route more again, and the first
+send of a new V grade is a step on its own. Nothing shows it — no bar, no
+number. The climber just starts sticking things that used to spit them off:
+holds take more load (crimps and pockets most, jugs barely), thrown limbs reach
+a few centimetres further, a full pull throws a little harder, and grabbing at
+speed costs less precision, so the aim assist reaches a little wider and a dyno
+hand can stop the body on slightly less than a good catch. It saturates — the
+first weeks matter a lot, the hundredth session barely moves anything — and it
+is not the pump, which is stamina and has its own clock. The breakthrough
+screen mentions it, deadpan, when it is enough to notice. Routes, par and the
+community betas are all worked out at zero strength, so everything is proven
+climbable by the weakest climber.
 
 **Moves are graded** PERFECT / GOOD / SCRAPE / MISS / YEET, on where the limb
 landed against a window that shrinks with overreach, bad angles, and a poor
@@ -278,9 +306,9 @@ Very Hard links three and must include a traverse *and* a roof or steep
 section. Brutal links four — traverse, zigzag, roof or steep, and something
 technical — with two cruxes, the last of them near the top. The same table
 sets zigzag widths, traverse lengths, how long the route may go sideways
-before it has to go up, hold shapes and hardness, foot density, and a modest
-pitch range; roofs and steep sections add a few degrees, and that is the only
-way pitch moves much.
+before it has to go up, hold shapes and hardness, foot density, and a pitch
+range that runs from near-vertical on Easy to well past 20 degrees on the top
+two tiers; roofs and steep sections add six degrees each on top.
 
 **Cruxes.** Not every move is hard. A crux is two or three moves inserted into
 the plan — a long *span* sideways off small holds, a *reversal* where the next

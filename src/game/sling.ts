@@ -5,6 +5,7 @@ import {
   affinityFactor, canShare, canUse, contactRadius, profileOf, worldZones,
 } from './holds';
 import { clamp, clamp01, dist, len, norm, sub } from './vec';
+import { type StrengthMods, UNTRAINED } from './strength';
 
 /**
  * Slingshot limbs.
@@ -193,6 +194,8 @@ export type SlingState = {
   dyno: boolean;
   /** Whether that was true at the end of the last step. */
   dynoLast: boolean;
+  /** How trained the climber is. Never shown; felt in every catch. */
+  str: StrengthMods;
 };
 
 export type SlingEvent =
@@ -240,6 +243,11 @@ export function maxSpeedOf(limb: LimbId): number {
   return isHand(limb) ? SLING.maxSpeedHand : SLING.maxSpeedFoot;
 }
 
+/** How far a limb can get from its anchor before the tether goes taut, for this climber. */
+export function reachOf(state: SlingState, limb: LimbId): number {
+  return (isHand(limb) ? ARM_MAX : LEG_MAX) * state.str.reach;
+}
+
 function holdMap(holds: Hold[]): Map<number, Hold> {
   return new Map(holds.map((h) => [h.id, h]));
 }
@@ -264,6 +272,7 @@ function freshLimb(id: LimbId, pos: Vec2): SlingLimb {
  */
 export function initialSling(
   holds: Hold[], start: Partial<Record<LimbId, number>>, overhang = 0, settleSteps = 240,
+  str: StrengthMods = UNTRAINED,
 ): SlingState {
   const map = holdMap(holds);
   const contacts: Contact[] = [];
@@ -312,6 +321,7 @@ export function initialSling(
     hip: { ...seed.hip }, hipV: { x: 0, y: 0 },
     shoulder: { ...seed.shoulder }, shV: { x: 0, y: 0 },
     limbs, overhang, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false,
+    str,
   };
   state.heldLast = heldCount(state);
   // Let it settle. Heavy damping for the warm-up only, so the opening frame is
@@ -400,7 +410,7 @@ export function windupPos(state: SlingState, limb: LimbId, pull: Vec2, power: nu
     y: l.pos.y + dir.y * SLING.windup * clamp01(power),
   };
   const anchor = anchorFor(limb, state.hip, state.shoulder);
-  const max = (isHand(limb) ? ARM_MAX : LEG_MAX) * 0.97;
+  const max = reachOf(state, limb) * 0.97;
   const d = sub(target, anchor);
   const L = len(d);
   if (L > max) {
@@ -411,9 +421,9 @@ export function windupPos(state: SlingState, limb: LimbId, pull: Vec2, power: nu
   return target;
 }
 
-/** Launch speed for a pull, metres per second. */
-export function launchSpeed(limb: LimbId, power: number): number {
-  return clamp01(power) * maxSpeedOf(limb);
+/** Launch speed for a pull, metres per second. Stronger climbers throw harder. */
+export function launchSpeed(limb: LimbId, power: number, str: StrengthMods = UNTRAINED): number {
+  return clamp01(power) * maxSpeedOf(limb) * str.power;
 }
 
 /**
@@ -426,7 +436,7 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   if (aim.power < SLING.minPower) return false;
   const l = state.limbs[aim.limb];
   const d = norm(aim.dir);
-  const speed = launchSpeed(aim.limb, aim.power);
+  const speed = launchSpeed(aim.limb, aim.power, state.str);
 
   l.leftHoldId = l.holdId;
   l.holdId = null;
@@ -527,7 +537,7 @@ export function dynoWindup(state: SlingState, pull: Vec2, power: number): Vec2 {
     return LIMBS.every((id) => {
       const l = state.limbs[id];
       if (!isBand(l)) return true;
-      const max = (isHand(id) ? ARM_MAX : LEG_MAX) * 0.97;
+      const max = reachOf(state, id) * 0.97;
       const d = dist(anchorFor(id, hip, shoulder), l.pos);
       // Already past it: fine as long as the pull does not make it worse.
       return d <= Math.max(max, dist(anchorFor(id, state.hip, state.shoulder), l.pos));
@@ -555,8 +565,8 @@ export function canDyno(state: SlingState): boolean {
   return !state.fallen && !state.dyno && heldCount(state) > 0;
 }
 
-export function dynoSpeed(power: number): number {
-  return clamp01(power) * SLING.maxDynoSpeed;
+export function dynoSpeed(power: number, str: StrengthMods = UNTRAINED): number {
+  return clamp01(power) * SLING.maxDynoSpeed * str.power;
 }
 
 /**
@@ -572,7 +582,7 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
   if (!canDyno(state)) return false;
   if (aim.power < SLING.minPower) return false;
   const d = norm(aim.dir);
-  const speed = dynoSpeed(aim.power);
+  const speed = dynoSpeed(aim.power, state.str);
   if (aim.wind) {
     // The body lets go from where it was drawn back to. Whatever was not
     // holding on comes with it; the limbs that were are where they are.
@@ -632,7 +642,7 @@ export function placeableHolds(state: SlingState, holds: Hold[], limb: LimbId): 
   const l = state.limbs[limb];
   if (l.phase !== 'free' || state.fallen) return [];
   const anchor = anchorFor(limb, state.hip, state.shoulder);
-  const max = isHand(limb) ? ARM_MAX : LEG_MAX;
+  const max = reachOf(state, limb);
   const blocked = blockedHolds(state, holds, limb);
   return holds.filter((h) => {
     if (!canUse(h.type, limb) || blocked.has(h.id)) return false;
@@ -667,7 +677,7 @@ export function placeLimb(
   l.tension = 0;
   l.touch = null;
   l.leftHoldId = null;
-  l.capacity = capacityOf(hold, l, anchorFor(limb, state.hip, state.shoulder), state.overhang);
+  l.capacity = capacityOf(hold, l, anchorFor(limb, state.hip, state.shoulder), state.overhang, state.str);
   events.push({ kind: 'place', limb, holdId: hold.id, at: { ...l.pos } });
   return true;
 }
@@ -724,6 +734,17 @@ export function seatOn(hold: Hold, at: Vec2): { seat: number; zone: string } {
   return best;
 }
 
+/**
+ * Grabbing at speed is worse than placing: the fingers are arresting a moving
+ * limb, and some of the precision goes into that instead. How much depends on
+ * the shape — slap a jug, never stab a pocket — and on how much control the
+ * climber has built up.
+ */
+export function catchSeat(hold: Hold, raw: number, speed: number, str: StrengthMods = UNTRAINED): number {
+  const stab = profileOf(hold.type).stab * (1 - 0.5 * str.control);
+  return clamp01(raw * (1 - 0.22 * stab * clamp01((speed - 2.6) / 3)));
+}
+
 export function gradeOfSeat(seat: number): Exclude<MoveGrade, 'MISS' | 'YEET'> {
   return seat >= 0.8 ? 'PERFECT' : seat >= 0.55 ? 'GOOD' : 'SCRAPE';
 }
@@ -747,7 +768,14 @@ function pullDirection(hold: Hold, limb: SlingLimb, anchor: Vec2): Vec2 {
 export function loadAlignment(hold: Hold, pull: Vec2): number {
   const p = profileOf(hold.type);
   const want = { x: Math.cos(hold.dir), y: Math.sin(hold.dir) };
-  const alignment = clamp01((want.x * pull.x + want.y * pull.y + 1) / 2);
+  let alignment = clamp01((want.x * pull.x + want.y * pull.y + 1) / 2);
+  if (p.squeeze) {
+    // Thumb on one side, fingers on the other: pulled across the axis either
+    // way, a pinch is being squeezed, not peeled. Only pulling it the wrong
+    // way along its length opens the hand.
+    const across = Math.abs(-want.y * pull.x + want.x * pull.y);
+    alignment = Math.max(alignment, 0.5 + 0.42 * across);
+  }
   return clamp01(1 - p.directionality * (1 - alignment) * 2.1);
 }
 
@@ -755,14 +783,27 @@ export function loadAlignment(hold: Hold, pull: Vec2): number {
  * The load a hold will take through this limb before it lets go, in body
  * weights. Shape, seat, angle, and the limb using it — the same things the
  * old grip used, now read as a strength rather than a probability.
+ *
+ * On top of that, each shape has its own temper. A steep wall costs a sloper
+ * far more than a pinch; a body swinging under a crimp costs it far more than
+ * one swinging under a jug (`speed` is how fast the body is moving, m/s); and
+ * a trained climber gets more out of a crimp than out of a jug, because the
+ * jug was never the problem.
  */
-export function capacityOf(hold: Hold, limb: SlingLimb, anchor: Vec2, overhang: number): number {
+export function capacityOf(
+  hold: Hold, limb: SlingLimb, anchor: Vec2, overhang: number,
+  str: StrengthMods = UNTRAINED, speed = 0,
+): number {
   const p = profileOf(hold.type);
   const angleQ = loadAlignment(hold, pullDirection(hold, limb, anchor));
   const aff = affinityFactor(hold.type, limb.id);
   const hard = hold.hard ?? 1;
-  const steep = 1 - Math.sin(overhang) * (isHand(limb.id) ? 0.12 : 0.22);
-  return SLING.jugStrength * p.gripBase * angleQ * aff * steep * (0.45 + 0.55 * limb.seat) / hard;
+  const hand = isHand(limb.id);
+  const steep = Math.max(0.35, 1 - Math.sin(overhang) * (hand ? 0.12 * p.steep : 0.22));
+  const swing = 1 - p.swing * 0.55 * clamp01((speed - 0.7) / 2.3);
+  const trained = 1 + (str.grip - 1) * (hand ? p.fingers : 0.6);
+  return SLING.jugStrength * p.gripBase * angleQ * aff * steep * swing * trained
+    * (0.45 + 0.55 * limb.seat) / hard;
 }
 
 // --- the step ------------------------------------------------------------
@@ -786,6 +827,8 @@ export function stepSling(
   const W = bodyMass() * g;
   const hang = Math.sin(state.overhang);
   const footAuthority = footShare(state.overhang);
+  const armMax = reachOf(state, 'LH');
+  const legMax = reachOf(state, 'LF');
 
   // Counted at the end of the previous step, not the start of this one, so a
   // launch between steps still reads as letting go.
@@ -978,7 +1021,7 @@ export function stepSling(
       const ny = d.y / L;
 
       const minL = hand ? ARM_MIN : LEG_MIN;
-      const maxL = hand ? ARM_MAX : LEG_MAX;
+      const maxL = hand ? armMax : legMax;
 
       if (l.phase === 'held') {
         // Pinned tip: all the correction lands on the body.
@@ -1078,7 +1121,8 @@ export function stepSling(
     l.tension += (inst - l.tension) * Math.min(1, dt / SLING.tensionTau);
 
     const anchor = anchorFor(id, state.hip, state.shoulder);
-    l.capacity = capacityOf(hold, l, anchor, state.overhang);
+    const moving = len(isHand(id) ? state.shV : state.hipV);
+    l.capacity = capacityOf(hold, l, anchor, state.overhang, state.str, moving);
     if (extraDamp === 0 && l.heldT > SLING.lockOnGrace && l.tension > l.capacity) {
       release(state, l, events, slipReason(hold, l, anchor));
     }
@@ -1125,11 +1169,11 @@ export function stepSling(
     if (caught) {
       const speed = len(l.vel);
       const { seat: raw, zone } = seatOn(caught.hold, caught.at);
-      // Grabbing at speed is worse than placing: the fingers are arresting a
-      // moving limb, and some of the precision goes into that instead.
-      const seat = clamp01(raw * (1 - 0.22 * clamp01((speed - 2.6) / 3)));
+      const seat = catchSeat(caught.hold, raw, speed, state.str);
       const grade = gradeOfSeat(seat);
-      if (state.dyno && grade === 'SCRAPE') {
+      // A strong hand can stop a body on a little less than a good catch.
+      const ripBelow = 0.55 - 0.08 * state.str.control;
+      if (state.dyno && seat < ripBelow) {
         // A whole body arriving at speed does not stop on fingertips. The hand
         // skids off the hold and keeps going; the other one had better be good.
         l.phase = 'free';
@@ -1161,7 +1205,10 @@ export function stepSling(
         y: caught.at.y + (target.y - caught.at.y) * pull,
       };
       l.vel = { x: 0, y: 0 };
-      l.capacity = capacityOf(caught.hold, l, anchorFor(id, state.hip, state.shoulder), state.overhang);
+      l.capacity = capacityOf(
+        caught.hold, l, anchorFor(id, state.hip, state.shoulder), state.overhang, state.str,
+        len(isHand(id) ? state.shV : state.hipV),
+      );
       events.push({
         kind: 'catch', limb: id, holdId: caught.hold.id, at: { ...l.pos }, grade, seat, zone, speed,
         dyno: state.dyno,
@@ -1267,7 +1314,7 @@ function missReason(state: SlingState, l: SlingLimb, holds: Hold[]): string {
   for (const h of holds) near = Math.min(near, dist(h.pos, l.pos) - contactRadius(h.size, h.type));
   if (near < 0.12) return 'Brushed it. Did not grab it.';
   const anchor = anchorFor(l.id, state.hip, state.shoulder);
-  const taut = dist(anchor, l.pos) > (isHand(l.id) ? ARM_MAX : LEG_MAX) * 0.97;
+  const taut = dist(anchor, l.pos) > reachOf(state, l.id) * 0.97;
   if (taut && l.pos.y > anchor.y) return 'Out of reach. The body did not come.';
   if (l.pos.y < anchor.y) return 'Nothing there. It is dangling.';
   return 'A fistful of wall.';
@@ -1424,7 +1471,7 @@ export function predictDyno(
 /** Holds a limb could plausibly be thrown at from here: within the tether, usable, not taken. */
 export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
   const anchor = anchorFor(limb, state.hip, state.shoulder);
-  const max = (isHand(limb) ? ARM_MAX : LEG_MAX) + 0.05;
+  const max = reachOf(state, limb) + 0.05;
   const blocked = blockedHolds(state, holds, limb);
   return holds.filter((h) =>
     canUse(h.type, limb) && !blocked.has(h.id) && dist(anchor, h.pos) <= max + contactRadius(h.size, h.type),
@@ -1507,13 +1554,14 @@ export function assistLaunch(
   for (const extra of ASSIST_POWER) {
     const power = clamp(aim.power + extra, SLING.minPower, 1);
     if (extra !== 0 && power === aim.power) continue;
-    const speed = launchSpeed(aim.limb, power);
+    const speed = launchSpeed(aim.limb, power, state.str);
+    const cone = ASSIST_CONE * (1 + 0.6 * state.str.control);
     const candidates: { hold: Hold; gap: number }[] = [];
     for (const h of inReach) {
       const a = arcAngle(from, h.pos, speed, chosen);
       if (a === null) continue;
       const gap = angleGap(a, chosen);
-      if (gap <= ASSIST_CONE) candidates.push({ hold: h, gap });
+      if (gap <= cone) candidates.push({ hold: h, gap });
     }
     candidates.sort((p, q) => p.gap - q.gap);
 
@@ -1535,7 +1583,7 @@ export function assistLaunch(
         // The tether and the body pull the real arc off the plain one a
         // little; feel either side of it.
         for (const nudge of [0, 0.05, -0.05]) {
-          if (angleGap(a + nudge, chosen) > ASSIST_CONE) continue;
+          if (angleGap(a + nudge, chosen) > cone) continue;
           if (budget-- <= 0) return { aim, prediction: raw, assisted: null };
           const steered = { ...aim, power, dir: { x: Math.cos(a + nudge), y: Math.sin(a + nudge) } };
           const prediction = predictLaunch(state, holds, steered, seconds);

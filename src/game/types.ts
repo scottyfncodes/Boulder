@@ -92,6 +92,31 @@ export type HoldProfile = {
   push: boolean;
   /** Penalty multiplier when the wrong kind of limb uses it. */
   crossUse: number;
+  /**
+   * How much the shape minds the body moving under it, 0..1. A jug does not
+   * care if you swing; a sloper only works while you stay still.
+   */
+  swing: number;
+  /**
+   * How much grabbing it at speed costs, against an average shape. You can
+   * slap a jug; you cannot stab two fingers into a pocket at full tilt.
+   */
+  stab: number;
+  /**
+   * How much a steep wall costs it, against an average shape. Pinches and
+   * jugs are what overhangs are set with; slopers on a roof are a joke.
+   */
+  steep: number;
+  /**
+   * True for shapes you squeeze rather than hang off: the thumb opposes the
+   * fingers, so it holds when pulled sideways either way.
+   */
+  squeeze: boolean;
+  /**
+   * How much it is a test of finger strength. Training helps a crimp a lot
+   * and a jug barely at all.
+   */
+  fingers: number;
   /** Flavour, shown in the inspect panel. Players learn the rest by falling. */
   note: string;
 };
