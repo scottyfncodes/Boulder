@@ -553,7 +553,7 @@ describe('the dyno', () => {
     const s = start();
     run(s, 0.5);
     const events: SlingEvent[] = [];
-    dyno(s, { dir: { x: 0, y: 1 }, power: 0.4 }, events);
+    dyno(s, { dir: { x: 0, y: 1 }, power: 0.25 }, events);
     run(s, 3, events);
     expect(kinds(events)).not.toContain('catch');
     expect(kinds(events)).toContain('fell');

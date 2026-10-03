@@ -63,7 +63,9 @@ drains it. Fill it and the belly lights up and breathes: the dyno is live.
 Press the belly, pull, let go. The body is the stone and every limb on the
 wall is a band: it draws back against them, only as far as they stretch, and
 fires from there. Firing spends the whole tank, whatever happens next.
-Everything leaves the wall at once and the whole body is the thing that flies;
+Everything leaves the wall at once and the whole body is the thing that flies —
+a full one carries the hips most of two metres up and the hands nearly three,
+because nothing but air slows it down;
 the clock drops into bullet time over the top of the arc, embers peel off the
 body, and the hands either catch something or the mat catches the climber.
 It has to be precise: a hand needs a GOOD catch or better to stop a body at

@@ -69,8 +69,8 @@ export const SLING = {
    * the wall is the band, so it only goes as far as the limbs let it.
    */
   dynoWindup: 0.24,
-  /** A dyno at full pull: the whole body, metres per second. */
-  maxDynoSpeed: 4.6,
+  /** A dyno at full pull: the whole body, metres per second. Enough for a metre and a half of air. */
+  maxDynoSpeed: 6.2,
   /** How much faster than the body the hands go on a dyno: the reach. */
   dynoReach: 0.45,
   /** How long the hands can still catch something on a dyno, seconds. */
@@ -94,6 +94,11 @@ export const SLING = {
   restore: 1.4,
   /** Velocity damping per second: body, dangling limbs, limbs in flight. */
   dampBody: 1.5,
+  /**
+   * Body damping while a dyno is in the air. The everyday damping is the wall
+   * and the limbs soaking up motion; with nothing touching, there is only air.
+   */
+  dampDyno: 0.25,
   dampFree: 3.0,
   dampFlying: 0.22,
   /** Constraint passes per step. */
@@ -956,8 +961,9 @@ export function stepSling(
     state.hipV.x += state.peelSign * SLING.peel * 0.6 * g * dt;
   }
 
-  damp(state.hipV, SLING.dampBody + extraDamp, dt);
-  damp(state.shV, SLING.dampBody + extraDamp, dt);
+  const bodyDamp = (state.dyno ? SLING.dampDyno : SLING.dampBody) + extraDamp;
+  damp(state.hipV, bodyDamp, dt);
+  damp(state.shV, bodyDamp, dt);
   for (const id of LIMBS) {
     const l = state.limbs[id];
     if (l.phase === 'held') { l.vel.x = 0; l.vel.y = 0; continue; }
