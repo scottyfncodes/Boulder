@@ -58,7 +58,7 @@ export const SLING = {
    * being thrown is muscle as well as mass: it flies flatter and longer than a
    * dropped object, which also makes the arc something you can watch.
    */
-  flyGravity: 0.6,
+  flyGravity: 0.45,
   /** How far back a limb winds up for a full pull, metres. The stretch. */
   windup: 0.34,
   /** Below this much pull the launch is treated as a cancelled drag. */
@@ -110,6 +110,14 @@ export const SLING = {
   iterations: 10,
   /** How long a launched limb can still catch something, seconds. */
   flightMax: 0.85,
+  /**
+   * A thrown limb that reaches full stretch stops there, the way an arm does
+   * at the end of a reach, rather than whipping round its shoulder like a
+   * stone on a string. How fast its sideways speed dies once taut, per second.
+   */
+  tautArrest: 25,
+  /** A taut limb moving slower than this against the body, m/s, has stalled: the throw is over. */
+  tautStall: 0.45,
   /** Seconds after a catch before the hold is asked whether it can take the load. */
   lockOnGrace: 0.16,
   /** Smoothing time for the load reading, seconds. */
@@ -182,6 +190,8 @@ export type SlingLimb = {
   touch: { holdId: number; d: number; at: Vec2 } | null;
   /** A hand passed through a foot chip on this flight. For the excuse. */
   brushedChip: boolean;
+  /** A thrown limb out at full stretch this step. */
+  taut?: boolean;
 };
 
 export type SlingState = {
@@ -1058,6 +1068,27 @@ export function stepSling(
     const l = state.limbs[id];
     if (l.phase === 'held') continue;
     l.vel = { x: (l.pos.x - tip0[id].x) / dt, y: (l.pos.y - tip0[id].y) / dt };
+    l.taut = false;
+    if (l.phase !== 'flying' || state.dyno) continue;
+    // Full stretch: the throw stops going sideways relative to the body.
+    const hand = isHand(id);
+    const anchor = anchorFor(id, state.hip, state.shoulder);
+    const d = sub(l.pos, anchor);
+    const L = len(d);
+    if (L < (hand ? ARM_MAX : LEG_MAX) * 0.995) continue;
+    l.taut = true;
+    const bv = hand ? state.shV : state.hipV;
+    const n = { x: d.x / L, y: d.y / L };
+    const rel = { x: l.vel.x - bv.x, y: l.vel.y - bv.y };
+    const along = rel.x * n.x + rel.y * n.y;
+    const keep = Math.exp(-SLING.tautArrest * dt);
+    const lost = { x: (rel.x - n.x * along) * (1 - keep), y: (rel.y - n.y * along) * (1 - keep) };
+    l.vel.x -= lost.x;
+    l.vel.y -= lost.y;
+    // Where that went: into the body, which is what swings it round.
+    const share = limbMass(l) / (hand ? SLING.massShoulder : SLING.massHip);
+    bv.x += lost.x * share;
+    bv.y += lost.y * share;
   }
 
   // --- 5. what the holds think of all this ------------------------------------
@@ -1189,9 +1220,14 @@ export function stepSling(
     const anchor = anchorFor(id, state.hip, state.shoulder);
     const limbLen = isHand(id) ? BODY.arm : BODY.leg;
     const hanging = l.flightT > 0.25 && l.pos.y < anchor.y - limbLen * 0.55 && len(l.vel) < 1.0;
+    // Out at full stretch and stopped: that is as far as this throw goes.
+    // Stopped relative to the body: a body sagging under it is not the throw.
+    const bv = isHand(id) ? state.shV : state.hipV;
+    const stalled = l.taut && l.flightT > 0.12 && !state.dyno
+      && Math.hypot(l.vel.x - bv.x, l.vel.y - bv.y) < SLING.tautStall;
     const floored = l.pos.y <= FLOOR + 0.025;
     const maxFlight = state.dyno ? SLING.dynoFlight : SLING.flightMax;
-    if (l.flightT >= maxFlight || (hanging && !state.dyno) || floored) {
+    if (l.flightT >= maxFlight || (hanging && !state.dyno) || stalled || floored) {
       l.phase = 'free';
       l.touch = null;
       l.flightT = 0;

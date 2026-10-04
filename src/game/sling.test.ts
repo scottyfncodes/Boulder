@@ -26,8 +26,8 @@ const start = () => initialSling(holds, SLING_LAB.start);
 
 /** Scans directions and powers for a throw the preview says catches `holdId`. */
 function findAim(state: SlingState, wall: Hold[], limb: LimbId, holdId: number) {
-  for (let deg = -60; deg <= 60; deg += 5) {
-    for (const power of [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]) {
+  for (let deg = -60; deg <= 60; deg += 2) {
+    for (let power = 0.3; power <= 1 + 1e-9; power += 0.05) {
       const a = (deg * Math.PI) / 180;
       const aim = { limb, dir: { x: Math.sin(a), y: Math.cos(a) }, power };
       if (predictLaunch(state, wall, aim).caught?.holdId === holdId) return aim;
@@ -384,6 +384,24 @@ describe('the aim preview is honest', () => {
     const snap = JSON.stringify(s);
     predictLaunch(s, holds, { limb: 'LF', dir: { x: 0, y: 1 }, power: 0.9 });
     expect(JSON.stringify(s)).toBe(snap);
+  });
+});
+
+describe('throwing past reach', () => {
+  it('stops at full stretch near where it was aimed, instead of whipping round the body', () => {
+    for (const limb of ['RH', 'RF'] as LimbId[]) {
+      for (const deg of [30, 60, 90]) {
+        const s = start();
+        run(s, 0.5);
+        const a = (deg * Math.PI) / 180;
+        const dir = { x: Math.sin(a), y: Math.cos(a) };
+        const from = { ...s.limbs[limb].pos };
+        // Nothing to catch: the empty wall.
+        const p = predictLaunch(s, [], { limb, dir, power: 1 });
+        const end = Math.atan2(p.end.x - from.x, p.end.y - from.y);
+        expect(Math.abs(end - a)).toBeLessThan(0.2);
+      }
+    }
   });
 });
 
