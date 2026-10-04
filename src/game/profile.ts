@@ -74,6 +74,13 @@ export function meanAngle(p: WallProfile, y0 = 0.3, y1 = 4.1): number {
   return n ? sum / n : p.base;
 }
 
+/** How high a route goes: the standard wall, or higher if its holds do. */
+export function routeTop(route: Pick<Route, 'holds'>): number {
+  let top = 4.25;
+  for (const h of route.holds) top = Math.max(top, h.pos.y + 0.2);
+  return top;
+}
+
 export function isFolded(p: WallProfile): boolean {
   return p.bends.length > 0;
 }

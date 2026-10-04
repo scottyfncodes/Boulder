@@ -16,7 +16,8 @@ export const WALL = {
   minX: -1.7,
   maxX: 1.7,
   minY: 0.2,
-  maxY: 4.25,
+  /** The cave goes up a long way. Most routes stop around four metres; the long ones do not. */
+  maxY: 6.2,
   /** Height the finish jug tends to sit at. */
   topY: 3.9,
 } as const;

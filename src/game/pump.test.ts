@@ -117,7 +117,7 @@ describe('recovery', () => {
     const down = 0.5 - hold(pose(VERTICAL, 2, 2), 5, start).pump;
     const up = hold(pose(VERTICAL, 1, 0), 5, start).pump - 0.5;
     expect(down).toBeGreaterThan(0);
-    expect(up).toBeGreaterThan(down * 2);
+    expect(up).toBeGreaterThan(down * 1.5);
   });
 
   it('comes back slower the deeper you are', () => {

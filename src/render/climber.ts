@@ -4,6 +4,7 @@ import { isHand } from '../game/types';
 import { anchorFor, BODY } from '../game/body';
 import { BERNIE } from './palette';
 import { ARM_Z, FOOT_Z, HAND_Z, HEAD_Z, HIP_Z, LEG_Z, TORSO_Z } from './depths';
+import { WallWarp, placeOn } from './fold';
 
 /**
  * The climber.
@@ -97,6 +98,13 @@ function limbMaterial(color: string): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0.02 });
 }
 
+const tmpB = new THREE.Vector3();
+const tmpD = new THREE.Vector3();
+const tmpN = new THREE.Vector3();
+const tmpX = new THREE.Vector3();
+const tmpQ = new THREE.Quaternion();
+const tmpM = new THREE.Matrix4();
+
 /** A cylinder that can be re-aimed between two points each frame. */
 class Bone {
   mesh: THREE.Mesh;
@@ -106,18 +114,30 @@ class Bone {
     this.mesh = new THREE.Mesh(g, mat);
     this.mesh.castShadow = true;
   }
-  aim(a: Vec2, b: Vec2, z: number): void {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.max(Math.hypot(dx, dy), 1e-4);
-    this.mesh.position.set(a.x, a.y, z);
-    this.mesh.rotation.z = Math.atan2(dy, dx) - Math.PI / 2;
+  /** From a to b on the wall, z out of it — through the warp, so a limb over a lip bends with it. */
+  aim(warp: WallWarp, a: Vec2, b: Vec2, z: number): void {
+    const A = warp.point(a.x, a.y, z, this.mesh.position);
+    warp.point(b.x, b.y, z, tmpB);
+    const dir = tmpD.subVectors(tmpB, A);
+    const len = Math.max(dir.length(), 1e-4);
+    dir.divideScalar(len);
+    // Its length along the limb, and its face out of the wall, as it was flat.
+    const out = tmpN.set(0, 0, 1).applyQuaternion(warp.frame((a.y + b.y) / 2, tmpQ));
+    out.addScaledVector(dir, -out.dot(dir));
+    if (out.lengthSq() < 1e-8) out.set(0, 0, 1);
+    out.normalize();
+    const side = tmpX.crossVectors(dir, out);
+    this.mesh.quaternion.setFromRotationMatrix(tmpM.makeBasis(side, dir, out));
     this.mesh.scale.set(1, len, 1);
   }
 }
 
 export class Climber {
   readonly group = new THREE.Group();
+  /** The wall's shape: every part of him is placed through it. */
+  private warp = new WallWarp();
+  /** Carries the head onto the wall; the head itself only turns and lolls inside it. */
+  private headMount = new THREE.Group();
 
   private skinParts: THREE.Mesh[] = [];
   private torso: THREE.Mesh;
@@ -185,7 +205,8 @@ export class Climber {
     // the face is visible at all. A quarter turn reads as "looking round";
     // pointing it straight out would read as a head on backwards.
     this.head.rotation.y = HEAD_TURN;
-    this.group.add(this.head);
+    this.headMount.add(this.head);
+    this.group.add(this.headMount);
 
     // Cues that say back rather than front, so the turned head reads as a turn
     // rather than as the whole body facing out. A chalk bag at the waist is the
@@ -256,15 +277,18 @@ export class Climber {
    * that are not on a hold get passed their dangling position by the caller,
    * so flails and swings come from one place rather than being faked here.
    */
+  setWarp(warp: WallWarp): void {
+    this.warp = warp;
+  }
+
   setPose(pose: Pose, limbs: Record<LimbId, Vec2>, mood: Mood = 'calm'): void {
     const { hip, shoulder, head } = pose;
 
+    const warp = this.warp;
     const mid = { x: (hip.x + shoulder.x) / 2, y: (hip.y + shoulder.y) / 2 };
-    this.torso.position.set(mid.x, mid.y, TORSO_Z);
-    this.torso.rotation.z = -pose.lean;
-    this.hips.position.set(hip.x, hip.y, HIP_Z);
-
-    this.head.position.set(head.x, head.y, HEAD_Z);
+    placeOn(warp, this.torso, mid.x, mid.y, TORSO_Z, -pose.lean);
+    placeOn(warp, this.hips, hip.x, hip.y, HIP_Z);
+    placeOn(warp, this.headMount, head.x, head.y, HEAD_Z);
 
     // The head is along for the ride. It swings when the body moves, keeps
     // swinging after the body stops, and settles slowly — a neck that is not
@@ -287,10 +311,9 @@ export class Climber {
       const l2 = hand ? LOWER_ARM : LOWER_LEG;
       const joint = twoBoneJoint(anchor, target, l1, l2, hand ? 'down' : 'out', hip.x);
       const z = hand ? ARM_Z : LEG_Z;
-      rig.upper.aim(anchor, joint, z);
-      rig.lower.aim(joint, target, z);
-      rig.end.position.set(target.x, target.y, hand ? HAND_Z : FOOT_Z);
-      rig.end.rotation.z = Math.atan2(target.y - joint.y, target.x - joint.x);
+      rig.upper.aim(warp, anchor, joint, z);
+      rig.lower.aim(warp, joint, target, z);
+      placeOn(warp, rig.end, target.x, target.y, hand ? HAND_Z : FOOT_Z, Math.atan2(target.y - joint.y, target.x - joint.x));
     }
 
     this.setMood(mood);

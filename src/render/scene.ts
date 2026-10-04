@@ -6,6 +6,8 @@ import { contactRadius } from '../game/holds';
 import { HOLD_Z } from './depths';
 import { holdGeometry } from './holdGeometry';
 import { Climber, type Mood } from './climber';
+import { WallWarp, placeOn, surfaceStrip } from './fold';
+import { type WallProfile, FLAT } from '../game/profile';
 
 /**
  * The gym, rendered.
@@ -36,22 +38,27 @@ export const FRAME_MAX = 6.0;
 export const ORBIT_LIMIT = 0.5;
 
 const FOV = 42;
+/** How far under a leaning wall the camera drops, as a share of the lean. */
+const CAMERA_UNDER = 0.45;
 
 export class WallScene {
   readonly scene = new THREE.Scene();
   /**
-   * Everything that belongs to the wall plane — panels, holds and the climber —
-   * lives under one group that gets tilted. The sim stays flat and works in
-   * wall coordinates; only the view knows the wall leans.
+   * Everything that belongs to the wall — panels, holds and the climber — is
+   * placed through the warp, which rolls the sim's flat wall coordinates up
+   * into the wall's real shape: leaning, bending into a roof, coming back
+   * out over a lip. The sim stays flat; only the view knows the wall bends.
    */
   private plane = new THREE.Group();
+  private warp = new WallWarp(FLAT);
+  private route: Route | null = null;
+  /** The panels, seams and dressing: rebuilt whenever the wall changes shape. */
+  private wallGroup = new THREE.Group();
   readonly camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private climber = new Climber();
   private holdGroup = new THREE.Group();
   private holdMeshes = new Map<number, THREE.Mesh>();
-  /** Wall furniture that tilts with the plane. */
-  private panels: THREE.Object3D[] = [];
   private canvas: HTMLCanvasElement;
   private cam: CameraState = { ...DEFAULT_CAMERA };
   private disposed = false;
@@ -66,42 +73,18 @@ export class WallScene {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 40);
-    this.plane.add(this.holdGroup, this.climber.group);
+    this.plane.add(this.wallGroup, this.holdGroup, this.climber.group);
     this.scene.add(this.plane);
     this.buildEnvironment();
+    this.buildWall();
     this.applyCamera();
   }
 
   // --- environment -------------------------------------------------------
 
   private buildEnvironment(): void {
-    // Generously oversized: at a wide desktop aspect the camera sees far more
-    // wall than the climbable area, and running out of gym looks like a bug.
     const w = (WALL.maxX - WALL.minX) * 4;
-    const h = WALL.maxY * 2.6;
     const cx = (WALL.minX + WALL.maxX) / 2;
-
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, 0.3),
-      new THREE.MeshStandardMaterial({ color: GYM.wall, roughness: 0.95, metalness: 0 }),
-    );
-    wall.position.set(cx, h / 2 - 0.6, -0.15);
-    wall.receiveShadow = true;
-    this.plane.add(wall);
-
-    // Panel seams. Purely visual, but they give the eye a scale reference,
-    // which matters when you are judging whether a move is 30cm or 60cm.
-    const seamMat = new THREE.MeshBasicMaterial({ color: GYM.seam });
-    for (let y = 0.2; y < WALL.maxY + 2.4; y += 1.22) {
-      const seam = new THREE.Mesh(new THREE.BoxGeometry(w, 0.014, 0.01), seamMat);
-      seam.position.set(cx, y, 0.006);
-      this.plane.add(seam);
-    }
-    for (const x of [WALL.minX - 0.05, cx, WALL.maxX + 0.05]) {
-      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.014, h, 0.01), seamMat);
-      seam.position.set(x, h / 2 - 0.6, 0.006);
-      this.plane.add(seam);
-    }
 
     const mat = new THREE.Mesh(
       new THREE.BoxGeometry(w + 2, 0.34, 2.6),
@@ -110,19 +93,6 @@ export class WallScene {
     mat.position.set(cx, -0.17, 1.2);
     mat.receiveShadow = true;
     this.scene.add(mat);
-
-    // Off-route holds: dressing, and the reason reading a line is a skill.
-    const decorMat = new THREE.MeshStandardMaterial({
-      color: GYM.decor, roughness: 0.9, metalness: 0,
-    });
-    for (const d of DECOR) {
-      const m = new THREE.Mesh(holdGeometry(d.type), decorMat);
-      m.position.set(d.x, d.y, HOLD_Z);
-      m.scale.setScalar(contactRadius(d.size, d.type));
-      m.rotation.z = d.roll;
-      m.castShadow = true;
-      this.plane.add(m);
-    }
 
     this.scene.add(new THREE.HemisphereLight('#f2efe8', '#3a3f52', 1.5));
     const key = new THREE.DirectionalLight('#fff6e6', 2.1);
@@ -145,10 +115,63 @@ export class WallScene {
     this.scene.add(fill);
   }
 
+  /**
+   * The wall itself, the shape the route says. Generously oversized: at a wide
+   * desktop aspect the camera sees far more wall than the climbable area, and
+   * running out of gym looks like a bug.
+   */
+  private buildWall(): void {
+    for (const o of [...this.wallGroup.children]) {
+      this.wallGroup.remove(o);
+      o.traverse((m) => {
+        if (m instanceof THREE.Mesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+      });
+    }
+    const warp = this.warp;
+    const w = (WALL.maxX - WALL.minX) * 4;
+    const h = WALL.maxY * 2.6;
+    const cx = (WALL.minX + WALL.maxX) / 2;
+    const y0 = -0.6;
+    const y1 = h - 0.6;
+
+    const wall = new THREE.Mesh(
+      surfaceStrip(warp, cx - w / 2, cx + w / 2, y0, y1, 0),
+      new THREE.MeshStandardMaterial({ color: GYM.wall, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }),
+    );
+    wall.receiveShadow = true;
+    this.wallGroup.add(wall);
+
+    // Panel seams. Purely visual, but they give the eye a scale reference,
+    // which matters when you are judging whether a move is 30cm or 60cm — and
+    // on a bent wall they are what shows you where it bends.
+    const seamMat = new THREE.MeshBasicMaterial({ color: GYM.seam, side: THREE.DoubleSide });
+    for (let y = 0.2; y < WALL.maxY + 2.4; y += 1.22) {
+      const seam = new THREE.Mesh(surfaceStrip(warp, cx - w / 2, cx + w / 2, y - 0.007, y + 0.007, 0.006, 0.02), seamMat);
+      this.wallGroup.add(seam);
+    }
+    for (const x of [WALL.minX - 0.05, cx, WALL.maxX + 0.05]) {
+      const seam = new THREE.Mesh(surfaceStrip(warp, x - 0.007, x + 0.007, y0, y1, 0.006), seamMat);
+      this.wallGroup.add(seam);
+    }
+
+    // Off-route holds: dressing, and the reason reading a line is a skill.
+    const decorMat = new THREE.MeshStandardMaterial({
+      color: GYM.decor, roughness: 0.9, metalness: 0,
+    });
+    for (const d of DECOR) {
+      const m = new THREE.Mesh(holdGeometry(d.type), decorMat);
+      placeOn(warp, m, d.x, d.y, HOLD_Z, d.roll);
+      m.scale.setScalar(contactRadius(d.size, d.type));
+      m.castShadow = true;
+      this.wallGroup.add(m);
+    }
+  }
+
   // --- route -------------------------------------------------------------
 
   /** Rebuilds the on-route holds. Called once per route, not per frame. */
   setRoute(route: Route): void {
+    this.route = route;
     for (const m of this.holdMeshes.values()) {
       this.holdGroup.remove(m);
       (m.material as THREE.Material).dispose();
@@ -180,12 +203,10 @@ export class WallScene {
   private placeHold(mesh: THREE.Mesh, hold: Hold): void {
     // Every hold geometry is authored around a unit radius, so scaling by the
     // contact radius makes what you see the same size as what the sim tests
-    // against. A hold that looks like a jug is a jug.
-    mesh.position.set(hold.pos.x, hold.pos.y, HOLD_Z);
+    // against. Rails and undercuts are rotated to face the way they are meant
+    // to be used, so the shape on screen tells you what the sim already knows.
+    placeOn(this.warp, mesh, hold.pos.x, hold.pos.y, HOLD_Z, hold.roll ?? hold.dir + Math.PI / 2);
     mesh.scale.setScalar(contactRadius(hold.size, hold.type));
-    // Rails and undercuts are rotated to face the way they are meant to be
-    // used, so the shape on screen tells you what the sim already knows.
-    mesh.rotation.z = hold.roll ?? hold.dir + Math.PI / 2;
   }
 
   /** Lights the finish holds and dims anything the route does not use. */
@@ -214,10 +235,24 @@ export class WallScene {
 
   // --- camera ------------------------------------------------------------
 
-  /** Leans the wall back by `radians`, pivoting about the foot of the wall. */
+  /** Gives the wall its shape: one lean, or a profile with bends in it. */
+  setWall(wall: number | WallProfile): void {
+    const profile = typeof wall === 'number' ? { base: wall, bends: [] } : wall;
+    this.warp = new WallWarp(profile);
+    this.climber.setWarp(this.warp);
+    this.buildWall();
+    if (this.route) this.setRoute(this.route);
+    this.applyCamera();
+  }
+
+  /** Leans the whole wall back by `radians`, pivoting about its foot. */
   setOverhang(radians: number): void {
-    this.plane.rotation.x = radians;
-    for (const m of this.panels) m.rotation.x = radians;
+    this.setWall(radians);
+  }
+
+  /** The wall-to-world mapping, for anything else that wants to sit on the wall. */
+  getWarp(): WallWarp {
+    return this.warp;
   }
 
   setCamera(next: Partial<CameraState>): void {
@@ -235,24 +270,22 @@ export class WallScene {
     const dist = (this.cam.frame / 2) / Math.tan((FOV * Math.PI) / 360);
     const { focusY, focusX, orbit } = this.cam;
 
-    // focusY is a height up the wall, and on a pitched wall that is not a
-    // height in the world: the tilt swings it back and down. Aiming the camera
-    // at the raw number leaves the climber crammed into the bottom of frame on
-    // anything steep, so the focus point is carried through the same rotation
-    // the wall gets.
-    const tilt = this.plane.rotation.x;
-    const fy = focusY * Math.cos(tilt);
-    const fz = focusY * Math.sin(tilt);
+    // focusY is a distance up the wall's surface, and on a leaning or bent
+    // wall that is not a height in the world, so the focus point goes through
+    // the same warp as everything on the wall.
+    const f = this.warp.point(focusX, focusY, 0);
 
-    // The camera itself stays level and pulls straight back from the climber,
-    // so an overhang reads the way it does from the mat — wall leaning away
-    // overhead — rather than as a view from underneath.
+    // The camera pulls back from the climber mostly level, so an overhang
+    // reads the way it does from the mat — wall leaning away overhead — but
+    // it drops under a steep wall part of the way, so a roof is something you
+    // look up into rather than a sliver seen edge on.
+    const under = this.warp.angle(focusY) * CAMERA_UNDER;
     this.camera.position.set(
-      focusX + Math.sin(orbit) * dist,
-      fy + Math.sin(orbit) * 0.1,
-      fz + Math.cos(orbit) * dist,
+      f.x + Math.sin(orbit) * dist,
+      f.y - Math.sin(under) * dist * Math.cos(orbit) + Math.sin(orbit) * 0.1,
+      f.z + Math.cos(under) * dist * Math.cos(orbit),
     );
-    this.camera.lookAt(focusX, fy, fz);
+    this.camera.lookAt(f.x, f.y, f.z);
     this.camera.updateMatrixWorld();
   }
 
@@ -271,10 +304,8 @@ export class WallScene {
    * that offset rotates into a vertical error that grows with the angle.
    */
   project(p: Vec2, z: number = HOLD_Z): { x: number; y: number; visible: boolean } {
-    const v = new THREE.Vector3(p.x, p.y, z);
-    // Wall-space to world: the same tilt the plane group applies.
-    this.plane.updateMatrixWorld();
-    v.applyMatrix4(this.plane.matrixWorld);
+    // Wall-space to world: the same warp everything on the wall goes through.
+    const v = this.warp.point(p.x, p.y, z);
     v.project(this.camera);
     const rect = this.canvas.getBoundingClientRect();
     return {

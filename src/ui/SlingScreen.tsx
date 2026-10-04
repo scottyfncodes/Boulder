@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LimbId, Route, Vec2 } from '../game/types';
 import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor } from '../game/body';
-import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf } from '../game/attempt';
+import { type Attempt, type AttemptMode, type BetaMove, beginAttempt } from '../game/attempt';
 import {
   type AssistedLaunch, type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
   dynoWindup, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
@@ -12,7 +12,7 @@ import {
 import {
   type Pump, catchCost, dynoCost, flingCost, freshPump, gain as addPump, pumpReason, pumpStage, pumpTrend, tickPump,
 } from '../game/pump';
-import { profileOf } from '../game/profile';
+import { profileOf, routeTop } from '../game/profile';
 import { flowStreak } from '../game/scoring';
 import { type AimFilter, filterAim, freshAimFilter, releaseAim } from '../game/aimInput';
 import {
@@ -265,7 +265,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     const scene = new WallScene(gl);
     sceneRef.current = scene;
     scene.setRoute(route);
-    scene.setOverhang(overhangOf(route));
+    scene.setWall(profileOf(route));
     scene.resize();
     camRef.current.focusX = startFocusX(route, scene);
 
@@ -385,7 +385,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           {
             const s = simRef.current;
             const hands = LIMBS.filter((id) => isHand(id) && s.limbs[id].phase === 'held').length;
-            pumpStateRef.current = addPump(pumpStateRef.current, catchCost(e.speed, isHand(e.limb), hands, bodyAngle(s)));
+            pumpStateRef.current = addPump(pumpStateRef.current, catchCost(bodySpeed(s), isHand(e.limb), hands, bodyAngle(s)));
           }
           sfxGrab(e.grade, streakNow);
           // The juice. A dyno's own catch is paid back by the dyno; the second
@@ -630,7 +630,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       // Camera: follows the chest, slowly, and never jumps for a throw.
       const cam = camRef.current;
       if (followRef.current) {
-        const want = clamp(pose.com.y + 0.55, 1.7, 3.6);
+        const want = clamp(pose.com.y + 0.55, 1.7, routeTop(route) - 0.65);
         cam.focusY += (want - cam.focusY) * 0.045;
         // Sideways too, but only as far as the wall goes — a route that
         // traverses off the edge of a phone screen should not leave you there.
@@ -902,10 +902,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       const scene = sceneRef.current;
       if (!scene) return;
       const mpp = scene.metresPerPixel();
-      camRef.current.focusY = clamp(drag.camFocus + (drag.y - drag.startY) * mpp, 0.9, 4.4);
+      camRef.current.focusY = clamp(drag.camFocus + (drag.y - drag.startY) * mpp, 0.9, routeTop(route) + 0.15);
       camRef.current.orbit = clamp(drag.camOrbit - (drag.x - drag.startX) * 0.0022, -ORBIT_LIMIT, ORBIT_LIMIT);
     }
-  }, []);
+  }, [route]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;

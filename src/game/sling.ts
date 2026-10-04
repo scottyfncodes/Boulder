@@ -816,13 +816,15 @@ export function loadAlignment(hold: Hold, pull: Vec2): number {
  * The load a hold will take through this limb before it lets go, in body
  * weights. Every hold is as strong as every other: what hold it is does not
  * decide whether you stay on — the pump does. What can still pull a limb off
- * is loading a hold the way it was never meant to be loaded (an undercling
- * from below, a sloper from the side) and a foot asked to be a hand.
+ * is swinging hard on a hold loaded the way it was never meant to be (an
+ * undercling from below, a sloper from the side), or a foot asked to be a hand.
  */
 export function capacityOf(hold: Hold, limb: SlingLimb, anchor: Vec2): number {
   const angleQ = loadAlignment(hold, pullDirection(hold, limb, anchor));
   const aff = affinityFactor(hold.type, limb.id);
-  return SLING.gripStrength * angleQ * aff;
+  // Loaded the wrong way a hold still takes a body weight, near enough: it
+  // is the swing on top that pulls you off it, not the hold.
+  return SLING.gripStrength * (0.35 + 0.65 * angleQ) * aff;
 }
 
 // --- the step ------------------------------------------------------------
@@ -1531,7 +1533,7 @@ const ASSIST_TRIES = 12;
  * nearer the angle the player chose. Null when the throw is too weak to get
  * there at all.
  */
-function arcAngle(from: Vec2, to: Vec2, speed: number, near: number): number | null {
+export function arcAngle(from: Vec2, to: Vec2, speed: number, near: number): number | null {
   const g = SLING.gravity * SLING.flyGravity;
   const x = to.x - from.x;
   const y = to.y - from.y;

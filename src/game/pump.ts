@@ -70,7 +70,7 @@ export const PUMP = {
   /** How much the wall angle multiplies what the arms are carrying. At a roof it is 1 + this. */
   steepness: 1.7,
   /** Swinging on your arms, per (m/s)², at full arm load. */
-  swing: 0.55,
+  swing: 0.14,
   /** A limb in the air: the rest of the body is holding a position to throw from. */
   reach: 0.14,
   /**
@@ -79,17 +79,17 @@ export const PUMP = {
    */
   restLine: 0.24,
   /** Effort above the rest line per unit of pump: how many effort-seconds fill the forearms. */
-  capacity: 26,
+  capacity: 42,
   /** Fastest recovery, pump per second, from a perfectly stable stance with fresh arms. */
-  recover: 0.016,
+  recover: 0.024,
   /** Of every bit of pump gained, how much stays for the rest of the climb. */
   fatigue: 0.28,
   /** Throwing one limb at full pull, before the wall and the body are counted. */
   fling: 0.022,
   /** A full dyno, before the wall is counted. Everything leaves the wall. */
   dyno: 0.085,
-  /** Catching yourself, per (m/s)² over the first metre a second, by one hand. */
-  catchShock: 0.009,
+  /** Catching yourself: per (m/s)² of body speed over the first bit, on two hands. */
+  catchShock: 0.02,
 } as const;
 
 export function freshPump(fitness = 1): Pump {
@@ -123,7 +123,7 @@ export function effort(p: Posture): number {
   const hands = Math.max(1, p.hands);
   const forearms = p.hands > 0 ? (arms * arms) / hands : 0;
   const hooks = p.hands === 0 && p.feet > 0 ? 0.35 * steep : 0;
-  const swing = PUMP.swing * Math.min(p.speed, 3.5) ** 2 * (p.hands > 0 ? arms : 0.4);
+  const swing = PUMP.swing * Math.min(p.speed, 3) ** 2 * (p.hands > 0 ? 0.5 + 0.5 * arms : 0.4);
   const reach = p.reaching ? PUMP.reach * steep : 0;
   return PUMP.onWall + PUMP.core * lean + forearms * steep + hooks + swing + reach;
 }
@@ -169,13 +169,14 @@ export function dynoCost(power: number, angle: number): number {
 }
 
 /**
- * Catching yourself. A hand arriving slowly costs nothing; a body arriving
- * fast and stopping on it costs by the square of the speed, and twice that
- * when one hand is all there is to stop it.
+ * Catching yourself. `speed` is the body's, not the hand's: a hand arriving
+ * on a still body costs nothing, a body arriving fast and stopping on it costs
+ * by the square of the speed, and twice that when one hand is all there is to
+ * stop it.
  */
 export function catchCost(speed: number, isHand: boolean, handsOn: number, angle: number): number {
   if (!isHand) return 0;
-  const over = Math.max(0, speed - 1);
+  const over = Math.max(0, speed - 0.8);
   const lonely = handsOn <= 1 ? 2 : 1;
   return PUMP.catchShock * over * over * lonely * steepFactor(angle);
 }
