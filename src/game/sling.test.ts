@@ -413,6 +413,30 @@ describe('aim assist', () => {
     expect(real && real.kind === 'catch' && real.holdId).toBe(help.assisted);
   });
 
+  it('holds a lock a little past where it took one, so the arc does not flicker', () => {
+    const s = start();
+    let locked: number | null = null;
+    let deg = 4;
+    for (; deg <= 20; deg += 1) {
+      const a = { limb: 'RH' as LimbId, dir: rotate(deg), power: 0.62 };
+      if (predictLaunch(s, holds, a).caught) continue;
+      locked = assistLaunch(s, holds, a).assisted;
+      if (locked !== null) break;
+    }
+    expect(locked).not.toBeNull();
+    // Keep walking off the hold until a fresh aim no longer locks onto it.
+    let lost: LaunchAim | null = null;
+    for (let d = deg; d <= deg + 30; d += 1) {
+      const a = { limb: 'RH' as LimbId, dir: rotate(d), power: 0.62 };
+      if (assistLaunch(s, holds, a).assisted !== locked) { lost = a; break; }
+    }
+    expect(lost).not.toBeNull();
+    // Already locked on, it stays on.
+    const kept = assistLaunch(s, holds, lost!, 1.0, locked);
+    expect(kept.assisted).toBe(locked);
+    expect(kept.prediction.caught?.holdId).toBe(locked);
+  });
+
   it('leaves a throw alone that already catches, or is nowhere near anything', () => {
     const s = start();
     const good = { limb: 'RH' as LimbId, dir: { x: 0, y: 1 }, power: 0.62 };
@@ -462,7 +486,7 @@ describe('the dyno', () => {
   it('sticks it two-handed on a good pull, and the preview agrees', () => {
     const s = start();
     run(s, 0.5);
-    const aim = { dir: { x: 0, y: 1 }, power: 0.8 };
+    const aim = { dir: { x: 0, y: 1 }, power: 0.4 };
     const guess = predictDyno(s, holds, aim);
     expect(guess.caught.map((c) => c.holdId).sort()).toEqual([7, 8]);
     const events: SlingEvent[] = [];
@@ -483,7 +507,7 @@ describe('the dyno', () => {
     run(s, 0.5);
     const events: SlingEvent[] = [];
     const x = -0.7;
-    dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.8 }, events);
+    dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.55 }, events);
     run(s, 2.5, events);
     const held = LIMBS.filter((l) => s.limbs[l].phase === 'held');
     expect(held).toHaveLength(1);
@@ -494,7 +518,7 @@ describe('the dyno', () => {
     const s = start();
     run(s, 0.5);
     const x = -0.15;
-    const aim = { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.8 };
+    const aim = { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.4 };
     const guess = predictDyno(s, holds, aim);
     expect(guess.caught).toHaveLength(0);
     expect(guess.ripped.map((r) => r.holdId).sort()).toEqual([7, 8]);
@@ -549,11 +573,36 @@ describe('the dyno', () => {
     expect(caught.slice(0, guess.caught.length)).toEqual(guess.caught.map((c) => c.holdId));
   });
 
+  it('goes a long way: a full one puts the hands well over two metres higher', () => {
+    const s = start();
+    run(s, 0.5);
+    const before = Math.max(s.limbs.LH.pos.y, s.limbs.RH.pos.y);
+    dyno(s, { dir: { x: 0, y: 1 }, power: 1 });
+    let top = -Infinity;
+    // An empty wall, so nothing stops it on the way up.
+    for (let i = 0; i < Math.round(1 / SLING.dt); i++) {
+      stepSling(s, [], SLING.dt);
+      top = Math.max(top, s.limbs.LH.pos.y, s.limbs.RH.pos.y);
+    }
+    expect(top - before).toBeGreaterThan(2.5);
+  });
+
+  it('sails past holds on the way up and catches at the top: the pull picks the hold', () => {
+    const s = start();
+    run(s, 0.5);
+    // A light one sticks the holds just overhead; a big one goes past them.
+    const light = predictDyno(s, holds, { dir: { x: 0, y: 1 }, power: 0.4 });
+    expect(light.caught.map((c) => c.holdId).sort()).toEqual([7, 8]);
+    const big = predictDyno(s, holds, { dir: { x: 0, y: 1 }, power: 1 });
+    expect(big.caught.length).toBeGreaterThan(0);
+    for (const c of big.caught) expect(byId.get(c.holdId)!.pos.y).toBeGreaterThan(3.5);
+  });
+
   it('a weak one is a fall, not a dangle', () => {
     const s = start();
     run(s, 0.5);
     const events: SlingEvent[] = [];
-    dyno(s, { dir: { x: 0, y: 1 }, power: 0.4 }, events);
+    dyno(s, { dir: { x: 0, y: 1 }, power: 0.27 }, events);
     run(s, 3, events);
     expect(kinds(events)).not.toContain('catch');
     expect(kinds(events)).toContain('fell');

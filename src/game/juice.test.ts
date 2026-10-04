@@ -54,6 +54,9 @@ describe('the dyno meter', () => {
     const empty = freshJuice();
     expect(onDynoStuck(empty, 'PERFECT').level).toBeGreaterThan(onDynoStuck(empty, 'GOOD').level);
     expect(onDynoStuck(empty, 'GOOD').level).toBeGreaterThan(0);
+    // A bigger dyno pays back more.
+    expect(onDynoStuck(empty, 'GOOD', 2.5).level).toBeGreaterThan(onDynoStuck(empty, 'GOOD', 1).level);
+    expect(onDynoStuck(empty, 'SCRAPE', 3).level).toBe(0);
   });
 
   it('has a word for the bar', () => {

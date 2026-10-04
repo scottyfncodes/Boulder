@@ -54,13 +54,27 @@ body.
 **Aim assist.** A throw that is nearly at an empty hold in reach — a few
 degrees off, a little short — is steered onto it, and the arc and the ringed
 hold show that before you let go. The miss that was there stays in where on
-the hold it lands. Anything further off flies where you pulled.
+the hold it lands. Anything further off flies where you pulled. Once it has
+locked onto a hold it stays locked a little past where it took the lock, so
+the arc does not flicker on and off while your thumb settles.
+
+**A steady pull.** The drag is smoothed: heavily while your finger creeps,
+hardly at all while it sweeps, so fine adjustment holds still and big
+corrections do not lag. Letting go fires the aim you settled on a moment
+before lift-off, not wherever rolling your thumb off the glass dragged it,
+and the throw is worked out against the body as it is when it goes, so it
+matches the arc you were looking at.
 
 **The dyno.** It is earned. Every limb that sticks puts juice in the dyno
 meter — a PERFECT about a quarter of the tank, a GOOD a sixth, a scrape next
 to nothing, and a flow streak pays extra — and every whiff, slip and pump-out
 drains it. Fill it and the belly lights up and breathes: the dyno is live.
-Press the belly, pull, let go. The body is the stone and every limb on the
+Press the belly, pull, let go. A full one sends the hands nearly three
+metres up the wall: it is for skipping a section, not saving a reach. The
+hands sail past whatever they meet while they are still going up fast and
+only close near the top of the jump, the deadpoint, so how hard you pull is
+how you pick the hold: a light one for the holds overhead, everything for the
+one at the top. The body is the stone and every limb on the
 wall is a band: it draws back against them, only as far as they stretch, and
 fires from there. Firing spends the whole tank, whatever happens next.
 Everything leaves the wall at once and the whole body is the thing that flies;
@@ -69,8 +83,10 @@ body, and the hands either catch something or the mat catches the climber.
 It has to be precise: a hand needs a GOOD catch or better to stop a body at
 that speed, and fingertips rip straight off. The preview shows the body's
 arc and marks every hold as STICKS, STICKS CLEAN or RIPS before you let go.
-Stick it and the wall shakes, a shockwave goes out and the screen says so;
-stick it dead centre and some of the juice comes back for style. The
+Stick it and the wall shakes, a shockwave goes out and the screen tells you
+how many metres you just went; the bigger the dyno, the bigger all of that
+gets. Stick it dead centre and juice comes back for style, and more again for
+every metre past the first. The
 practice wall's dynos are free.
 
 **Putting a limb back.** A limb that is dangling can be tapped, and then a
@@ -198,6 +214,7 @@ already rewards clean placements once.
 ```
 src/game/      the sim — pure, deterministic, no DOM, no React
 src/game/sling.ts   the body: particles, tethers, launches, dynos, catches, slips
+src/game/aimInput.ts the finger, steadied: smoothing and the release lock
 src/content/   routes, setters, wall, generated community betas — plain data
 src/render/    three.js scene, the climber rig, the aiming overlay
 src/state/     profile, progression, local persistence
@@ -344,6 +361,8 @@ src/game/sling.test.ts     the body: picking limbs, the pull, launches, dynos,
                            drains
 src/game/juice.test.ts     the dyno meter: earned by clean sticks, drained by
                            whiffs, fired only when full, emptied by firing
+src/game/aimInput.test.ts  the steadied pull: tremor smoothed out, sweeps kept,
+                           lift-off smear ignored
 src/game/sim.test.ts       the validator's static solver and move resolution
 src/game/feel.test.ts      flow streaks, the shout, and the introductory labels
 src/content/routes.test.ts every route: valid data, inside the wall, a start

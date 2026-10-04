@@ -227,7 +227,7 @@ function drawPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
   const z = isHand(pull.limb) ? HAND_Z : FOOT_Z;
   const n = p.path.length;
   if (n === 0) return;
-  const step = Math.max(1, Math.round(n / 22));
+  const step = Math.max(1, Math.round(n / 34));
   ctx.save();
   for (let i = 0; i < n; i += step) {
     const s = scene.project(p.path[i], z);

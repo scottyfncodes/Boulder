@@ -67,13 +67,24 @@ export const SLING = {
    * How far back the body winds up for a full dyno, metres. Whatever is on
    * the wall is the band, so it only goes as far as the limbs let it.
    */
-  dynoWindup: 0.24,
-  /** A dyno at full pull: the whole body, metres per second. */
-  maxDynoSpeed: 4.6,
+  dynoWindup: 0.3,
+  /**
+   * A dyno at full pull: the whole body, metres per second. Enough for the
+   * hands to go nearly three metres up the wall — the move that skips a
+   * section, not one that saves a reach.
+   */
+  maxDynoSpeed: 6.8,
   /** How much faster than the body the hands go on a dyno: the reach. */
-  dynoReach: 0.45,
+  dynoReach: 0.5,
   /** How long the hands can still catch something on a dyno, seconds. */
-  dynoFlight: 1.4,
+  dynoFlight: 1.8,
+  /**
+   * The deadpoint. On a dyno the hands sail past anything they meet while
+   * they are still going up faster than this, metres per second, and only
+   * close near the top of the jump. Holds on the way are not the target; the
+   * power you pull is how you pick the hold.
+   */
+  dynoPass: 3.0,
   /** Fraction of the launch speed the anchor gets: the body goes with it. */
   recoil: 0.12,
   /**
@@ -1093,7 +1104,9 @@ export function stepSling(
     const blocked = blockedHolds(state, holds, id);
     // The hold the tip is passing through this step, if any.
     let near: { hold: Hold; at: Vec2; d: number } | null = null;
-    for (const h of holds) {
+    const passing = state.dyno && l.vel.y > SLING.dynoPass;
+    if (passing) l.touch = null;
+    for (const h of passing ? [] : holds) {
       if (blocked.has(h.id)) continue;
       if (!canUse(h.type, id)) {
         if (closestOnSegment(h.pos, l.prev, l.pos).d <= contactRadius(h.size, h.type)) l.brushedChip = true;
@@ -1435,6 +1448,8 @@ export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): 
 const ASSIST_CONE = 0.28;
 /** How much the assist may add to or take off the pull, tried in this order. */
 const ASSIST_POWER = [0, 0.06, 0.12, -0.06];
+/** How much wider the cone is for the hold the aim is already locked onto. */
+const STICKY_CONE = 1.5;
 /** Most throws the assist will play forward looking for a catch, per aim. */
 const ASSIST_TRIES = 12;
 
@@ -1490,7 +1505,7 @@ export type AssistedLaunch = {
  * physics, so the arc on screen is still the arc that happens.
  */
 export function assistLaunch(
-  state: SlingState, holds: Hold[], aim: LaunchAim, seconds = 1.0,
+  state: SlingState, holds: Hold[], aim: LaunchAim, seconds = 1.0, prefer: number | null = null,
 ): AssistedLaunch {
   const raw = predictLaunch(state, holds, aim, seconds);
   if (raw.caught || aim.power < SLING.minPower) return { aim, prediction: raw, assisted: null };
@@ -1501,6 +1516,10 @@ export function assistLaunch(
   const taken = new Set(LIMBS.map((id) => state.limbs[id].holdId).filter((id) => id !== null));
   const inReach = reachableHolds(state, holds, aim.limb).filter((h) => !taken.has(h.id));
   let budget = ASSIST_TRIES;
+  // A hold the aim is already locked onto stays locked a little further off
+  // it than it took to lock on, so the arc does not flicker on and off a hold
+  // while the finger settles.
+  const sticky = prefer !== null ? inReach.find((h) => h.id === prefer) : undefined;
 
   // The player's power first; then a touch more, then a touch less. Judging
   // the pull is half of what makes an arc hard to read.
@@ -1513,11 +1532,13 @@ export function assistLaunch(
       const a = arcAngle(from, h.pos, speed, chosen);
       if (a === null) continue;
       const gap = angleGap(a, chosen);
-      if (gap <= ASSIST_CONE) candidates.push({ hold: h, gap });
+      const cone = h === sticky ? ASSIST_CONE * STICKY_CONE : ASSIST_CONE;
+      if (gap <= cone) candidates.push({ hold: h, gap: h === sticky ? -1 : gap });
     }
     candidates.sort((p, q) => p.gap - q.gap);
 
     for (const { hold } of candidates.slice(0, 2)) {
+      const cone = hold === sticky ? ASSIST_CONE * STICKY_CONE : ASSIST_CONE;
       // Keep the player's miss, shrunk to fit on the hold: a throw that was
       // low stays lowish, it just stops being a miss.
       const r = contactRadius(hold.size, hold.type);
@@ -1535,7 +1556,7 @@ export function assistLaunch(
         // The tether and the body pull the real arc off the plain one a
         // little; feel either side of it.
         for (const nudge of [0, 0.05, -0.05]) {
-          if (angleGap(a + nudge, chosen) > ASSIST_CONE) continue;
+          if (angleGap(a + nudge, chosen) > cone) continue;
           if (budget-- <= 0) return { aim, prediction: raw, assisted: null };
           const steered = { ...aim, power, dir: { x: Math.cos(a + nudge), y: Math.sin(a + nudge) } };
           const prediction = predictLaunch(state, holds, steered, seconds);

@@ -14,6 +14,7 @@ import {
   routeDrain, spend,
 } from '../game/endurance';
 import { flowStreak } from '../game/scoring';
+import { type AimFilter, filterAim, freshAimFilter, releaseAim } from '../game/aimInput';
 import {
   type Juice, freshJuice, isFull, juiceWord, onDynoStuck, onMiss, onPumped, onSlip, onStick, spendDyno,
 } from '../game/juice';
@@ -48,7 +49,17 @@ import './sling.css';
 
 /** Drag length, in pixels, that corresponds to a full pull. */
 function maxDragPx(w: number, h: number): number {
-  return Math.max(130, Math.min(Math.min(w, h) * 0.44, 260));
+  return Math.max(150, Math.min(Math.min(w, h) * 0.52, 320));
+}
+
+/** The drag as a pull, steadied, and no longer than a full one. Zero while it is still a tap. */
+function pullOf(drag: Drag, max: number): { dx: number; dy: number } {
+  let dx = drag.px;
+  let dy = drag.py;
+  if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < TAP_PX) return { dx: 0, dy: 0 };
+  const l = Math.hypot(dx, dy);
+  if (l > max) { dx *= max / l; dy *= max / l; }
+  return { dx, dy };
 }
 
 /** How long a catch holds the world still: a scrape, a good one, a perfect one, a dyno. */
@@ -92,9 +103,17 @@ type Drag = {
   startY: number;
   x: number;
   y: number;
+  /** The pull, steadied: what the aim actually reads. */
+  px: number;
+  py: number;
+  filter: AimFilter;
   camFocus: number;
   camOrbit: number;
 };
+
+function newDrag(kind: Drag['kind'], x: number, y: number, cam: { focusY: number; orbit: number }): Drag {
+  return { kind, startX: x, startY: y, x, y, px: 0, py: 0, filter: freshAimFilter(), camFocus: cam.focusY, camOrbit: cam.orbit };
+}
 
 export type SlingScreenProps = {
   route: Route;
@@ -167,8 +186,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     bands: { anchor: Vec2; from: Vec2; limb: LimbId; follow: 'tip' | 'joint' }[];
     start: number;
   } | null>(null);
-  /** Where aim assist steered this frame's throw, if it did. */
-  const assistRef = useRef<{ dir: Vec2; power: number } | null>(null);
+  /** The hold aim assist is locked onto, if any: it stays locked a little longer. */
+  const assistLockRef = useRef<number | null>(null);
   const assistCacheRef = useRef<{ key: string; at: number; result: AssistedLaunch } | null>(null);
   /** How far the body is drawn back on a dyno pull, this frame. What it launches from. */
   const dynoWindRef = useRef<Vec2 | null>(null);
@@ -194,6 +213,8 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   const timeScaleRef = useRef(1);
   /** Extra camera frame on top of the player's zoom: a punch out on launch, in on the catch. */
   const framePunchRef = useRef(0);
+  /** How high each hand was when the dyno let go, metres. What it is measured from. */
+  const dynoFromRef = useRef<Partial<Record<LimbId, number>>>({});
   /** When a dyno last stuck. The other hand landing just after belongs to the same move. */
   const dynoCaughtAtRef = useRef(-Infinity);
 
@@ -307,6 +328,10 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           break;
         }
         case 'dyno': {
+          {
+            const s = simRef.current;
+            dynoFromRef.current = { LH: s.limbs.LH.pos.y, RH: s.limbs.RH.pos.y };
+          }
           sfxDynoLaunch(e.power);
           buzz([10, 20, 40]);
           enduranceRef.current = spend(enduranceRef.current, DYNO_COST).endurance;
@@ -356,9 +381,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           // The juice. A dyno's own catch is paid back by the dyno; the second
           // hand arriving after it is part of the same move, not a new one.
           const secondHand = !e.dyno && now - dynoCaughtAtRef.current < 800;
+          // How far up the wall the dyno went: the payoff, said out loud.
+          const gain = e.dyno ? Math.max(0, e.at.y - (dynoFromRef.current[e.limb] ?? e.at.y)) : 0;
+          const big = clamp((gain - 1) / 1.5, 0, 1);
           if (e.dyno) {
             dynoCaughtAtRef.current = now;
-            setJuice(onDynoStuck(juiceRef.current, e.grade));
+            setJuice(onDynoStuck(juiceRef.current, e.grade, gain));
           } else if (!secondHand) {
             setJuice(onStick(juiceRef.current, e.grade, streakNow));
           }
@@ -368,9 +396,10 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           if (e.dyno) {
             // The biggest thing that happens on the wall short of the top.
             const clean = e.grade === 'PERFECT';
-            fx.shockwave(e.at, clean ? '#ffd75e' : '#ff8f3c', clean ? 1.25 : 1);
-            if (clean) fx.confetti(e.at);
-            fx.kick(clean ? 0.85 : 0.7);
+            fx.shockwave(e.at, clean ? '#ffd75e' : '#ff8f3c', (clean ? 1.25 : 1) * (1 + 0.6 * big));
+            if (clean || big > 0.5) fx.confetti(e.at);
+            if (clean && big > 0.5) fx.confetti({ x: e.at.x, y: e.at.y - 0.3 });
+            fx.kick((clean ? 0.85 : 0.7) + 0.3 * big);
             sfxDynoStick(clean);
             buzz([30, 15, 60]);
             framePunchRef.current = -0.55;
@@ -383,11 +412,13 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
             fx.kick(e.grade === 'GOOD' ? 0.1 : 0.15);
             buzz(8);
           }
-          freezeRef.current = now + (e.dyno ? HIT_STOP.DYNO : HIT_STOP[e.grade]);
+          freezeRef.current = now + (e.dyno ? HIT_STOP.DYNO * (1 + 0.6 * big) : HIT_STOP[e.grade]);
           const zone = e.zone;
           if (e.dyno) {
+            const word = big >= 0.99 ? 'Huge dyno: ' : big > 0.4 ? 'Big dyno: ' : '';
             say(e.grade === 'PERFECT' ? 'STUCK IT' : 'STUCK',
-              e.grade === 'PERFECT' ? `Dead centre of ${zone}. Some juice back for style.` : `Caught ${zone}. Hold on.`, 2000);
+              `${word}+${gain.toFixed(1)} m. ${e.grade === 'PERFECT' ? `Dead centre of ${zone}.` : `Caught ${zone}. Hold on.`}`,
+              2200 + 600 * big);
           } else if (!secondHand) {
             // (The second hand of a dyno that already stuck leaves the banner to the first.)
             say(e.grade,
@@ -651,11 +682,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           let dx = 0;
           let dy = 0;
           if (drag?.kind === 'aim') {
-            dx = drag.x - drag.startX;
-            dy = drag.y - drag.startY;
-            const l = Math.hypot(dx, dy);
-            if (l > max) { dx *= max / l; dy *= max / l; }
-            if (l < TAP_PX) { dx = 0; dy = 0; }
+            // Steadied once a frame, so a finger held still settles too.
+            const f = filterAim(drag.filter, { x: drag.x - drag.startX, y: drag.y - drag.startY }, now);
+            drag.px = f.x;
+            drag.py = f.y;
+            ({ dx, dy } = pullOf(drag, max));
           }
           const aim = aimFromPull(body ? 'RH' : sel, { x: dx, y: -dy }, max);
           const pulling = drag?.kind === 'aim' && aim.power >= SLING.minPower;
@@ -700,13 +731,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
             const cached = assistCacheRef.current;
             if (cached && cached.key === key && now - cached.at < ASSIST_REFRESH_MS) assist = cached.result;
             else {
-              assist = assistLaunch(sim, route.holds, aim, 1.0);
+              assist = assistLaunch(sim, route.holds, aim, 1.0, assistLockRef.current);
               assistCacheRef.current = { key, at: now, result: assist };
             }
           }
           const prediction = assist?.prediction ?? null;
-          // What lets go is what the arc shows: the steered throw, if it was steered.
-          assistRef.current = assist?.assisted != null ? { dir: assist.aim.dir, power: assist.aim.power } : null;
+          assistLockRef.current = assist?.assisted ?? null;
           const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, 1.5) : null;
           const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
           if (lockId !== lockRef.current) {
@@ -739,7 +769,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           lockRef.current = null;
           windRef.current = null;
           dynoWindRef.current = null;
-          assistRef.current = null;
+          assistLockRef.current = null;
           notchRef.current = 0;
         }
 
@@ -839,7 +869,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     if (phaseRef.current === 'inspect') {
       const hold = holdAtScreen(sceneRef.current, x, y, route);
       if (hold !== null) { setInspectHold(hold); return; }
-      dragRef.current = { kind: 'look', startX: x, startY: y, x, y, camFocus: cam.focusY, camOrbit: cam.orbit };
+      dragRef.current = newDrag('look', x, y, cam);
       return;
     }
     if (phaseRef.current !== 'climbing') return;
@@ -851,15 +881,15 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       setSelected(hit);
       selectedRef.current = hit;
       followRef.current = true;
-      dragRef.current = { kind: 'aim', startX: x, startY: y, x, y, camFocus: cam.focusY, camOrbit: cam.orbit };
+      dragRef.current = newDrag('aim', x, y, cam);
       return;
     }
     if (selectedRef.current) {
-      dragRef.current = { kind: 'aim', startX: x, startY: y, x, y, camFocus: cam.focusY, camOrbit: cam.orbit };
+      dragRef.current = newDrag('aim', x, y, cam);
       return;
     }
     followRef.current = false;
-    dragRef.current = { kind: 'look', startX: x, startY: y, x, y, camFocus: cam.focusY, camOrbit: cam.orbit };
+    dragRef.current = newDrag('look', x, y, cam);
   }, [targetAtPoint, route]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
@@ -908,17 +938,26 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       return;
     }
 
+    // What fires is the aim the player settled on, not where lift-off
+    // smeared it, worked out against the body as it is right now — so the
+    // arc on screen a moment ago and the throw are the same throw.
     const rect = e.currentTarget.getBoundingClientRect();
-    const aim = aimFromPull(sel === 'BODY' ? 'RH' : sel, { x: dx, y: -dy }, maxDragPx(rect.width, rect.height));
-    const events: SlingEvent[] = [];
+    const max = maxDragPx(rect.width, rect.height);
     const now = performance.now();
-    const wind = windRef.current;
-    if (sel !== 'BODY' && wind) aim.from = wind;
-    if (sel !== 'BODY' && assistRef.current) {
-      aim.dir = assistRef.current.dir;
-      aim.power = assistRef.current.power;
+    const settled = releaseAim(drag.filter, now);
+    if (settled) { drag.px = settled.x; drag.py = settled.y; }
+    const pull = pullOf(drag, max);
+    const aim = aimFromPull(sel === 'BODY' ? 'RH' : sel, { x: pull.dx, y: -pull.dy }, max);
+    if (aim.power < SLING.minPower) return;
+    const events: SlingEvent[] = [];
+    const wind = sel !== 'BODY' ? windupPos(sim, sel, { x: pull.dx, y: -pull.dy }, aim.power) : null;
+    if (sel !== 'BODY' && wind) {
+      aim.from = wind;
+      const steered = assistLaunch(sim, route.holds, aim, 1.0, assistLockRef.current);
+      aim.dir = steered.aim.dir;
+      aim.power = steered.aim.power;
     }
-    const dynoWind = sel === 'BODY' ? dynoWindRef.current : null;
+    const dynoWind = sel === 'BODY' ? dynoWindup(sim, { x: pull.dx, y: -pull.dy }, aim.power) : null;
     // The bands of a dyno, caught before everything lets go: hold to body.
     const dynoBands = sel === 'BODY' && dynoWind
       ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => {
@@ -953,7 +992,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
       sfxSnap(aim.power);
       fxRef.current.kick(0.05 + 0.08 * aim.power);
       windRef.current = null;
-      assistRef.current = null;
+      assistLockRef.current = null;
       notchRef.current = 0;
       handleEvents(events, now);
       setSelected(null);

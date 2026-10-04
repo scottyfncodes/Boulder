@@ -36,10 +36,13 @@ export const FLOW_BONUS = 0.08;
 export const FLOW_BONUS_MAX = 0.4;
 /** Juice handed back for sticking the dyno itself, by how cleanly. */
 export const DYNO_REFUND: Record<Exclude<MoveGrade, 'MISS' | 'YEET'>, number> = {
-  PERFECT: 0.3,
-  GOOD: 0.1,
+  PERFECT: 0.4,
+  GOOD: 0.2,
   SCRAPE: 0,
 };
+/** Extra juice back per metre the hands went up past the first, up to the cap. */
+export const DYNO_HEIGHT_BONUS = 0.15;
+export const DYNO_HEIGHT_BONUS_MAX = 0.3;
 
 export function freshJuice(full = false): Juice {
   return { level: full ? 1 : 0 };
@@ -76,9 +79,13 @@ export function spendDyno(j: Juice): Juice | null {
   return isFull(j) ? { level: 0 } : null;
 }
 
-/** The dyno stuck. Clean ones give some back. */
-export function onDynoStuck(j: Juice, grade: Exclude<MoveGrade, 'MISS' | 'YEET'>): Juice {
-  return add(j, DYNO_REFUND[grade]);
+/**
+ * The dyno stuck. Clean ones give some back, and big ones more again:
+ * `gain` is how far the hands went up the wall, metres.
+ */
+export function onDynoStuck(j: Juice, grade: Exclude<MoveGrade, 'MISS' | 'YEET'>, gain = 0): Juice {
+  const big = grade === 'SCRAPE' ? 0 : Math.min(DYNO_HEIGHT_BONUS_MAX, Math.max(0, gain - 1) * DYNO_HEIGHT_BONUS);
+  return add(j, DYNO_REFUND[grade] + big);
 }
 
 /** A word for the bar, the way the pump has one. */
