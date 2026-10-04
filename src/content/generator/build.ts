@@ -55,7 +55,6 @@ type StepStyle = {
   /** Override which side of the line this hand goes on. */
   side?: 1 | -1;
   hard?: number;
-  rest?: boolean;
   /** Chance this step gets its own foothold. */
   footDensity?: number;
   /** How far below the line feet go. */
@@ -225,7 +224,6 @@ class Setter {
         const t2 = dir === null ? 'crimp' : type;
         const id = this.add(t2, x, y, dir ?? DOWN, {
           hard: type === 'jug' && !style.crux ? 1 : hard,
-          rest: style.rest,
           spine: true,
         });
         void id;
@@ -292,7 +290,7 @@ class Setter {
 
   add(
     type: HoldType, x: number, y: number, dir: number,
-    o: { hard?: number; rest?: boolean; spine?: boolean; roll?: number; finish?: boolean } = {},
+    o: { hard?: number; spine?: boolean; roll?: number; finish?: boolean } = {},
   ): number {
     const id = this.nextId++;
     const hold: Hold = {
@@ -304,7 +302,6 @@ class Setter {
       ...(o.roll !== undefined ? { roll: round(o.roll) } : {}),
       ...(o.hard !== undefined && Math.abs(o.hard - 1) > 0.005 ? { hard: round(o.hard) } : {}),
       ...(o.finish ? { finish: true } : {}),
-      ...(o.rest ? { rest: true } : {}),
     };
     this.holds.push(hold);
     if (o.spine) {
@@ -565,10 +562,9 @@ function crux(s: Setter, kind: CruxKind, final: boolean): void {
   const { t, r } = s;
   const hard = Math.min(1.35, t.hard[1] + 0.12);
   const poor: Weighted<HoldType> = [['crimp', 3], ['sloper', 2], ['pinch', 2], ['pocket', 1]];
-  // The calm before it: one good hold, a rest if the route is long enough to need one.
+  // The calm before it: one good hold.
   s.step(r.range(-0.04, 0.04), 0.22, {
     palette: easeFor(t), halfWidth: 0.26, footDensity: 1,
-    rest: t.difficulty === 'veryHard' || t.difficulty === 'brutal' ? final : false,
     type: final ? 'jug' : undefined,
   });
   s.tag = `crux:${kind}`;
@@ -669,6 +665,8 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
   };
 
   const items = plan.items;
+  // Where the steep sections were set, so the wall can be bent under them.
+  const steepBands: { kind: 'roof' | 'overhang'; y0: number; y1: number }[] = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     cursor = i;
@@ -685,7 +683,11 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
         ? Math.max(0.3, (TOP_Y - s.y - remainingFixed) / Math.max(1, risingLeft))
         : fixed;
       s.heading = s.drift;
+      const y0 = s.y;
       SECTIONS[item.archetype](s, rise, share(item));
+      if (item.archetype === 'roof' || item.archetype === 'overhang') {
+        steepBands.push({ kind: item.archetype, y0, y1: s.y });
+      }
     } else {
       s.heading = s.drift;
       crux(s, item.crux, item.final);
@@ -704,6 +706,7 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
 
   const steep = plan.sections.filter((a) => a === 'roof' || a === 'overhang').length;
   const overhang = Math.round(r.range(t.overhang[0], t.overhang[1]) + steep * t.steepBonus);
+  const profile = foldsFor(steepBands, overhang, seed);
   const grade = gradeFor(t, plan, r);
   const meta = describe(difficulty, plan, s.path, seed, r);
 
@@ -715,6 +718,7 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
     wall: 'main',
     tagline: meta.tagline,
     ...(overhang > 0 ? { overhang } : {}),
+    ...(profile.length ? { profile } : {}),
     // Par is set properly once the route has been climbed by the validator.
     par: Math.round(s.spine.length * 2.2),
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
@@ -729,6 +733,41 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
     },
   };
   return { route, plan, path: s.path, spine: s.spine, spineTags: s.spineTags };
+}
+
+/**
+ * The wall bent under the steep sections: a roof kicks back hard, a steep
+ * section less, and both come back to the route's own lean over the top. The
+ * angles come off their own stream of the seed, so a route's holds are the
+ * same as they always were.
+ */
+function foldsFor(
+  bands: { kind: 'roof' | 'overhang'; y0: number; y1: number }[], base: number, seed: number,
+): { y: number; angle: number }[] {
+  const r = new Rand((seed ^ 0x5eed) >>> 0);
+  const out: { y: number; angle: number }[] = [];
+  for (const b of bands) {
+    // The bend sits a little under where the section's hands start, so the
+    // body is on the steep part by the time the hands are.
+    const from = Math.max(0.9, b.y0 - 0.15);
+    const to = Math.max(from + 0.45, b.y1 + 0.1);
+    const angle = Math.round(b.kind === 'roof' ? r.range(55, 72) : r.range(30, 44));
+    const last = out[out.length - 1];
+    // A long steep stretch leans less: a metre and a half of real roof is a
+    // route nobody sends, whatever the tier.
+    const merging = !!last && from <= last.y + 0.2;
+    if (merging) {
+      // Runs straight into the last one: one long steep stretch.
+      out.pop();
+      const prev = out[out.length - 1];
+      if (prev) prev.angle = Math.max(base, Math.min(Math.max(prev.angle, angle), 48));
+    } else {
+      const long = to - from > 1.0 ? Math.min(angle, 46) : angle;
+      out.push({ y: round(from), angle: Math.max(long, base) });
+    }
+    out.push({ y: round(to), angle: base });
+  }
+  return out;
 }
 
 /** Null for sections that climb; the height spent for sections that do not. */

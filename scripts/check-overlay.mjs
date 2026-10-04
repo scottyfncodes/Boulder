@@ -32,6 +32,7 @@ const rows = await page.evaluate(async () => {
   const THREE = await import('/node_modules/three/build/three.module.js');
   const { WallScene } = await import('/src/render/scene.ts');
   const { routeById } = await import('/src/content/routes.ts');
+  const { profileOf } = await import('/src/game/profile.ts');
 
   document.body.innerHTML = '<canvas id="probe" style="width:390px;height:844px"></canvas>';
   const canvas = document.getElementById('probe');
@@ -39,12 +40,15 @@ const rows = await page.evaluate(async () => {
   const out = [];
 
   // The camera follows wide routes sideways too, so check it looking off-centre.
-  for (const [id, focusX] of [['warmup', 0], ['full-send', 0], ['grip-it', 0], ['grip-it', 0.9]]) {
+  // And on walls that bend: the overlay goes through the same fold as the meshes.
+  for (const [id, focusX, focusY] of [
+    ['warmup', 0, 2.4], ['full-send', 0, 2.4], ['grip-it', 0, 2.4], ['grip-it', 0.9, 2.4],
+    ['the-cave', 0, 3.2], ['ceiling', 0, 3.0], ['ceiling', 0, 4.6],
+  ]) {
     const route = routeById(id);
-    const deg = route.overhang ?? 0;
+    scene.setWall(profileOf(route));
     scene.setRoute(route);
-    scene.setOverhang((deg * Math.PI) / 180);
-    scene.setCamera({ focusY: 2.4, focusX, frame: 3.9, orbit: 0 });
+    scene.setCamera({ focusY, focusX, frame: 3.9, orbit: 0 });
     scene.resize();
     scene.render();
 
@@ -66,7 +70,7 @@ const rows = await page.evaluate(async () => {
       const d = Math.hypot(actual.x - drawn.x, actual.y - drawn.y);
       if (d > worst) { worst = d; worstHold = hold.id; }
     }
-    out.push({ id, deg, focusX, count, worst, worstHold });
+    out.push({ id, deg: Math.round((profileOf(route).base * 180) / Math.PI) + (route.profile?.length ? "+bends" : ""), focusX, count, worst, worstHold });
   }
   return out;
 });
@@ -76,7 +80,7 @@ for (const r of rows) {
   const ok = r.worst <= TOLERANCE_PX;
   if (!ok) failed = true;
   const note = ok ? 'aligned' : `OFF by ${r.worst.toFixed(1)}px at hold #${r.worstHold}`;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(12)} pitch ${String(r.deg).padStart(2)}°  look ${r.focusX.toFixed(1)}m  ${String(r.count).padStart(2)} holds  ${note}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(12)} pitch ${String(r.deg).padStart(8)}°  look ${r.focusX.toFixed(1)}m  ${String(r.count).padStart(2)} holds  ${note}`);
 }
 
 await browser.close();

@@ -119,7 +119,7 @@ export function verdict(card: ScoreCard): string {
   return 'It counts. They all count.';
 }
 
-/** A placement clean enough to keep a flow going: it caught, and caught well. */
+/** A move that keeps a flow going: it stuck. */
 function isClean(m: Pick<BetaMove, 'grade' | 'holdId'>): boolean {
   return m.holdId !== null && (m.grade === 'PERFECT' || m.grade === 'GOOD');
 }

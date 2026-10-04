@@ -88,6 +88,25 @@
   background: linear-gradient(90deg, #ff5e4d, #f2c249 45%, #5fd1a0);
   transition: none;
 }
+.stamina__track { position: relative; }
+/* What this climb has cost for good, eating in from the empty end. */
+.stamina__floor {
+  position: absolute;
+  inset: 0;
+  transform-origin: right center;
+  transform: scaleX(0);
+  background: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.55) 0 3px, rgba(0, 0, 0, 0.3) 3px 6px);
+}
+.stamina__why {
+  margin-top: 0.22rem;
+  font-size: 0.6rem;
+  text-align: right;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.stamina__why[data-trend='recovering'] { color: #6ef2b4; }
+.stamina__why[data-trend='burning'] { color: #ff8f6b; }
 .flash--pumped .flash__grade { color: #ff5e4d; }
 
 /* --- the dyno meter --- */
@@ -158,9 +177,7 @@
 /* --- dyno banners --- */
 
 .flash--dyno .flash__grade,
-.flash--stuck .flash__grade,
 .flash--stuck-it .flash__grade,
-.flash--ripped .flash__grade,
 .flash--dyno-ready .flash__grade {
   font-size: 3.1rem;
   font-style: italic;
@@ -168,7 +185,8 @@
   animation: dynoSlam 0.45s cubic-bezier(0.2, 1.9, 0.35, 1);
 }
 .flash--dyno .flash__grade { color: #ff8f3c; }
-.flash--stuck .flash__grade { color: #ffb15e; }
+/* An ordinary stick: the same green as the perfect pop on the wall. */
+.flash--stuck .flash__grade { color: #6ef2b4; }
 .flash--stuck-it .flash__grade {
   font-size: 3.8rem;
   background: linear-gradient(180deg, #fff6c9, #ffd75e 45%, #ff8f3c);
@@ -177,17 +195,9 @@
   color: transparent;
   filter: drop-shadow(0 0.25rem 1.2rem rgba(255, 143, 60, 0.8));
 }
-.flash--ripped .flash__grade { color: #e8564f; animation: dynoShake 0.45s ease; }
 .flash--dyno-ready .flash__grade { font-size: 2.4rem; color: #ffd75e; }
 @keyframes dynoSlam {
   0% { transform: scale(2.6) rotate(-8deg); opacity: 0; }
   60% { opacity: 1; }
   100% { transform: scale(1) rotate(-3deg); }
-}
-@keyframes dynoShake {
-  0%, 100% { transform: translateX(0) rotate(-3deg); }
-  20% { transform: translateX(-14px) rotate(-6deg); }
-  40% { transform: translateX(12px) rotate(2deg); }
-  60% { transform: translateX(-8px) rotate(-4deg); }
-  80% { transform: translateX(5px) rotate(-2deg); }
 }

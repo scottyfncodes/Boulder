@@ -227,7 +227,7 @@ function drawPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
   const z = isHand(pull.limb) ? HAND_Z : FOOT_Z;
   const n = p.path.length;
   if (n === 0) return;
-  const step = Math.max(1, Math.round(n / 22));
+  const step = Math.max(1, Math.round(n / 34));
   ctx.save();
   for (let i = 0; i < n; i += step) {
     const s = scene.project(p.path[i], z);
@@ -273,23 +273,6 @@ function drawDynoPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
   }
   ctx.restore();
 
-  // Fingertips: the hand gets there and rips off. Shown, because the preview
-  // never lies — the precision is in letting go where it says STICKS.
-  for (const rip of p.ripped) {
-    const at = scene.project(rip.at, HOLD_Z);
-    ctx.save();
-    ctx.strokeStyle = '#e8564f';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(at.x - 8, at.y - 8); ctx.lineTo(at.x + 8, at.y + 8);
-    ctx.moveTo(at.x + 8, at.y - 8); ctx.lineTo(at.x - 8, at.y + 8);
-    ctx.stroke();
-    ctx.font = '800 11px ui-sans-serif, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#e8564f';
-    ctx.fillText('RIPS', at.x, at.y + 22);
-    ctx.restore();
-  }
   if (p.caught.length) {
     for (const c of p.caught) drawEndMarker(ctx, scene.project(c.at, HOLD_Z), true);
     const first = scene.project(p.caught[0].at, HOLD_Z);
@@ -297,10 +280,9 @@ function drawDynoPrediction({ ctx, scene, pull }: SlingOverlayInput): void {
     ctx.font = '800 12px ui-sans-serif, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = AIM_TARGET;
-    const how = p.caught[0].grade === 'PERFECT' ? 'STICKS CLEAN' : 'STICKS';
-    ctx.fillText(`${how} · ${p.caught.length === 2 ? 'BOTH HANDS' : 'ONE HAND'}`, first.x, first.y - 20);
+    ctx.fillText(`STICKS · ${p.caught.length === 2 ? 'BOTH HANDS' : 'ONE HAND'}`, first.x, first.y - 20);
     ctx.restore();
-  } else if (!p.ripped.length) {
+  } else {
     drawEndMarker(ctx, scene.project(p.hands, HAND_Z), false);
   }
 }

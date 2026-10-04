@@ -2,15 +2,17 @@
 
 A browser game about flinging your limbs at a climbing wall.
 
-Fling. Stick. Send.
+Fling. Stick. Send. Try not to get pumped.
 
 You control four limbs, one at a time. Press one, pull it back like a
 slingshot, and let go. It flies, and then the rest of the body has to deal with
 whatever that was. Grab the hips and pull, and the whole body goes: a dyno,
-everything off the wall, one or two hands to catch it. Seventeen handcrafted
-routes from V0 to V10, a route setter that will set you a new problem at any of
-five difficulties, five route setters with strong opinions and poor judgement,
-and a climber who is technically cooperating.
+everything off the wall, one or two hands to catch it. Every hold sticks the
+same; what a climb costs is how you climbed it, and the pump bar is the bill.
+Twenty handcrafted routes from V0 to V10 on a wall that bends into roofs, a
+route setter that will set you a new problem at any of five difficulties, five
+route setters with strong opinions and poor judgement, and a climber who is
+technically cooperating.
 
 ## Run it
 
@@ -23,6 +25,8 @@ npm run build      # -> dist/, static, deploys anywhere as-is
 npm run gen:beta   # regenerates community betas after changing routes or the sim
 npm run show:routes              # prints generated routes as ASCII wall maps
 npm run show:routes -- brutal 5  # five of one difficulty
+npm run playtest                 # the climbing bot plays every route, prints the pump
+npm run playtest -- --human cave # at a person's pace, just routes matching 'cave'
 
 # Needs a browser and a running dev server, so it is not part of npm test:
 npm run check:overlay   # asserts the 2D overlay agrees with the 3D scene
@@ -54,36 +58,52 @@ body.
 **Aim assist.** A throw that is nearly at an empty hold in reach — a few
 degrees off, a little short — is steered onto it, and the arc and the ringed
 hold show that before you let go. The miss that was there stays in where on
-the hold it lands. Anything further off flies where you pulled.
+the hold it lands. Anything further off flies where you pulled. Once it has
+locked onto a hold it stays locked a little past where it took the lock, so
+the arc does not flicker on and off while your thumb settles.
 
-**The dyno.** It is earned. Every limb that sticks puts juice in the dyno
-meter — a PERFECT about a quarter of the tank, a GOOD a sixth, a scrape next
-to nothing, and a flow streak pays extra — and every whiff, slip and pump-out
-drains it. Fill it and the belly lights up and breathes: the dyno is live.
-Press the belly, pull, let go. The body is the stone and every limb on the
+**A steady pull.** The drag is smoothed: heavily while your finger creeps,
+hardly at all while it sweeps, so fine adjustment holds still and big
+corrections do not lag. Letting go fires the aim you settled on a moment
+before lift-off, not wherever rolling your thumb off the glass dragged it,
+and the throw is worked out against the body as it is when it goes, so it
+matches the arc you were looking at.
+
+**The dyno.** It is earned. Every limb that sticks puts a fifth of a tank of
+juice in the dyno meter, a flow streak pays extra, and every whiff, slip and
+pump-out drains it. Fill it and the belly lights up and breathes: the dyno is live.
+Press the belly, pull, let go. A full one sends the hands nearly three
+metres up the wall: it is for skipping a section, not saving a reach. The
+hands sail past whatever they meet while they are still going up fast and
+only close near the top of the jump, the deadpoint, so how hard you pull is
+how you pick the hold: a light one for the holds overhead, everything for the
+one at the top. The body is the stone and every limb on the
 wall is a band: it draws back against them, only as far as they stretch, and
 fires from there. Firing spends the whole tank, whatever happens next.
 Everything leaves the wall at once and the whole body is the thing that flies;
 the clock drops into bullet time over the top of the arc, embers peel off the
 body, and the hands either catch something or the mat catches the climber.
-It has to be precise: a hand needs a GOOD catch or better to stop a body at
-that speed, and fingertips rip straight off. The preview shows the body's
-arc and marks every hold as STICKS, STICKS CLEAN or RIPS before you let go.
-Stick it and the wall shakes, a shockwave goes out and the screen says so;
-stick it dead centre and some of the juice comes back for style. The
-practice wall's dynos are free.
+The preview shows the body's arc and marks the holds it STICKS before you let
+go. A dyno costs a big bite of pump — more the harder you pull and the steeper
+the wall — and catching a body in flight costs more, double on one hand; it is
+how you skip a roof, not a free lunch. Stick it and the wall shakes, a
+shockwave goes out and the screen tells you how many metres you just went; the
+bigger the dyno, the bigger all of that gets, and some juice comes back, more
+for every metre past the first. The practice wall's dynos are free.
 
 **Putting a limb back.** A limb that is dangling can be tapped, and then a
-hold in reach can be tapped, and it goes straight on — a sound placement, never
-a perfect one. A limb that is holding on has to be flung.
+hold in reach can be tapped, and it goes straight on. A limb that is holding on
+has to be flung.
 
 **Restart.** The ↺ in the corner (or `R`) puts you back at the start and
 pulls straight back on. Before your first throw it is free and the onsight
 survives; after it, tap twice — it counts the way coming off does, a fall on
 the record and the onsight gone, so it is not a way round either.
 
-**No clock.** Nothing drains. Stop, look, aim, change your mind, aim again.
-The difficulty is the physics, the holds, and the shape your body is in.
+**The pump is the currency.** There is no clock, but the forearms are one:
+the bar fills from the moment you leave the ground, by how hard the position
+you are in is, and it is the thing you are managing the whole way up. See
+*The pump* below.
 
 **The body is a live thing.** Hip and shoulder are particles on a rigid torso.
 Each arm is a rope from the shoulder to the hand; each leg is a strut from the
@@ -93,16 +113,27 @@ goes taut, at which point the body gets yanked after it — that is the reach,
 and a big throw with a bad stance takes the rest of you somewhere. Let go with
 everything and you swing. Swing hard enough and holds let go.
 
-**Holds catch what passes through them.** A limb in flight grabs a hold where
-it passes closest to its centre, and is graded on which part of the shape it
-found, exactly as before. A hand will not grab a foot chip. The hold you just
-let go of will not grab you back. A limb that catches nothing dangles, and a
-dangling limb does not grab anything — you fling it again.
+**Holds catch what passes through them, and that is all.** A limb in flight
+that gets to a hold has it — all of it, wherever on the hold it landed — and a
+limb that does not get there has nothing. There is no catch quality and no
+fingertip rip. A hand will not grab a foot chip. The hold you just let go of,
+and anything touching the spot you threw from, will not grab you back. A limb
+that catches nothing dangles; fling it again or tap it back on.
 
-**Holds care how you load them.** Every attached limb reads the load through
-it, in body weights, and compares it against what that shape can take from
-that direction: a jug takes a swing, a crimp does not, and an undercling with
-your hips below it lets go at once. The face still says how it is going.
+**Every hold is as strong as every other.** Holds do not decide whether you
+stay on — the pump does. One limb on anything will hold the whole body. What
+can still pull a limb off is swinging hard on a hold loaded the way it was
+never meant to be (an undercling with your hips below it keeps only about a
+third of its strength), and a foot standing on something cannot hang from it.
+
+**Any limb can hold you.** A foot on a hold above your hips, or anywhere on a
+roof, is a heel or toe hook: let go with both hands and the body hangs off it.
+
+**The wall bends.** A route can start vertical, kick back into a roof, come
+out over a lip onto a slab and go steep again to the top. The sim works on the
+wall unrolled flat; the physics reads the lean wherever the body is, and the
+renderer rolls everything — panels, holds, the climber, the overlay's markers —
+back up into the real shape. The route map shades the steep bands.
 
 **The preview is honest.** While you pull, the arc on screen is the launch run
 forward on a copy of the body — tether, yank and all — so what it shows is
@@ -115,9 +146,10 @@ misses, swings, rotation, dynos and recovery can all be tried in a minute. It
 is not graded, scored or counted.
 
 **Known limits.** The sim is planar, so the body never peels away from the
-wall in depth; a barn door is a swing, not a rotation out of the plane. Routes
-were set before the physics existed and some will be harder or easier than
-their grade says. Steepness only scales leg and hand authority.
+wall in depth; a barn door is a swing, not a rotation out of the plane, and on
+a roof the body lies along the underside rather than hanging straight down
+from it. Steepness costs pump and takes authority off the legs; it does not
+change which way gravity pulls in the wall's plane.
 
 ## How the game works
 
@@ -133,18 +165,42 @@ the body rather than a straight pull. Ten shapes, each with its own patience
 for a bad angle. The inspect panel tells you what a shape is and what it wants;
 it never tells you which one to use.
 
-**Moves are graded** PERFECT / GOOD / SCRAPE / MISS / YEET, on where the limb
-landed against a window that shrinks with overreach, bad angles, and a poor
-stance. Failure always says why.
+**A move sticks or it misses.** Failure always says why.
 
-**The pump is the clock, and the physics is what fills it.** One bar, running
-from the moment you pull on. Every hand on the wall reads the load through it
-in body weights, so hanging on one arm burns fast, hanging on two burns less,
-and standing on your feet with slack arms barely burns at all. A fling costs a
-burst, a dyno costs a chunk, a limb in the air costs more than a limb on the
-wall, and a rest hold gives some back. Run it out and your hands open, and the
-fall is a real one because everything is. Capacity grows with your grade and
-your mileage. The practice wall gets a generous one.
+**The pump.** This is the game's currency, and the question every route asks
+is how efficiently you can climb it. Nothing about it is per-hold: it is read
+off your body, every frame (`src/game/pump.ts`).
+
+- *The wall where you are.* A continuous angle, not categories. Steeper costs
+  more for everything, and a lean adds core tension even with four on.
+- *What is holding you.* Feet take weight off the arms — less on steep ground,
+  some even on a roof (hooks) — and whatever the arms still carry is split
+  between the hands on, squared per hand, so one hand holding it all costs
+  far more than two sharing it.
+- *Moving.* Swinging, sagging and a limb in the air all cost. A throw costs a
+  burst by how hard you pulled, more off a steep wall and more with only one
+  limb left on; a dyno costs a big bite; stopping a moving body on a catch
+  costs by the square of its speed, double on one hand.
+
+Roughly: vertical with four on is a rest; vertical on two hands is work; one
+hand is expensive; an overhang with four on is real effort; a roof with four on
+is hard, on two very hard, and one hand on a roof empties the bar in about
+fifteen seconds. Stand somewhere stable and it comes back — never as fast as it
+went, slower the deeper you are — but a share of every effort stays for the
+rest of the climb (the dark end of the bar), so a rest buys time and never buys
+a free climb. The bar reads *fresh → pumped → struggling → critical*, with an
+arrow for which way it is going and a line underneath saying why ("recovering ·
+four on, upright", "burning · one hand, roof"). At the top your hands open.
+Fitness grows a little with your grade and mileage; the practice wall is
+generous.
+
+**Tuning it.** `src/game/climbBot.ts` plays routes in the real physics with the
+real pump and dyno meter — a careful style that keeps feet on, throws soft and
+shakes out where it can, and a reckless one that throws big and dynos whenever
+the meter allows — looking one move ahead in a copy of the sim. `npm run
+playtest` prints what each did. Easy routes stay fresh unless you climb them
+sloppily; on the hard ones pump is what decides the send, and resting on the
+slab above a roof, or dynoing past it, are both real answers.
 
 **The climber is Bernie.** Teal jacket, striped shirt, cream slacks, moustache,
 and sunglasses he is not taking off. Technically present, which is the same joke the original brief wanted from the Weekend at
@@ -198,6 +254,11 @@ already rewards clean placements once.
 ```
 src/game/      the sim — pure, deterministic, no DOM, no React
 src/game/sling.ts   the body: particles, tethers, launches, dynos, catches, slips
+src/game/pump.ts    the pump: effort from the wall, the limbs on, and moving
+src/game/profile.ts the wall's shape: where it bends, how far it leans
+src/game/climbBot.ts a climber that plays the real game, for tuning
+src/render/fold.ts  rolls the flat wall back up into its bent shape
+src/game/aimInput.ts the finger, steadied: smoothing and the release lock
 src/content/   routes, setters, wall, generated community betas — plain data
 src/render/    three.js scene, the climber rig, the aiming overlay
 src/state/     profile, progression, local persistence
@@ -268,7 +329,9 @@ pulling in, feet stemmed wide), *crack* (a narrow split, everything pulled
 toward the middle), *arête* (hands on an edge, feet out on the face, swapping
 sides halfway) and *compression* (two lines of holds too wide to pull on —
 squeeze them). None of these labels are shown on the wall; the board just says
-which parts a route has.
+which parts a route has. A *roof* or *overhang* section bends the wall under it
+— 55–72° for a roof, 30–44° for a steep section, eased on long stretches — and
+it comes back to the route's own lean over the top, so the pump does the rest.
 
 **Difficulty combines archetypes.** `difficulty.ts` is one table. Easy is one
 or two rising sections on jugs, no cruxes, nothing sideways. Moderate links two
@@ -287,7 +350,7 @@ the plan — a long *span* sideways off small holds, a *reversal* where the next
 hold is back the way you came, a *drop* down and across before you are allowed
 up, a *lunge* between bad holds, or a *squeeze* of three bad holds with almost
 nothing for the feet. The last crux goes 60–95% of the way through the route,
-and the move before it is a jug — a marked rest on the two hardest tiers — so
+and the move before it is a jug — somewhere to get your breath, if your feet are on — so
 you reach it thinking you have this.
 
 **The line crosses the wall once.** Hard routes start near one edge and drift
@@ -340,10 +403,23 @@ goes, and starts on the start holds.
 src/game/sling.test.ts     the body: picking limbs, the pull, launches, dynos,
                            putting limbs back, catching, missing, slipping,
                            swinging, rotating, falling, the honest preview,
-                           dynos that rip off on fingertips, and that nothing
+                           dynos that stick wherever a hand gets, and that nothing
                            drains
 src/game/juice.test.ts     the dyno meter: earned by clean sticks, drained by
                            whiffs, fired only when full, emptied by firing
+src/game/aimInput.test.ts  the steadied pull: tremor smoothed out, sweeps kept,
+                           lift-off smear ignored
+src/game/pump.test.ts      the pump: steeper costs more, fewer limbs cost more,
+                           one hand far more than two, moving costs, vertical
+                           with four on recovers and a roof does not, recovery
+                           slower than gain and slower the deeper you are,
+                           fatigue that stays so rests cannot be farmed, and
+                           what throws, dynos and dynamic catches cost
+src/game/pumpSim.test.ts   the pump read off the real body: a stance that rests
+                           on a vertical wall burns under a roof, throwing is
+                           reaching, hooked feet hold you on a roof and peel
+                           off a vertical wall, the bot climbs a vertical route
+                           fresh and a roof route pumped, generated roofs go
 src/game/sim.test.ts       the validator's static solver and move resolution
 src/game/feel.test.ts      flow streaks, the shout, and the introductory labels
 src/content/routes.test.ts every route: valid data, inside the wall, a start

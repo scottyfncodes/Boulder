@@ -17,7 +17,7 @@ import { Breakthrough } from './ui/Breakthrough';
 import { Title } from './ui/Title';
 import { Standings } from './ui/Standings';
 import { isLabRoute } from './content/lab';
-import { capacityFor } from './game/endurance';
+import { fitnessFor } from './game/pump';
 import { type Difficulty, generatedRouteById } from './content/generator';
 import { nextRoute, prefetchRoute } from './content/generator/client';
 import type { SetterState } from './ui/RouteSetter';
@@ -199,7 +199,7 @@ export default function App() {
           key={`${screen.route.id}:${screen.mode}`}
           route={screen.route}
           mode={screen.mode}
-          capacity={capacityFor(profile.topGrade, profile.totalSends)}
+          fitness={fitnessFor(profile.topGrade, profile.totalSends)}
           onExit={() => setScreen({ kind: 'board' })}
           onOutcome={handleOutcome}
           attemptsNote={screen.daily ? `daily · ${left} left` : undefined}

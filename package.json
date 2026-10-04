@@ -13,7 +13,8 @@
     "gen:beta": "esbuild scripts/gen-beta.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/gen-beta.mjs --log-level=error && node node_modules/.cache/gen-beta.mjs",
     "check:overlay": "node scripts/check-overlay.mjs",
     "gen:icons": "node scripts/gen-icons.mjs",
-    "show:routes": "esbuild scripts/show-routes.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/show-routes.mjs --log-level=error && node node_modules/.cache/show-routes.mjs"
+    "show:routes": "esbuild scripts/show-routes.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/show-routes.mjs --log-level=error && node node_modules/.cache/show-routes.mjs",
+    "playtest": "esbuild scripts/playtest.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/playtest.mjs --log-level=error && node node_modules/.cache/playtest.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

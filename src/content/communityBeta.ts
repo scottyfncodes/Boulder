@@ -1583,6 +1583,370 @@ const DATA: Record<string, CommunityBeta[]> = {
       ]
     }
   ],
+  "long-haul": [
+    {
+      "name": "Most climbers",
+      "share": 0.54,
+      "beta": [
+        {
+          "limb": "LH",
+          "holdId": 7
+        },
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 2
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 5
+        },
+        {
+          "limb": "LF",
+          "holdId": 1
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "RF",
+          "holdId": 14
+        },
+        {
+          "limb": "RF",
+          "holdId": 12
+        },
+        {
+          "limb": "LH",
+          "holdId": 20
+        },
+        {
+          "limb": "RF",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 13
+        },
+        {
+          "limb": "LH",
+          "holdId": 24
+        },
+        {
+          "limb": "LF",
+          "holdId": 17
+        },
+        {
+          "limb": "LF",
+          "holdId": 21
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "LF",
+          "holdId": 20
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "LF",
+          "holdId": 28
+        },
+        {
+          "limb": "LF",
+          "holdId": 32
+        },
+        {
+          "limb": "RF",
+          "holdId": 20
+        },
+        {
+          "limb": "LH",
+          "holdId": 35
+        },
+        {
+          "limb": "RF",
+          "holdId": 28
+        },
+        {
+          "limb": "LH",
+          "holdId": 36
+        },
+        {
+          "limb": "LF",
+          "holdId": 34
+        },
+        {
+          "limb": "LF",
+          "holdId": 35
+        },
+        {
+          "limb": "RF",
+          "holdId": 32
+        },
+        {
+          "limb": "RH",
+          "holdId": 36
+        }
+      ]
+    },
+    {
+      "name": "The tall beta",
+      "share": 0.29,
+      "beta": [
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "LH",
+          "holdId": 7
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 2
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 5
+        },
+        {
+          "limb": "LF",
+          "holdId": 1
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 14
+        },
+        {
+          "limb": "LH",
+          "holdId": 20
+        },
+        {
+          "limb": "LF",
+          "holdId": 18
+        },
+        {
+          "limb": "LF",
+          "holdId": 16
+        },
+        {
+          "limb": "RF",
+          "holdId": 7
+        },
+        {
+          "limb": "LH",
+          "holdId": 24
+        },
+        {
+          "limb": "RF",
+          "holdId": 18
+        },
+        {
+          "limb": "LF",
+          "holdId": 19
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "LF",
+          "holdId": 27
+        },
+        {
+          "limb": "RF",
+          "holdId": 16
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "RF",
+          "holdId": 26
+        },
+        {
+          "limb": "LF",
+          "holdId": 30
+        },
+        {
+          "limb": "LH",
+          "holdId": 35
+        },
+        {
+          "limb": "RF",
+          "holdId": 28
+        },
+        {
+          "limb": "LH",
+          "holdId": 36
+        },
+        {
+          "limb": "RF",
+          "holdId": 32
+        },
+        {
+          "limb": "RF",
+          "holdId": 34
+        },
+        {
+          "limb": "RH",
+          "holdId": 36
+        }
+      ]
+    },
+    {
+      "name": "The short beta",
+      "share": 0.17,
+      "beta": [
+        {
+          "limb": "LH",
+          "holdId": 7
+        },
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 2
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 5
+        },
+        {
+          "limb": "LF",
+          "holdId": 1
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 7
+        },
+        {
+          "limb": "LH",
+          "holdId": 20
+        },
+        {
+          "limb": "RF",
+          "holdId": 7
+        },
+        {
+          "limb": "RF",
+          "holdId": 17
+        },
+        {
+          "limb": "RF",
+          "holdId": 16
+        },
+        {
+          "limb": "LH",
+          "holdId": 24
+        },
+        {
+          "limb": "LF",
+          "holdId": 17
+        },
+        {
+          "limb": "LF",
+          "holdId": 22
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "LF",
+          "holdId": 20
+        },
+        {
+          "limb": "LF",
+          "holdId": 27
+        },
+        {
+          "limb": "LH",
+          "holdId": 33
+        },
+        {
+          "limb": "RF",
+          "holdId": 20
+        },
+        {
+          "limb": "LH",
+          "holdId": 35
+        },
+        {
+          "limb": "RF",
+          "holdId": 23
+        },
+        {
+          "limb": "RF",
+          "holdId": 32
+        },
+        {
+          "limb": "LH",
+          "holdId": 36
+        },
+        {
+          "limb": "LF",
+          "holdId": 29
+        },
+        {
+          "limb": "LF",
+          "holdId": 33
+        },
+        {
+          "limb": "LF",
+          "holdId": 35
+        },
+        {
+          "limb": "RH",
+          "holdId": 36
+        }
+      ]
+    }
+  ],
   "full-send": [
     {
       "name": "Most climbers",
@@ -2559,6 +2923,346 @@ const DATA: Record<string, CommunityBeta[]> = {
       ]
     }
   ],
+  "the-cave": [
+    {
+      "name": "Most climbers",
+      "share": 0.54,
+      "beta": [
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "LF",
+          "holdId": 5
+        },
+        {
+          "limb": "LF",
+          "holdId": 1
+        },
+        {
+          "limb": "RH",
+          "holdId": 12
+        },
+        {
+          "limb": "LH",
+          "holdId": 8
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 10
+        },
+        {
+          "limb": "RH",
+          "holdId": 15
+        },
+        {
+          "limb": "RH",
+          "holdId": 20
+        },
+        {
+          "limb": "LF",
+          "holdId": 7
+        },
+        {
+          "limb": "LF",
+          "holdId": 12
+        },
+        {
+          "limb": "RF",
+          "holdId": 12
+        },
+        {
+          "limb": "RH",
+          "holdId": 22
+        },
+        {
+          "limb": "RF",
+          "holdId": 15
+        },
+        {
+          "limb": "RH",
+          "holdId": 26
+        },
+        {
+          "limb": "RF",
+          "holdId": 22
+        },
+        {
+          "limb": "RH",
+          "holdId": 30
+        },
+        {
+          "limb": "RF",
+          "holdId": 26
+        },
+        {
+          "limb": "LF",
+          "holdId": 21
+        },
+        {
+          "limb": "RH",
+          "holdId": 34
+        },
+        {
+          "limb": "LF",
+          "holdId": 22
+        },
+        {
+          "limb": "RH",
+          "holdId": 37
+        },
+        {
+          "limb": "LF",
+          "holdId": 26
+        },
+        {
+          "limb": "RF",
+          "holdId": 25
+        },
+        {
+          "limb": "LF",
+          "holdId": 30
+        },
+        {
+          "limb": "RF",
+          "holdId": 30
+        },
+        {
+          "limb": "LH",
+          "holdId": 37
+        }
+      ]
+    },
+    {
+      "name": "The tall beta",
+      "share": 0.29,
+      "beta": [
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "LH",
+          "holdId": 7
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 2
+        },
+        {
+          "limb": "RH",
+          "holdId": 12
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 5
+        },
+        {
+          "limb": "LH",
+          "holdId": 15
+        },
+        {
+          "limb": "LF",
+          "holdId": 1
+        },
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "LH",
+          "holdId": 20
+        },
+        {
+          "limb": "LF",
+          "holdId": 7
+        },
+        {
+          "limb": "RF",
+          "holdId": 14
+        },
+        {
+          "limb": "LH",
+          "holdId": 22
+        },
+        {
+          "limb": "LF",
+          "holdId": 12
+        },
+        {
+          "limb": "LH",
+          "holdId": 26
+        },
+        {
+          "limb": "LF",
+          "holdId": 24
+        },
+        {
+          "limb": "RF",
+          "holdId": 16
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "RF",
+          "holdId": 22
+        },
+        {
+          "limb": "LF",
+          "holdId": 26
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "RF",
+          "holdId": 26
+        },
+        {
+          "limb": "LH",
+          "holdId": 37
+        },
+        {
+          "limb": "RF",
+          "holdId": 30
+        },
+        {
+          "limb": "LF",
+          "holdId": 34
+        },
+        {
+          "limb": "RH",
+          "holdId": 37
+        }
+      ]
+    },
+    {
+      "name": "The short beta",
+      "share": 0.17,
+      "beta": [
+        {
+          "limb": "LH",
+          "holdId": 7
+        },
+        {
+          "limb": "RH",
+          "holdId": 8
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 2
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 5
+        },
+        {
+          "limb": "LF",
+          "holdId": 10
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "LH",
+          "holdId": 20
+        },
+        {
+          "limb": "LF",
+          "holdId": 7
+        },
+        {
+          "limb": "RF",
+          "holdId": 14
+        },
+        {
+          "limb": "LH",
+          "holdId": 22
+        },
+        {
+          "limb": "RF",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 14
+        },
+        {
+          "limb": "LF",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 22
+        },
+        {
+          "limb": "LH",
+          "holdId": 26
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "RF",
+          "holdId": 24
+        },
+        {
+          "limb": "RF",
+          "holdId": 32
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "RF",
+          "holdId": 29
+        },
+        {
+          "limb": "LF",
+          "holdId": 26
+        },
+        {
+          "limb": "LH",
+          "holdId": 37
+        },
+        {
+          "limb": "LF",
+          "holdId": 35
+        },
+        {
+          "limb": "RH",
+          "holdId": 37
+        }
+      ]
+    }
+  ],
   "exit-interview": [
     {
       "name": "Most climbers",
@@ -3017,6 +3721,342 @@ const DATA: Record<string, CommunityBeta[]> = {
         {
           "limb": "LH",
           "holdId": 25
+        }
+      ]
+    }
+  ],
+  "ceiling": [
+    {
+      "name": "Most climbers",
+      "share": 0.54,
+      "beta": [
+        {
+          "limb": "LH",
+          "holdId": 8
+        },
+        {
+          "limb": "LF",
+          "holdId": 6
+        },
+        {
+          "limb": "LF",
+          "holdId": 9
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "RF",
+          "holdId": 10
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 11
+        },
+        {
+          "limb": "LH",
+          "holdId": 19
+        },
+        {
+          "limb": "RF",
+          "holdId": 8
+        },
+        {
+          "limb": "LF",
+          "holdId": 16
+        },
+        {
+          "limb": "LH",
+          "holdId": 22
+        },
+        {
+          "limb": "RF",
+          "holdId": 17
+        },
+        {
+          "limb": "LH",
+          "holdId": 26
+        },
+        {
+          "limb": "RF",
+          "holdId": 16
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "LF",
+          "holdId": 23
+        },
+        {
+          "limb": "RF",
+          "holdId": 24
+        },
+        {
+          "limb": "RF",
+          "holdId": 26
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "LF",
+          "holdId": 25
+        },
+        {
+          "limb": "LH",
+          "holdId": 33
+        },
+        {
+          "limb": "RF",
+          "holdId": 32
+        },
+        {
+          "limb": "LF",
+          "holdId": 34
+        },
+        {
+          "limb": "RF",
+          "holdId": 29
+        },
+        {
+          "limb": "RH",
+          "holdId": 33
+        }
+      ]
+    },
+    {
+      "name": "The tall beta",
+      "share": 0.29,
+      "beta": [
+        {
+          "limb": "LH",
+          "holdId": 8
+        },
+        {
+          "limb": "LF",
+          "holdId": 6
+        },
+        {
+          "limb": "LF",
+          "holdId": 9
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "RF",
+          "holdId": 5
+        },
+        {
+          "limb": "RF",
+          "holdId": 10
+        },
+        {
+          "limb": "RF",
+          "holdId": 8
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 11
+        },
+        {
+          "limb": "LH",
+          "holdId": 19
+        },
+        {
+          "limb": "LF",
+          "holdId": 20
+        },
+        {
+          "limb": "LH",
+          "holdId": 22
+        },
+        {
+          "limb": "LF",
+          "holdId": 23
+        },
+        {
+          "limb": "RF",
+          "holdId": 17
+        },
+        {
+          "limb": "LH",
+          "holdId": 26
+        },
+        {
+          "limb": "LF",
+          "holdId": 22
+        },
+        {
+          "limb": "RF",
+          "holdId": 20
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "LF",
+          "holdId": 26
+        },
+        {
+          "limb": "RF",
+          "holdId": 24
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "LH",
+          "holdId": 33
+        },
+        {
+          "limb": "RF",
+          "holdId": 27
+        },
+        {
+          "limb": "RF",
+          "holdId": 23
+        },
+        {
+          "limb": "LF",
+          "holdId": 25
+        },
+        {
+          "limb": "RH",
+          "holdId": 29
+        },
+        {
+          "limb": "RH",
+          "holdId": 34
+        },
+        {
+          "limb": "RH",
+          "holdId": 33
+        }
+      ]
+    },
+    {
+      "name": "The short beta",
+      "share": 0.17,
+      "beta": [
+        {
+          "limb": "LH",
+          "holdId": 8
+        },
+        {
+          "limb": "LF",
+          "holdId": 6
+        },
+        {
+          "limb": "LF",
+          "holdId": 1
+        },
+        {
+          "limb": "LH",
+          "holdId": 12
+        },
+        {
+          "limb": "LF",
+          "holdId": 13
+        },
+        {
+          "limb": "RF",
+          "holdId": 6
+        },
+        {
+          "limb": "LH",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 11
+        },
+        {
+          "limb": "RF",
+          "holdId": 9
+        },
+        {
+          "limb": "LH",
+          "holdId": 19
+        },
+        {
+          "limb": "RF",
+          "holdId": 11
+        },
+        {
+          "limb": "LH",
+          "holdId": 22
+        },
+        {
+          "limb": "RF",
+          "holdId": 16
+        },
+        {
+          "limb": "LF",
+          "holdId": 20
+        },
+        {
+          "limb": "LH",
+          "holdId": 26
+        },
+        {
+          "limb": "LF",
+          "holdId": 19
+        },
+        {
+          "limb": "LF",
+          "holdId": 22
+        },
+        {
+          "limb": "LH",
+          "holdId": 30
+        },
+        {
+          "limb": "RF",
+          "holdId": 18
+        },
+        {
+          "limb": "LH",
+          "holdId": 34
+        },
+        {
+          "limb": "RF",
+          "holdId": 22
+        },
+        {
+          "limb": "LH",
+          "holdId": 33
+        },
+        {
+          "limb": "RF",
+          "holdId": 25
+        },
+        {
+          "limb": "LF",
+          "holdId": 25
+        },
+        {
+          "limb": "RH",
+          "holdId": 33
         }
       ]
     }

@@ -2,6 +2,7 @@ import type { Route } from '../../game/types';
 import { isHand } from '../../game/types';
 import { aimAtHold, solveRoute, type PlannedMove, type Solution } from '../../game/autoplay';
 import { initialState, resolveMove } from '../../game/move';
+import { overhangOf } from '../../game/attempt';
 import { WALL } from '../wall';
 import type { BuildResult } from './build';
 import { TIERS, type Difficulty } from './difficulty';
@@ -45,7 +46,7 @@ export function checkStructure(b: BuildResult): string | null {
   for (const id of Object.values(route.start)) {
     if (!ids.has(id!)) return 'start hold missing';
   }
-  const start = initialState(route.holds, route.start, ((route.overhang ?? 0) * Math.PI) / 180);
+  const start = initialState(route.holds, route.start, overhangOf(route));
   if (start.pose.stability <= 0.4) return 'start is not a stance';
   for (const id of route.finish) {
     const h = route.holds.find((x) => x.id === id);
@@ -146,7 +147,7 @@ export function parFor(route: Route, solution: Solution): number {
 /** Replays a sequence, re-aiming each move from wherever the body actually is. */
 export function replays(route: Route, moves: PlannedMove[]): boolean {
   const holds = route.holds;
-  let state = initialState(holds, route.start, ((route.overhang ?? 0) * Math.PI) / 180);
+  let state = initialState(holds, route.start, overhangOf(route));
   for (const m of moves) {
     const hold = holds.find((h) => h.id === m.holdId);
     if (!hold) return false;

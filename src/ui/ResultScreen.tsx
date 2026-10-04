@@ -92,7 +92,7 @@ export function ResultScreen({ route, attempt, card, personalBest, onAgain, onDo
             <dl className="stats">
               <Stat label="Moves" value={String(card.moves)} sub={`par ${card.par}`} />
               <Stat label="Falls" value={String(card.falls)} />
-              <Stat label="Perfect" value={String(card.perfect)} sub={`of ${card.moves}`} />
+              <Stat label="Stuck" value={String(card.moves - card.whiffed)} sub={`of ${card.moves}`} />
               <Stat label="Time" value={formatTime(card.timeMs)} />
               <Stat label="Style" value={card.onsight ? 'Onsight' : 'Project'} />
               <Stat label="Points" value={String(card.points)} />

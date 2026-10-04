@@ -1,3 +1,4 @@
+import { profileOf } from './profile';
 import type { Grade, LimbId, MoveGrade, Route } from './types';
 import { isHand } from './types';
 import {
@@ -45,8 +46,14 @@ export type Attempt = {
   highWater: number;
 };
 
+/**
+ * The route's base lean, for the static solver from the old game, which
+ * only understands one angle. Bends — roofs, lips — are the sling physics'
+ * business: the static solver checks the holds connect, the climbing bot
+ * checks the route goes.
+ */
 export function overhangOf(route: Route): number {
-  return ((route.overhang ?? 0) * Math.PI) / 180;
+  return profileOf(route).base;
 }
 
 export function beginAttempt(route: Route, mode: AttemptMode, now = Date.now()): Attempt {

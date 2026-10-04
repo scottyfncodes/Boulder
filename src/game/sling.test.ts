@@ -7,6 +7,7 @@ import {
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
   predictDyno, predictLaunch, reachableHolds, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
+  STUCK,
 } from './sling';
 import { anchorFor } from './body';
 import { dist } from './vec';
@@ -26,8 +27,8 @@ const start = () => initialSling(holds, SLING_LAB.start);
 
 /** Scans directions and powers for a throw the preview says catches `holdId`. */
 function findAim(state: SlingState, wall: Hold[], limb: LimbId, holdId: number) {
-  for (let deg = -60; deg <= 60; deg += 5) {
-    for (const power of [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]) {
+  for (let deg = -60; deg <= 60; deg += 2) {
+    for (let power = 0.3; power <= 1 + 1e-9; power += 0.05) {
       const a = (deg * Math.PI) / 180;
       const aim = { limb, dir: { x: Math.sin(a), y: Math.cos(a) }, power };
       if (predictLaunch(state, wall, aim).caught?.holdId === holdId) return aim;
@@ -329,14 +330,17 @@ describe('the body', () => {
     expect(most).toBeGreaterThan(0.12);
   });
 
-  it('an undercling loaded from below lets go, and says why', () => {
-    const s = initialSling(holds, { LH: 23, RH: 25 });
-    const events = run(s, 2);
-    const slip = events.find((e) => e.kind === 'slip' && e.limb === 'LH');
-    expect(slip).toBeDefined();
-    expect(slip && slip.kind === 'slip' && slip.reason).toMatch(/angle/i);
-    // The jug next to it took the weight instead.
-    expect(s.limbs.RH.holdId).toBe(25);
+  it('an undercling loaded from below is weaker, but a hold is a hold: it takes a hanging body', () => {
+    // Loaded the wrong way it keeps about a third of what it has the right way,
+    // which is still a body weight: the pump decides, not the hold.
+    const below = initialSling(holds, { LH: 23, RH: 25 });
+    run(below, 2);
+    const wrong = below.limbs.LH.capacity;
+    expect(below.limbs.LH.holdId).toBe(23);
+    expect(wrong).toBeGreaterThan(1);
+    expect(wrong).toBeLessThan(SLING.gripStrength * 0.5);
+    const jug = below.limbs.RH.capacity;
+    expect(jug).toBeGreaterThan(wrong * 2);
   });
 
   it('with nothing left holding on, the climber comes off and meets the mat', () => {
@@ -387,6 +391,24 @@ describe('the aim preview is honest', () => {
   });
 });
 
+describe('throwing past reach', () => {
+  it('stops at full stretch near where it was aimed, instead of whipping round the body', () => {
+    for (const limb of ['RH', 'RF'] as LimbId[]) {
+      for (const deg of [30, 60, 90]) {
+        const s = start();
+        run(s, 0.5);
+        const a = (deg * Math.PI) / 180;
+        const dir = { x: Math.sin(a), y: Math.cos(a) };
+        const from = { ...s.limbs[limb].pos };
+        // Nothing to catch: the empty wall.
+        const p = predictLaunch(s, [], { limb, dir, power: 1 });
+        const end = Math.atan2(p.end.x - from.x, p.end.y - from.y);
+        expect(Math.abs(end - a)).toBeLessThan(0.2);
+      }
+    }
+  });
+});
+
 describe('aim assist', () => {
   const rotate = (deg: number) => {
     const a = (deg * Math.PI) / 180;
@@ -411,6 +433,30 @@ describe('aim assist', () => {
     run(s, 1.2, events);
     const real = events.find((e) => e.kind === 'catch');
     expect(real && real.kind === 'catch' && real.holdId).toBe(help.assisted);
+  });
+
+  it('holds a lock a little past where it took one, so the arc does not flicker', () => {
+    const s = start();
+    let locked: number | null = null;
+    let deg = 4;
+    for (; deg <= 20; deg += 1) {
+      const a = { limb: 'RH' as LimbId, dir: rotate(deg), power: 0.62 };
+      if (predictLaunch(s, holds, a).caught) continue;
+      locked = assistLaunch(s, holds, a).assisted;
+      if (locked !== null) break;
+    }
+    expect(locked).not.toBeNull();
+    // Keep walking off the hold until a fresh aim no longer locks onto it.
+    let lost: LaunchAim | null = null;
+    for (let d = deg; d <= deg + 30; d += 1) {
+      const a = { limb: 'RH' as LimbId, dir: rotate(d), power: 0.62 };
+      if (assistLaunch(s, holds, a).assisted !== locked) { lost = a; break; }
+    }
+    expect(lost).not.toBeNull();
+    // Already locked on, it stays on.
+    const kept = assistLaunch(s, holds, lost!, 1.0, locked);
+    expect(kept.assisted).toBe(locked);
+    expect(kept.prediction.caught?.holdId).toBe(locked);
   });
 
   it('leaves a throw alone that already catches, or is nowhere near anything', () => {
@@ -462,7 +508,7 @@ describe('the dyno', () => {
   it('sticks it two-handed on a good pull, and the preview agrees', () => {
     const s = start();
     run(s, 0.5);
-    const aim = { dir: { x: 0, y: 1 }, power: 0.8 };
+    const aim = { dir: { x: 0, y: 1 }, power: 0.4 };
     const guess = predictDyno(s, holds, aim);
     expect(guess.caught.map((c) => c.holdId).sort()).toEqual([7, 8]);
     const events: SlingEvent[] = [];
@@ -483,42 +529,26 @@ describe('the dyno', () => {
     run(s, 0.5);
     const events: SlingEvent[] = [];
     const x = -0.7;
-    dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.8 }, events);
+    dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.55 }, events);
     run(s, 2.5, events);
     const held = LIMBS.filter((l) => s.limbs[l].phase === 'held');
     expect(held).toHaveLength(1);
     expect(s.fallen).toBe(false);
   });
 
-  it('does not stop on fingertips: a scrappy catch rips off, and the preview says so', () => {
+  it('sticks wherever a hand gets to the hold: no fingertips, no rip', () => {
     const s = start();
     run(s, 0.5);
+    // The edge-of-the-holds dyno that used to rip off.
     const x = -0.15;
-    const aim = { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.8 };
+    const aim = { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.4 };
     const guess = predictDyno(s, holds, aim);
-    expect(guess.caught).toHaveLength(0);
-    expect(guess.ripped.map((r) => r.holdId).sort()).toEqual([7, 8]);
+    expect(guess.caught.length).toBeGreaterThan(0);
     const events: SlingEvent[] = [];
     dyno(s, aim, events);
     run(s, 3, events);
-    expect(kinds(events)).toContain('rip');
-    expect(kinds(events)).not.toContain('catch');
-    expect(s.fallen).toBe(true);
-  });
-
-  it('a hand only sticks a dyno with a good catch or better', () => {
-    for (const x of [-0.75, -0.7, -0.6, -0.25, 0, 0.05]) {
-      for (const power of [0.7, 0.8, 0.9, 1]) {
-        const s = start();
-        run(s, 0.5);
-        const events: SlingEvent[] = [];
-        dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power }, events);
-        run(s, 2.5, events);
-        for (const e of events) {
-          if (e.kind === 'catch' && e.dyno) expect(e.grade).not.toBe('SCRAPE');
-        }
-      }
-    }
+    expect(kinds(events)).toContain('catch');
+    expect(s.fallen).toBe(false);
   });
 
   it('draws back against the limbs on the wall, and lets go from there', () => {
@@ -549,11 +579,36 @@ describe('the dyno', () => {
     expect(caught.slice(0, guess.caught.length)).toEqual(guess.caught.map((c) => c.holdId));
   });
 
+  it('goes a long way: a full one puts the hands well over two metres higher', () => {
+    const s = start();
+    run(s, 0.5);
+    const before = Math.max(s.limbs.LH.pos.y, s.limbs.RH.pos.y);
+    dyno(s, { dir: { x: 0, y: 1 }, power: 1 });
+    let top = -Infinity;
+    // An empty wall, so nothing stops it on the way up.
+    for (let i = 0; i < Math.round(1 / SLING.dt); i++) {
+      stepSling(s, [], SLING.dt);
+      top = Math.max(top, s.limbs.LH.pos.y, s.limbs.RH.pos.y);
+    }
+    expect(top - before).toBeGreaterThan(2.5);
+  });
+
+  it('sails past holds on the way up and catches at the top: the pull picks the hold', () => {
+    const s = start();
+    run(s, 0.5);
+    // A light one sticks the holds just overhead; a big one goes past them.
+    const light = predictDyno(s, holds, { dir: { x: 0, y: 1 }, power: 0.4 });
+    expect(light.caught.map((c) => c.holdId).sort()).toEqual([7, 8]);
+    const big = predictDyno(s, holds, { dir: { x: 0, y: 1 }, power: 1 });
+    expect(big.caught.length).toBeGreaterThan(0);
+    for (const c of big.caught) expect(byId.get(c.holdId)!.pos.y).toBeGreaterThan(3.5);
+  });
+
   it('a weak one is a fall, not a dangle', () => {
     const s = start();
     run(s, 0.5);
     const events: SlingEvent[] = [];
-    dyno(s, { dir: { x: 0, y: 1 }, power: 0.4 }, events);
+    dyno(s, { dir: { x: 0, y: 1 }, power: 0.12 }, events);
     run(s, 3, events);
     expect(kinds(events)).not.toContain('catch');
     expect(kinds(events)).toContain('fell');
@@ -574,7 +629,7 @@ describe('putting a dangling limb back', () => {
     expect(ids).not.toContain(4); // a foot chip
   });
 
-  it('puts it straight on, as a sound placement rather than a perfect one', () => {
+  it('puts it straight on, and a placed limb is as stuck as a thrown one', () => {
     const s = start();
     launch(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 0.3 });
     run(s, 1.5);
@@ -582,7 +637,7 @@ describe('putting a dangling limb back', () => {
     expect(placeLimb(s, 'RH', 2, holds, events)).toBe(true);
     expect(events[0]).toMatchObject({ kind: 'place', limb: 'RH', holdId: 2 });
     expect(s.limbs.RH.phase).toBe('held');
-    expect(s.limbs.RH.grade).toBe('GOOD');
+    expect(s.limbs.RH.grade).toBe(STUCK);
     run(s, 1);
     expect(heldCount(s)).toBe(4);
     expect(bodySpeed(s)).toBeLessThan(0.2);

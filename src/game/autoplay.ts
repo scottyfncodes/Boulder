@@ -1,3 +1,4 @@
+import { overhangOf } from './attempt';
 import type { Hold, LimbId, Route, Vec2 } from './types';
 import { LIMBS, isHand } from './types';
 import { anchorFor, maxReachOf } from './body';
@@ -118,7 +119,7 @@ export function solveRoute(
       }
     : { x: 0, y: 4 };
 
-  const start = initialState(holds, route.start, ((route.overhang ?? 0) * Math.PI) / 180);
+  const start = initialState(holds, route.start, overhangOf(route));
   let frontier: Node[] = [
     { state: start, moves: [], grades: [], minStability: start.pose.stability, score: 0 },
   ];
