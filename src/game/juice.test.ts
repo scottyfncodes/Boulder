@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  JUICE_FOR, freshJuice, isFull, juiceWord, onDynoStuck, onMiss, onPumped, onSlip, onStick, spendDyno,
+  freshJuice, isFull, juiceWord, onDynoStuck, onMiss, onPumped, onSlip, onStick, spendDyno,
 } from './juice';
 
 describe('the dyno meter', () => {
@@ -9,17 +9,15 @@ describe('the dyno meter', () => {
     expect(isFull(freshJuice(true))).toBe(true);
   });
 
-  it('pays more for a cleaner stick', () => {
+  it('pays the same for every stick: it stuck or it did not', () => {
     const j = freshJuice();
-    expect(onStick(j, 'PERFECT').level).toBeGreaterThan(onStick(j, 'GOOD').level);
-    expect(onStick(j, 'GOOD').level).toBeGreaterThan(onStick(j, 'SCRAPE').level);
-    expect(onStick(j, 'SCRAPE').level).toBeGreaterThan(0);
+    expect(onStick(j).level).toBeGreaterThan(0);
   });
 
   it('pays a flow streak extra, up to a cap', () => {
     const j = freshJuice();
-    expect(onStick(j, 'GOOD', 5).level).toBeGreaterThan(onStick(j, 'GOOD', 1).level);
-    expect(onStick(j, 'GOOD', 50).level).toBeCloseTo(onStick(j, 'GOOD', 7).level, 9);
+    expect(onStick(j, 5).level).toBeGreaterThan(onStick(j, 1).level);
+    expect(onStick(j, 50).level).toBeCloseTo(onStick(j, 7).level, 9);
   });
 
   it('takes juice away for a whiff, a slip and a pump-out, never below empty', () => {
@@ -30,33 +28,25 @@ describe('the dyno meter', () => {
     expect(onPumped(freshJuice()).level).toBe(0);
   });
 
-  it('does not come cheap: four clean sticks, six good ones, and scrapes barely move it', () => {
-    let perfect = freshJuice();
+  it('does not come cheap: five sticks without a streak', () => {
+    let j = freshJuice();
     let n = 0;
-    while (!isFull(perfect)) { perfect = onStick(perfect, 'PERFECT', 0); n++; }
-    expect(n).toBe(4);
-    let good = freshJuice();
-    n = 0;
-    while (!isFull(good)) { good = onStick(good, 'GOOD', 0); n++; }
-    expect(n).toBe(7);
-    expect(Math.ceil(1 / JUICE_FOR.SCRAPE)).toBeGreaterThan(20);
+    while (!isFull(j)) { j = onStick(j, 0); n++; }
+    expect(n).toBe(5);
   });
 
   it('caps at full, and only a full tank fires — and empties it', () => {
     let j = freshJuice();
-    for (let i = 0; i < 10; i++) j = onStick(j, 'PERFECT');
+    for (let i = 0; i < 10; i++) j = onStick(j);
     expect(j.level).toBe(1);
     expect(spendDyno({ level: 0.99 })).toBeNull();
     expect(spendDyno(j)!.level).toBe(0);
   });
 
-  it('gives some back for sticking the dyno clean', () => {
+  it('gives some back for sticking the dyno, more for a bigger one', () => {
     const empty = freshJuice();
-    expect(onDynoStuck(empty, 'PERFECT').level).toBeGreaterThan(onDynoStuck(empty, 'GOOD').level);
-    expect(onDynoStuck(empty, 'GOOD').level).toBeGreaterThan(0);
-    // A bigger dyno pays back more.
-    expect(onDynoStuck(empty, 'GOOD', 2.5).level).toBeGreaterThan(onDynoStuck(empty, 'GOOD', 1).level);
-    expect(onDynoStuck(empty, 'SCRAPE', 3).level).toBe(0);
+    expect(onDynoStuck(empty).level).toBeGreaterThan(0);
+    expect(onDynoStuck(empty, 2.5).level).toBeGreaterThan(onDynoStuck(empty, 1).level);
   });
 
   it('has a word for the bar', () => {

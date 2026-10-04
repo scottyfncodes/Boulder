@@ -7,6 +7,7 @@ import {
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
   predictDyno, predictLaunch, reachableHolds, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
+  STUCK,
 } from './sling';
 import { anchorFor } from './body';
 import { dist } from './vec';
@@ -532,35 +533,19 @@ describe('the dyno', () => {
     expect(s.fallen).toBe(false);
   });
 
-  it('does not stop on fingertips: a scrappy catch rips off, and the preview says so', () => {
+  it('sticks wherever a hand gets to the hold: no fingertips, no rip', () => {
     const s = start();
     run(s, 0.5);
+    // The edge-of-the-holds dyno that used to rip off.
     const x = -0.15;
     const aim = { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.4 };
     const guess = predictDyno(s, holds, aim);
-    expect(guess.caught).toHaveLength(0);
-    expect(guess.ripped.map((r) => r.holdId).sort()).toEqual([7, 8]);
+    expect(guess.caught.length).toBeGreaterThan(0);
     const events: SlingEvent[] = [];
     dyno(s, aim, events);
     run(s, 3, events);
-    expect(kinds(events)).toContain('rip');
-    expect(kinds(events)).not.toContain('catch');
-    expect(s.fallen).toBe(true);
-  });
-
-  it('a hand only sticks a dyno with a good catch or better', () => {
-    for (const x of [-0.75, -0.7, -0.6, -0.25, 0, 0.05]) {
-      for (const power of [0.7, 0.8, 0.9, 1]) {
-        const s = start();
-        run(s, 0.5);
-        const events: SlingEvent[] = [];
-        dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power }, events);
-        run(s, 2.5, events);
-        for (const e of events) {
-          if (e.kind === 'catch' && e.dyno) expect(e.grade).not.toBe('SCRAPE');
-        }
-      }
-    }
+    expect(kinds(events)).toContain('catch');
+    expect(s.fallen).toBe(false);
   });
 
   it('draws back against the limbs on the wall, and lets go from there', () => {
@@ -620,7 +605,7 @@ describe('the dyno', () => {
     const s = start();
     run(s, 0.5);
     const events: SlingEvent[] = [];
-    dyno(s, { dir: { x: 0, y: 1 }, power: 0.27 }, events);
+    dyno(s, { dir: { x: 0, y: 1 }, power: 0.12 }, events);
     run(s, 3, events);
     expect(kinds(events)).not.toContain('catch');
     expect(kinds(events)).toContain('fell');
@@ -641,7 +626,7 @@ describe('putting a dangling limb back', () => {
     expect(ids).not.toContain(4); // a foot chip
   });
 
-  it('puts it straight on, as a sound placement rather than a perfect one', () => {
+  it('puts it straight on, and a placed limb is as stuck as a thrown one', () => {
     const s = start();
     launch(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 0.3 });
     run(s, 1.5);
@@ -649,7 +634,7 @@ describe('putting a dangling limb back', () => {
     expect(placeLimb(s, 'RH', 2, holds, events)).toBe(true);
     expect(events[0]).toMatchObject({ kind: 'place', limb: 'RH', holdId: 2 });
     expect(s.limbs.RH.phase).toBe('held');
-    expect(s.limbs.RH.grade).toBe('GOOD');
+    expect(s.limbs.RH.grade).toBe(STUCK);
     run(s, 1);
     expect(heldCount(s)).toBe(4);
     expect(bodySpeed(s)).toBeLessThan(0.2);

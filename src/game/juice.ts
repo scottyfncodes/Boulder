@@ -1,13 +1,11 @@
-import type { MoveGrade } from './types';
-
 /**
  * The dyno meter.
  *
- * A dyno is earned. Every limb that sticks puts juice in the tank — more the
- * cleaner it lands, more again on a flow streak — and every whiff and slip
- * takes some out. Fill it and the belly lights up: the dyno is live. Fire it
- * and the tank is empty again, whatever happens next, so it had better stick.
- * Stick it clean and some of the style comes back.
+ * A dyno is earned. Every limb that sticks puts juice in the tank — more
+ * again on a flow streak — and every whiff and slip takes some out. Fill it
+ * and the belly lights up: the dyno is live. Fire it and the tank is empty
+ * again, whatever happens next, so it had better stick. Stick it and some
+ * comes back, more the further it went.
  *
  * Pure numbers, no clock. The climbing screen owns one of these per attempt.
  */
@@ -17,12 +15,8 @@ export type Juice = {
   level: number;
 };
 
-/** What a stuck move is worth, by how well it stuck. */
-export const JUICE_FOR: Record<Exclude<MoveGrade, 'MISS' | 'YEET'>, number> = {
-  PERFECT: 0.26,
-  GOOD: 0.16,
-  SCRAPE: 0.04,
-};
+/** What a stuck move is worth. Five in a row, no streak, fills it. */
+export const JUICE_STICK = 0.2;
 /** A throw that caught nothing. */
 export const JUICE_MISS = -0.12;
 /** A limb that was on and came off. */
@@ -34,12 +28,8 @@ export const JUICE_PLACE = 0;
 /** Each move of a flow streak past the second adds this much on top, up to the cap. */
 export const FLOW_BONUS = 0.08;
 export const FLOW_BONUS_MAX = 0.4;
-/** Juice handed back for sticking the dyno itself, by how cleanly. */
-export const DYNO_REFUND: Record<Exclude<MoveGrade, 'MISS' | 'YEET'>, number> = {
-  PERFECT: 0.4,
-  GOOD: 0.2,
-  SCRAPE: 0,
-};
+/** Juice handed back for sticking the dyno itself. */
+export const DYNO_REFUND = 0.25;
 /** Extra juice back per metre the hands went up past the first, up to the cap. */
 export const DYNO_HEIGHT_BONUS = 0.15;
 export const DYNO_HEIGHT_BONUS_MAX = 0.3;
@@ -57,9 +47,9 @@ function add(j: Juice, amount: number): Juice {
 }
 
 /** A limb stuck. `streak` is the flow streak including this move. */
-export function onStick(j: Juice, grade: Exclude<MoveGrade, 'MISS' | 'YEET'>, streak = 0): Juice {
+export function onStick(j: Juice, streak = 0): Juice {
   const flow = Math.min(FLOW_BONUS_MAX, Math.max(0, streak - 2) * FLOW_BONUS);
-  return add(j, JUICE_FOR[grade] * (1 + flow));
+  return add(j, JUICE_STICK * (1 + flow));
 }
 
 export function onMiss(j: Juice): Juice {
@@ -80,12 +70,12 @@ export function spendDyno(j: Juice): Juice | null {
 }
 
 /**
- * The dyno stuck. Clean ones give some back, and big ones more again:
- * `gain` is how far the hands went up the wall, metres.
+ * The dyno stuck. Some comes back, and more for a big one: `gain` is how far
+ * the hands went up the wall, metres.
  */
-export function onDynoStuck(j: Juice, grade: Exclude<MoveGrade, 'MISS' | 'YEET'>, gain = 0): Juice {
-  const big = grade === 'SCRAPE' ? 0 : Math.min(DYNO_HEIGHT_BONUS_MAX, Math.max(0, gain - 1) * DYNO_HEIGHT_BONUS);
-  return add(j, DYNO_REFUND[grade] + big);
+export function onDynoStuck(j: Juice, gain = 0): Juice {
+  const big = Math.min(DYNO_HEIGHT_BONUS_MAX, Math.max(0, gain - 1) * DYNO_HEIGHT_BONUS);
+  return add(j, DYNO_REFUND + big);
 }
 
 /** A word for the bar, the way the pump has one. */

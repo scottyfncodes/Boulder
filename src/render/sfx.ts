@@ -284,11 +284,3 @@ export function sfxDynoStick(perfect: boolean): void {
   }
   noise(c, 'highpass', 5200, 0.5, { at: 0.03, attack: 0.004, release: 1.3, peak: 0.2 });
 }
-
-/** Fingertips skidding off a hold at speed. */
-export function sfxRip(): void {
-  const c = ready(); if (!c) return;
-  noise(c, 'bandpass', 3400, 2, { attack: 0.004, release: 0.32, peak: 0.32 }, 700);
-  tone(c, 'sawtooth', 640, { attack: 0.004, release: 0.35, peak: 0.08 }, 120);
-  tone(c, 'sine', 120, { at: 0.02, attack: 0.004, release: 0.2, peak: 0.25 }, 60);
-}

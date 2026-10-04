@@ -28,7 +28,7 @@ import { Fx } from '../render/fx';
 import {
   buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
   sfxSnap, sfxStretch, sfxThrow, sfxThud, unlockAudio,
-  sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice, sfxRip,
+  sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice,
 } from '../render/sfx';
 import { setterOf } from '../content/setters';
 import { isLabRoute } from '../content/lab';
@@ -62,8 +62,8 @@ function pullOf(drag: Drag, max: number): { dx: number; dy: number } {
   return { dx, dy };
 }
 
-/** How long a catch holds the world still: a scrape, a good one, a perfect one, a dyno. */
-const HIT_STOP: Record<string, number> = { SCRAPE: 0, GOOD: 40, PERFECT: 70, DYNO: 220 };
+/** How long a catch holds the world still: a limb sticking, and a dyno sticking. */
+const HIT_STOP = { STICK: 55, DYNO: 220 };
 /**
  * Bullet time. A dyno in flight runs slower than the clock — slowest over the
  * top of the arc, where the hands are deciding — so the most committing move
@@ -352,11 +352,11 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           break;
         }
         case 'place': {
-          sfxGrab('GOOD', 0);
+          sfxGrab('PERFECT', 0);
           buzz(8);
           fx.chalk(e.at, 0.7);
           movesRef.current.push({
-            placed: true, limb: e.limb, holdId: e.holdId, grade: 'GOOD',
+            placed: true, limb: e.limb, holdId: e.holdId, grade: 'PERFECT',
             aim: { limb: e.limb, dir: { x: 0, y: 1 }, power: 0 },
           });
           setLaunches(movesRef.current.length);
@@ -386,45 +386,37 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           const big = clamp((gain - 1) / 1.5, 0, 1);
           if (e.dyno) {
             dynoCaughtAtRef.current = now;
-            setJuice(onDynoStuck(juiceRef.current, e.grade, gain));
+            setJuice(onDynoStuck(juiceRef.current, gain));
           } else if (!secondHand) {
-            setJuice(onStick(juiceRef.current, e.grade, streakNow));
+            setJuice(onStick(juiceRef.current, streakNow));
           }
-          fx.chalk(e.at, e.grade === 'PERFECT' ? 1.3 : e.grade === 'GOOD' ? 0.9 : 0.6);
+          fx.chalk(e.at, 1.1);
           const last = lastLimbsRef.current?.[e.limb];
           if (last) settleRef.current[e.limb] = { from: { ...last }, start: now };
           if (e.dyno) {
-            // The biggest thing that happens on the wall short of the top.
-            const clean = e.grade === 'PERFECT';
-            fx.shockwave(e.at, clean ? '#ffd75e' : '#ff8f3c', (clean ? 1.25 : 1) * (1 + 0.6 * big));
-            if (clean || big > 0.5) fx.confetti(e.at);
-            if (clean && big > 0.5) fx.confetti({ x: e.at.x, y: e.at.y - 0.3 });
-            fx.kick((clean ? 0.85 : 0.7) + 0.3 * big);
-            sfxDynoStick(clean);
+            // The biggest thing that happens on the wall short of the top,
+            // and bigger the further it went.
+            fx.shockwave(e.at, big > 0.4 ? '#ffd75e' : '#ff8f3c', 1.1 * (1 + 0.6 * big));
+            fx.confetti(e.at);
+            if (big > 0.5) fx.confetti({ x: e.at.x, y: e.at.y - 0.3 });
+            fx.kick(0.75 + 0.3 * big);
+            sfxDynoStick(big > 0.4);
             buzz([30, 15, 60]);
             framePunchRef.current = -0.55;
             timeScaleRef.current = 1;
-          } else if (e.grade === 'PERFECT') {
-            fx.perfect(e.at, '#6ef2b4');
-            fx.kick(0.2);
-            buzz(12);
           } else {
-            fx.kick(e.grade === 'GOOD' ? 0.1 : 0.15);
-            buzz(8);
+            fx.perfect(e.at, '#6ef2b4');
+            fx.kick(0.15);
+            buzz(10);
           }
-          freezeRef.current = now + (e.dyno ? HIT_STOP.DYNO * (1 + 0.6 * big) : HIT_STOP[e.grade]);
+          freezeRef.current = now + (e.dyno ? HIT_STOP.DYNO * (1 + 0.6 * big) : HIT_STOP.STICK);
           const zone = e.zone;
           if (e.dyno) {
             const word = big >= 0.99 ? 'Huge dyno: ' : big > 0.4 ? 'Big dyno: ' : '';
-            say(e.grade === 'PERFECT' ? 'STUCK IT' : 'STUCK',
-              `${word}+${gain.toFixed(1)} m. ${e.grade === 'PERFECT' ? `Dead centre of ${zone}.` : `Caught ${zone}. Hold on.`}`,
-              2200 + 600 * big);
+            say('STUCK IT', `${word}+${gain.toFixed(1)} m. Caught ${zone}.`, 2200 + 600 * big);
           } else if (!secondHand) {
             // (The second hand of a dyno that already stuck leaves the banner to the first.)
-            say(e.grade,
-              e.grade === 'PERFECT' ? `Right on ${zone}.`
-              : e.grade === 'GOOD' ? `Got ${zone}.`
-              : `${zone.charAt(0).toUpperCase()}${zone.slice(1)}, barely.`);
+            say('STUCK', `Got ${zone}.`, 1100);
           }
           break;
         }
@@ -438,17 +430,6 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           buzz(16);
           reasonRef.current = e.reason;
           say('MISS', e.reason);
-          break;
-        }
-        case 'rip': {
-          setStreak(0);
-          sfxRip();
-          fx.chalk(e.at, 1.4, 'rgba(255,255,255,0.8)');
-          fx.perfect(e.at, '#e8564f');
-          fx.kick(0.4);
-          buzz([40, 20, 40]);
-          reasonRef.current = e.reason;
-          say('RIPPED', e.reason, 1600);
           break;
         }
         case 'slip': {
