@@ -5,14 +5,14 @@ import { anchorFor } from '../game/body';
 import { type Attempt, type AttemptMode, type BetaMove, beginAttempt, overhangOf } from '../game/attempt';
 import {
   type AssistedLaunch, type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
-  dynoWindup, handLoad, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  poseOf, assistLaunch, predictDyno, pumpOut, reachableHolds, restingOn, stepSling, windupPos,
-  SLING_LIMITS,
+  dynoWindup, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
+  poseOf, assistLaunch, predictDyno, pumpOut, reachableHolds, stepSling, windupPos,
+  SLING_LIMITS, bodyAngle, postureOf,
 } from '../game/sling';
 import {
-  type Endurance, DYNO_COST, FLING_COST, drainEndurance, freshEndurance, isRest, pumpWord,
-  routeDrain, spend,
-} from '../game/endurance';
+  type Pump, catchCost, dynoCost, flingCost, freshPump, gain as addPump, pumpReason, pumpStage, pumpTrend, tickPump,
+} from '../game/pump';
+import { profileOf } from '../game/profile';
 import { flowStreak } from '../game/scoring';
 import { type AimFilter, filterAim, freshAimFilter, releaseAim } from '../game/aimInput';
 import {
@@ -118,8 +118,8 @@ function newDrag(kind: Drag['kind'], x: number, y: number, cam: { focusY: number
 export type SlingScreenProps = {
   route: Route;
   mode: AttemptMode;
-  /** Endurance capacity this player has earned, seconds of hanging. */
-  capacity: number;
+  /** How fit this climber is: pump costs are divided by it. */
+  fitness: number;
   onExit: () => void;
   onOutcome: (attempt: Attempt, outcome: 'sent' | 'fallen') => void;
   attemptsNote?: string;
@@ -127,7 +127,7 @@ export type SlingScreenProps = {
 
 type Phase = 'inspect' | 'climbing' | 'fallen' | 'sent';
 
-export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attemptsNote }: SlingScreenProps) {
+export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsNote }: SlingScreenProps) {
   const glRef = useRef<HTMLCanvasElement>(null);
   const uiRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<WallScene | null>(null);
@@ -152,7 +152,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
   // The sim and everything the frame loop reads live in refs: sixty renders a
   // second of React would make the drag stutter on a phone.
-  const simRef = useRef<SlingState>(initialSling(route.holds, route.start, overhangOf(route)));
+  const simRef = useRef<SlingState>(initialSling(route.holds, route.start, profileOf(route)));
   const phaseRef = useRef<Phase>('inspect');
   const selectedRef = useRef<Selection | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -196,11 +196,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
   // The pump. Changes every frame, so it is written straight to the DOM
   // rather than mirrored into React state sixty times a second.
   const lab0 = isLabRoute(route.id);
-  const enduranceRef = useRef<Endurance>(freshEndurance(lab0 ? capacity * 2.5 : capacity));
-  const drainRef = useRef(routeDrain(route));
-  const restIds = useMemo(() => new Set(route.holds.filter(isRest).map((h) => h.id)), [route]);
+  // The practice wall is for learning moves, so it goes easy on the pump.
+  const pumpStateRef = useRef<Pump>(freshPump(lab0 ? fitness * 2.5 : fitness));
   const baseBarRef = useRef<HTMLDivElement>(null);
+  const floorBarRef = useRef<HTMLDivElement>(null);
   const pumpRef = useRef<HTMLSpanElement>(null);
+  const whyRef = useRef<HTMLDivElement>(null);
   const vignetteRef = useRef<HTMLDivElement>(null);
   const heartRef = useRef(0);
   // The dyno meter. Earned by sticking moves, spent all at once.
@@ -317,7 +318,10 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
         case 'launch': {
           sfxThrow(e.power);
           buzz(6);
-          enduranceRef.current = spend(enduranceRef.current, FLING_COST * (0.4 + 0.6 * e.power)).endurance;
+          {
+            const s = simRef.current;
+            pumpStateRef.current = addPump(pumpStateRef.current, flingCost(e.power, bodyAngle(s), heldCount(s)));
+          }
           movesRef.current.push({
             limb: e.limb, holdId: null, grade: 'MISS',
             aim: { limb: e.limb, dir: { x: 0, y: 1 }, power: e.power },
@@ -334,7 +338,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           }
           sfxDynoLaunch(e.power);
           buzz([10, 20, 40]);
-          enduranceRef.current = spend(enduranceRef.current, DYNO_COST).endurance;
+          pumpStateRef.current = addPump(pumpStateRef.current, dynoCost(e.power, bodyAngle(simRef.current)));
           fx.kick(0.45);
           fx.launch(e.from, []);
           framePunchRef.current = 0.7;
@@ -377,6 +381,12 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           }
           const streakNow = flowStreak(movesRef.current);
           setStreak(streakNow);
+          // Stopping a body that is moving costs; stopping it on one hand costs double.
+          {
+            const s = simRef.current;
+            const hands = LIMBS.filter((id) => isHand(id) && s.limbs[id].phase === 'held').length;
+            pumpStateRef.current = addPump(pumpStateRef.current, catchCost(e.speed, isHand(e.limb), hands, bodyAngle(s)));
+          }
           sfxGrab(e.grade, streakNow);
           // The juice. A dyno's own catch is paid back by the dyno; the second
           // hand arriving after it is part of the same move, not a new one.
@@ -544,16 +554,13 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
             }
           }
         }
-        // The pump drains off what the body is actually doing.
+        // The pump reads what the body is actually doing: the wall where it
+        // is, what is holding on, how much it is moving. Sim time, so bullet
+        // time is not a tax.
         if (ph === 'climbing' && dt > 0 && !sim.fallen) {
-          const { load, hands } = handLoad(sim);
-          const reaching = LIMBS.some((l) => sim.limbs[l].phase === 'flying');
-          const ticked = drainEndurance({
-            endurance: enduranceRef.current, dtMs: dt, drain: drainRef.current,
-            handLoad: load, handsOn: hands, reaching, resting: restingOn(sim, restIds),
-          });
-          enduranceRef.current = ticked.endurance;
-          if (ticked.pumped && hands > 0) pumpOut(sim, events);
+          const posture = postureOf(sim);
+          pumpStateRef.current = tickPump(pumpStateRef.current, posture, (dt / 1000) * timeScaleRef.current);
+          if (pumpStateRef.current.pump >= 1 && posture.hands > 0) pumpOut(sim, events);
         }
         if (events.length) handleEvents(events, now);
         if (phaseRef.current === 'climbing' && isSlingSent(sim, route.finish)) celebrate(now);
@@ -562,11 +569,23 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
       // The bar, the word, and — on empty — a heartbeat and the edges closing in.
       {
-        const e = enduranceRef.current;
+        const p = pumpStateRef.current;
         const climbing = phaseRef.current === 'climbing';
-        if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${e.base})`;
-        if (pumpRef.current) pumpRef.current.textContent = pumpWord(e.base);
-        const low = climbing && e.base < 0.32 ? 1 - e.base / 0.32 : 0;
+        // The bar is what is left: it empties as the forearms fill. The dark
+        // end is what this climb has cost for good — no rest gets that back.
+        if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${1 - p.pump})`;
+        if (floorBarRef.current) floorBarRef.current.style.transform = `scaleX(${p.floor})`;
+        if (pumpRef.current || whyRef.current) {
+          const posture = postureOf(sim);
+          const trend = pumpTrend(posture);
+          const arrow = trend === 'recovering' ? ' ↓' : trend === 'steady' ? '' : trend === 'climbing' ? ' ↑' : ' ↑↑';
+          if (pumpRef.current) pumpRef.current.textContent = `${pumpStage(p.pump)}${arrow}`;
+          if (whyRef.current) {
+            whyRef.current.textContent = `${trend} · ${pumpReason(posture)}`;
+            whyRef.current.dataset.trend = trend;
+          }
+        }
+        const low = climbing && p.pump > 0.68 ? (p.pump - 0.68) / 0.32 : 0;
         if (vignetteRef.current) vignetteRef.current.style.opacity = String(low * 0.85);
         if (low > 0 && now >= heartRef.current) {
           sfxHeartbeat(low);
@@ -1042,7 +1061,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
 
   /** Back to the start of the route. The onsight survives only if nothing was thrown yet. */
   const restart = (keepMode = false) => {
-    simRef.current = initialSling(route.holds, route.start, overhangOf(route));
+    simRef.current = initialSling(route.holds, route.start, profileOf(route));
     movesRef.current = [];
     pendingRef.current = {};
     trailsRef.current = {};
@@ -1062,7 +1081,7 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
     accRef.current = 0;
     reasonRef.current = null;
     shoutRef.current = null;
-    enduranceRef.current = freshEndurance(lab0 ? capacity * 2.5 : capacity);
+    pumpStateRef.current = freshPump(lab0 ? fitness * 2.5 : fitness);
     juiceRef.current = freshJuice(lab0);
     juiceBoxRef.current?.classList.toggle('is-ready', lab0);
     timeScaleRef.current = 1;
@@ -1185,7 +1204,9 @@ export function SlingScreen({ route, mode, capacity, onExit, onOutcome, attempts
           </div>
           <div className="stamina__track">
             <div className="stamina__fill" ref={baseBarRef} />
+            <div className="stamina__floor" ref={floorBarRef} />
           </div>
+          <div className="stamina__why" ref={whyRef} />
           <div className={`juice${lab ? ' is-ready' : ''}`} ref={juiceBoxRef}>
             <div className="stamina__row">
               <span className="stamina__label juice__label">Dyno</span>

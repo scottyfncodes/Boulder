@@ -55,7 +55,6 @@ type StepStyle = {
   /** Override which side of the line this hand goes on. */
   side?: 1 | -1;
   hard?: number;
-  rest?: boolean;
   /** Chance this step gets its own foothold. */
   footDensity?: number;
   /** How far below the line feet go. */
@@ -225,7 +224,6 @@ class Setter {
         const t2 = dir === null ? 'crimp' : type;
         const id = this.add(t2, x, y, dir ?? DOWN, {
           hard: type === 'jug' && !style.crux ? 1 : hard,
-          rest: style.rest,
           spine: true,
         });
         void id;
@@ -292,7 +290,7 @@ class Setter {
 
   add(
     type: HoldType, x: number, y: number, dir: number,
-    o: { hard?: number; rest?: boolean; spine?: boolean; roll?: number; finish?: boolean } = {},
+    o: { hard?: number; spine?: boolean; roll?: number; finish?: boolean } = {},
   ): number {
     const id = this.nextId++;
     const hold: Hold = {
@@ -304,7 +302,6 @@ class Setter {
       ...(o.roll !== undefined ? { roll: round(o.roll) } : {}),
       ...(o.hard !== undefined && Math.abs(o.hard - 1) > 0.005 ? { hard: round(o.hard) } : {}),
       ...(o.finish ? { finish: true } : {}),
-      ...(o.rest ? { rest: true } : {}),
     };
     this.holds.push(hold);
     if (o.spine) {
@@ -565,10 +562,9 @@ function crux(s: Setter, kind: CruxKind, final: boolean): void {
   const { t, r } = s;
   const hard = Math.min(1.35, t.hard[1] + 0.12);
   const poor: Weighted<HoldType> = [['crimp', 3], ['sloper', 2], ['pinch', 2], ['pocket', 1]];
-  // The calm before it: one good hold, a rest if the route is long enough to need one.
+  // The calm before it: one good hold.
   s.step(r.range(-0.04, 0.04), 0.22, {
     palette: easeFor(t), halfWidth: 0.26, footDensity: 1,
-    rest: t.difficulty === 'veryHard' || t.difficulty === 'brutal' ? final : false,
     type: final ? 'jug' : undefined,
   });
   s.tag = `crux:${kind}`;

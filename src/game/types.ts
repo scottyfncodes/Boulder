@@ -117,8 +117,6 @@ export type Hold = {
   hard?: number;
   /** Marks the hold as part of the route's finish. */
   finish?: boolean;
-  /** A hold good enough to shake out on. Setter's note; nothing drains now. */
-  rest?: boolean;
 };
 
 /** Outcome tiers for a single limb move. */
@@ -211,6 +209,13 @@ export type Route = {
    * holds, it makes the same holds cost more to hang off.
    */
   overhang?: number;
+  /**
+   * Where the wall bends: from `y` metres up its surface on, it leans `angle`
+   * degrees past vertical, until the next bend. Below the first bend it leans
+   * `overhang`. A roof is a bend to something steep, and a lip is the bend
+   * back. Left out, the wall is one plane.
+   */
+  profile?: { y: number; angle: number }[];
   /** Set for generated routes so they can be rebuilt rather than stored. */
   seed?: number;
   /**

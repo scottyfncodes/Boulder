@@ -88,6 +88,25 @@
   background: linear-gradient(90deg, #ff5e4d, #f2c249 45%, #5fd1a0);
   transition: none;
 }
+.stamina__track { position: relative; }
+/* What this climb has cost for good, eating in from the empty end. */
+.stamina__floor {
+  position: absolute;
+  inset: 0;
+  transform-origin: right center;
+  transform: scaleX(0);
+  background: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.55) 0 3px, rgba(0, 0, 0, 0.3) 3px 6px);
+}
+.stamina__why {
+  margin-top: 0.22rem;
+  font-size: 0.6rem;
+  text-align: right;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.stamina__why[data-trend='recovering'] { color: #6ef2b4; }
+.stamina__why[data-trend='burning'] { color: #ff8f6b; }
 .flash--pumped .flash__grade { color: #ff5e4d; }
 
 /* --- the dyno meter --- */
