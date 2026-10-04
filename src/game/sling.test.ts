@@ -616,3 +616,46 @@ describe('no clock', () => {
     expect(Math.hypot(s.hip.x - hip.x, s.hip.y - hip.y)).toBeLessThan(0.01);
   });
 });
+
+describe('slack and spring', () => {
+  it('a fresh foot settles the body without bouncing it', () => {
+    const s = start();
+    const aim = findAim(s, holds, 'RF', 6);
+    expect(aim).not.toBeNull();
+    launch(s, aim!);
+    let reversals = 0;
+    let sign = 0;
+    let caught = false;
+    for (let i = 0; i < Math.round(2.5 / SLING.dt); i++) {
+      const ev = stepSling(s, holds);
+      if (ev.some((e) => e.kind === 'catch')) caught = true;
+      if (!caught || Math.abs(s.hipV.y) < 0.08) continue;
+      const g = Math.sign(s.hipV.y);
+      if (sign && g !== sign) reversals++;
+      sign = g;
+    }
+    expect(caught).toBe(true);
+    expect(reversals).toBeLessThanOrEqual(1);
+  });
+
+  it('a stuck dyno stretches the arm past its length like a bungee, then springs back', () => {
+    const s = start();
+    run(s, 0.5);
+    const x = -0.7;
+    dyno(s, { dir: { x, y: Math.sqrt(1 - x * x) }, power: 0.6 });
+    let caughtAt = -1;
+    let most = 0;
+    for (let i = 0; i < Math.round(2.5 / SLING.dt); i++) {
+      const ev = stepSling(s, holds);
+      if (caughtAt < 0 && ev.some((e) => e.kind === 'catch')) caughtAt = i;
+      for (const id of ['LH', 'RH'] as LimbId[]) {
+        const l = s.limbs[id];
+        if (l.phase === 'held') most = Math.max(most, dist(l.pos, anchorFor(id, s.hip, s.shoulder)));
+      }
+    }
+    expect(caughtAt).toBeGreaterThan(0);
+    expect(most).toBeGreaterThan(SLING_LIMITS.ARM_MAX + 0.06);
+    expect(s.boing).toBe(0);
+    expect(s.fallen).toBe(false);
+  });
+});

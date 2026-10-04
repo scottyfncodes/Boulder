@@ -71,6 +71,8 @@ body, and the hands either catch something or the mat catches the climber.
 It has to be precise: a hand needs a GOOD catch or better to stop a body at
 that speed, and fingertips rip straight off. The preview shows the body's
 arc and marks every hold as STICKS, STICKS CLEAN or RIPS before you let go.
+The catch is elastic: for a second the arms are bungees, the body sails on
+past arm's length, stretches them and springs back before it hangs.
 Stick it and the wall shakes, a shockwave goes out and the screen says so;
 stick it dead centre and some of the juice comes back for style. The
 practice wall's dynos are free.
@@ -247,8 +249,8 @@ src/ui/        React screens
 position-based constraints: the torso is rigid, arms are ropes, legs are
 struts, attached limbs are pinned to their holds. Forces on top: gravity, a
 core torque that keeps the torso upright while a hand is on, a righting pull
-toward whatever is holding you up, leg push with damping so a fresh foot
-stands you up rather than bouncing you off, and a small lock-off pull on the
+toward whatever is holding you up, a soft, damped leg push so a fresh foot
+lets the climber sag in and settle rather than bouncing them, and a small lock-off pull on the
 arms. The load through each hold is read off the net constraint impulse, in
 body weights, and a hold that is asked for more than its shape and angle can
 give lets go. It is deterministic and the aim preview is a copy of it run

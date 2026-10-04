@@ -93,12 +93,26 @@ export const SLING = {
    */
   restore: 1.4,
   /** Velocity damping per second: body, dangling limbs, limbs in flight. */
-  dampBody: 1.5,
+  dampBody: 3.0,
   /**
    * Body damping while a dyno is in the air. The everyday damping is the wall
    * and the limbs soaking up motion; with nothing touching, there is only air.
    */
   dampDyno: 0.25,
+  /**
+   * The elastic catch. For this long after a hand stops a dyno, the arms are
+   * bungees rather than ropes: the body flies on past arm's length, stretches
+   * them, and springs back up — a couple of times — before it hangs.
+   */
+  boingTime: 1.1,
+  /** How much of the stretch each constraint pass takes back. Low is stretchy. */
+  boingStiff: 0.008,
+  /** Furthest past arm's length the stretch goes, as a fraction of the arm. */
+  boingMax: 0.6,
+  /** Body damping while it springs. Low enough to rebound, high enough to stop. */
+  dampBoing: 1.6,
+  /** How much more load a hold takes while the arms soak the catch up. */
+  boingGive: 1.6,
   dampFree: 3.0,
   dampFlying: 0.22,
   /** Constraint passes per step. */
@@ -119,7 +133,13 @@ export const SLING = {
   /** Leg push: standing up on a foot, as a fraction of body weight, each. */
   legPush: 0.95,
   /** Damping on that push, body weights per metre per second. Stops the pogo. */
-  legDamp: 1.0,
+  legDamp: 1.6,
+  /**
+   * How far a knee bends, as a fraction of the leg, before the push is at
+   * full strength. Soft, so a climber sags into a foothold and stays there
+   * rather than springing off it — slack, not a pogo stick.
+   */
+  legGive: 0.3,
   /** Sideways shove on the shoulders with no hand on: peeling off the wall. */
   peel: 0.55,
   /** Hip height below which a climber who has left the mat is on it again. */
@@ -199,6 +219,8 @@ export type SlingState = {
   dyno: boolean;
   /** Whether that was true at the end of the last step. */
   dynoLast: boolean;
+  /** Seconds of elastic catch left after a dyno is stuck. */
+  boing: number;
   /** How trained the climber is. Never shown; felt in every catch. */
   str: StrengthMods;
 };
@@ -326,7 +348,7 @@ export function initialSling(
     hip: { ...seed.hip }, hipV: { x: 0, y: 0 },
     shoulder: { ...seed.shoulder }, shV: { x: 0, y: 0 },
     limbs, overhang, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false,
-    str,
+    boing: 0, str,
   };
   state.heldLast = heldCount(state);
   // Let it settle. Heavy damping for the warm-up only, so the opening frame is
@@ -895,8 +917,11 @@ export function stepSling(
         // freshly placed foot stands the climber up rather than bouncing them
         // off it.
         const vn = state.hipV.x * n.x + state.hipV.y * n.y;
-        const spring = SLING.legPush * W * clamp01((LEG_STAND - L) / (BODY.leg * 0.14));
-        const f = Math.max(0, spring - SLING.legDamp * W * Math.max(0, vn)) * up * over * footAuthority;
+        const spring = SLING.legPush * W * clamp01((LEG_STAND - L) / (BODY.leg * SLING.legGive));
+        // Damped both ways: it eases off while the hips are rising and
+        // pushes a little harder while they sink onto it, which is what
+        // stops a fresh foot bouncing the climber up and down.
+        const f = Math.max(0, spring - SLING.legDamp * W * vn) * up * over * footAuthority;
         const px = high ? 0 : n.x * 0.45;
         const py = high ? 1 : n.y * 0.45 + 0.55;
         const pl = Math.hypot(px, py);
@@ -961,7 +986,8 @@ export function stepSling(
     state.hipV.x += state.peelSign * SLING.peel * 0.6 * g * dt;
   }
 
-  const bodyDamp = (state.dyno ? SLING.dampDyno : SLING.dampBody) + extraDamp;
+  const springing = state.boing > 0;
+  const bodyDamp = (state.dyno ? SLING.dampDyno : springing ? SLING.dampBoing : SLING.dampBody) + extraDamp;
   damp(state.hipV, bodyDamp, dt);
   damp(state.shV, bodyDamp, dt);
   for (const id of LIMBS) {
@@ -1037,7 +1063,13 @@ export function stepSling(
           continue;
         }
         if (L > maxL) {
-          const C = L - maxL;
+          let C = L - maxL;
+          if (hand && springing) {
+            // A bungee, not a rope: take back only a little of the stretch
+            // each pass, and only all of it past the furthest it will go.
+            const most = BODY.arm * SLING.boingMax;
+            C = C > most ? C - most + most * SLING.boingStiff : C * SLING.boingStiff;
+          }
           body.x += nx * C;
           body.y += ny * C;
           corr[id] += C;
@@ -1129,7 +1161,10 @@ export function stepSling(
     const anchor = anchorFor(id, state.hip, state.shoulder);
     const moving = len(isHand(id) ? state.shV : state.hipV);
     l.capacity = capacityOf(hold, l, anchor, state.overhang, state.str, moving);
-    if (extraDamp === 0 && l.heldT > SLING.lockOnGrace && l.tension > l.capacity) {
+    // While the arms are springing, the stretch is soaking up the catch:
+    // the hold sees a gentler, longer pull than a rope would give it.
+    const give = springing && isHand(id) ? SLING.boingGive : 1;
+    if (extraDamp === 0 && l.heldT > SLING.lockOnGrace && l.tension > l.capacity * give) {
       release(state, l, events, slipReason(hold, l, anchor));
     }
   }
@@ -1220,6 +1255,8 @@ export function stepSling(
         dyno: state.dyno,
       });
       // A hand on something: the dyno is over, whatever the other hand does.
+      // Its arms take the catch like bungees.
+      if (state.dyno) state.boing = SLING.boingTime;
       state.dyno = false;
       continue;
     }
@@ -1281,6 +1318,9 @@ export function stepSling(
   }
   state.heldLast = heldNow;
 
+  if (state.boing > 0) state.boing = Math.max(0, state.boing - dt);
+  // Nothing left to spring off.
+  if (state.boing > 0 && !LIMBS.some((id) => isHand(id) && state.limbs[id].phase === 'held')) state.boing = 0;
   state.t += dt;
   return events;
 }
