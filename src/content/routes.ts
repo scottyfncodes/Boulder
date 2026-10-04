@@ -224,7 +224,7 @@ export const ROUTES: Route[] = [
     // about, then a slab above it where four on gives the arms back, and a
     // last steep push to the top.
     profile: [{ y: 2.3, angle: 34 }, { y: 3.2, angle: 0 }, { y: 4.7, angle: 24 }],
-    par: 26,
+    par: 29,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [36],
     holds: [
@@ -387,7 +387,7 @@ export const ROUTES: Route[] = [
     // Vertical, a steep wall, a proper roof, a slab over the lip to recover
     // on, then steep to a finish you have to go for.
     profile: [{ y: 1.9, angle: 36 }, { y: 2.8, angle: 74 }, { y: 3.75, angle: 4 }, { y: 5.0, angle: 30 }],
-    par: 26,
+    par: 28,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [37],
     holds: [
@@ -485,7 +485,7 @@ export const ROUTES: Route[] = [
     wall: 'main',
     tagline: 'Two metres of roof. Your feet will be decorative.',
     profile: [{ y: 1.8, angle: 40 }, { y: 2.3, angle: 82 }, { y: 4.1, angle: 12 }, { y: 4.9, angle: 35 }],
-    par: 24,
+    par: 27,
     start: { LH: 1, RH: 2, LF: 3, RF: 4 },
     finish: [33],
     holds: [

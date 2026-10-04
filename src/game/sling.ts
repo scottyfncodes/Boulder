@@ -161,6 +161,8 @@ const FOOT_FLOOR = 0.03;
 const MAX_LEAN = 0.7;
 /** Sideways offset a foot can carry weight from without the hips moving over it. */
 const STANCE_WIDTH = 0.26;
+/** Holds this close to where a limb was thrown from cannot catch it on the way out. */
+const LAUNCH_CLEAR = 0.16;
 
 export type LimbPhase = 'held' | 'flying' | 'free';
 
@@ -197,6 +199,8 @@ export type SlingLimb = {
   taut?: boolean;
   /** A foot on a hold that the body is hanging from: a heel or toe hook. */
   hooked?: boolean;
+  /** Where a thrown limb left its hold from, while it is still leaving. */
+  launchAt?: Vec2 | null;
 };
 
 export type SlingState = {
@@ -455,6 +459,9 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   const d = norm(aim.dir);
   const speed = launchSpeed(aim.limb, aim.power);
 
+  // Where it left from: whatever is touching that spot cannot grab it back
+  // before it has gone anywhere.
+  l.launchAt = l.holdId !== null ? { ...l.pos } : null;
   l.leftHoldId = l.holdId;
   l.holdId = null;
   l.onFloor = false;
@@ -820,7 +827,9 @@ export function loadAlignment(hold: Hold, pull: Vec2): number {
  * undercling from below, a sloper from the side), or a foot asked to be a hand.
  */
 export function capacityOf(hold: Hold, limb: SlingLimb, anchor: Vec2): number {
-  const angleQ = loadAlignment(hold, pullDirection(hold, limb, anchor));
+  // A hooked foot is wrapped round the hold, heel or toe: it holds from any side.
+  const raw = loadAlignment(hold, pullDirection(hold, limb, anchor));
+  const angleQ = limb.hooked ? Math.max(raw, 0.6) : raw;
   const aff = affinityFactor(hold.type, limb.id);
   // Loaded the wrong way a hold still takes a body weight, near enough: it
   // is the swing on top that pulls you off it, not the hold.
@@ -1204,6 +1213,9 @@ export function stepSling(
       // The hold you let go of does not grab you back. Fall past it and the
       // hand is dangling next to it, and that is a fling to fix, not a freebie.
       if (h.id === l.leftHoldId) continue;
+      // Nor does the jug right next to it, while the limb is still leaving:
+      // a foot thrown off a chip is not caught by the hand hold beside it.
+      if (l.launchAt && dist(h.pos, l.launchAt) < LAUNCH_CLEAR && dist(l.pos, l.launchAt) < LAUNCH_CLEAR + 0.08) continue;
       const r = contactRadius(h.size, h.type);
       const { at, d } = closestOnSegment(h.pos, l.prev, l.pos);
       if (d <= r && (!near || d < near.d)) near = { hold: h, at, d };

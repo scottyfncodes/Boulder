@@ -116,14 +116,14 @@ export function aimAt(state: SlingState, holds: Hold[], limb: LimbId, hold: Hold
     for (const nudge of [0, 0.06, -0.06, 0.13, -0.13]) {
       const aim = { limb, dir: { x: Math.cos(a + nudge), y: Math.sin(a + nudge) }, power };
       const p = predictLaunch(state, holds, aim, 1.0);
-      if (p.caught?.holdId === hold.id && !p.slips.some(isHand)) return aim;
+      if (p.caught?.holdId === hold.id) return aim;
     }
   }
   // Roughly at it, and let the assist do what it does for a person.
   for (const power of [0.5, 0.75, 1]) {
     const aim = { limb, dir: { x: Math.cos(want + 0.35), y: Math.sin(want + 0.35) }, power };
     const a = assistLaunch(state, holds, aim, 1.0, hold.id);
-    if (a.prediction.caught?.holdId === hold.id && !a.prediction.slips.some(isHand)) return a.aim;
+    if (a.prediction.caught?.holdId === hold.id) return a.aim;
   }
   return null;
 }
@@ -161,8 +161,10 @@ function options(c: Ctx, style: Style): Option[] {
       .filter((h) => !(isHand(limb) && h.type === 'foothold'))
       // Up, mostly: nobody climbs down to climb up.
       .filter((h) => h.pos.y > l.pos.y - (isHand(limb) ? 0.05 : 0.15) || l.phase !== 'held')
+      // Feet go somewhere between under the hips and a high step beside them.
+      .filter((h) => isHand(limb) || (h.pos.y < s.hip.y + 0.45 && h.pos.y > s.hip.y - 1.05))
       .sort((a, b) => b.pos.y - a.pos.y)
-      .slice(0, isHand(limb) ? 6 : 5);
+      .slice(0, isHand(limb) ? 7 : 6);
     for (const h of holds) {
       const aim = aimAt(s, c.holds, limb, h, style === 'efficient');
       if (aim) out.push({ kind: 'throw', aim, hold: h });
@@ -232,7 +234,10 @@ function bestDyno(c: Ctx): { dir: Vec2; power: number; high: number } | null {
   return best;
 }
 
-export function climb(route: Route, style: Style, opts: { maxSeconds?: number; maxMoves?: number; fitness?: number } = {}): ClimbReport {
+export function climb(
+  route: Route, style: Style,
+  opts: { maxSeconds?: number; maxMoves?: number; fitness?: number; think?: number } = {},
+): ClimbReport {
   const maxSeconds = opts.maxSeconds ?? 300;
   const maxMoves = opts.maxMoves ?? 70;
   const sim = initialSling(route.holds, route.start, profileOf(route));
@@ -267,11 +272,27 @@ export function climb(route: Route, style: Style, opts: { maxSeconds?: number; m
     // Reading the next move takes a moment, wherever you are hanging.
     // A person takes a couple of seconds to read a move and pull it back; the
     // reckless one less, because they are not really reading.
-    wait(c, style === 'efficient' ? 1.8 : 1.0);
+    wait(c, opts.think ?? (style === 'efficient' ? 1.8 : 1.0));
     if (c.sim.fallen) continue;
 
     const opts2 = options(c, style);
-    if (!opts2.length) { if (process.env.DBG) console.log('no options'); outcome = 'stuck'; break; }
+    if (!opts2.length) {
+      if (process.env.DBG) {
+        console.log('no options', LIMBS.map((id) => `${id}:${c.sim.limbs[id].phase[0]}${c.sim.limbs[id].holdId}@${c.sim.limbs[id].pos.x.toFixed(2)},${c.sim.limbs[id].pos.y.toFixed(2)}`).join(' '), 'hip', c.sim.hip.y.toFixed(2), 'sh', c.sim.shoulder.y.toFixed(2));
+        for (const limb of LIMBS) {
+          for (const h of reachableHolds(c.sim, c.holds, limb).filter((h) => h.pos.y > c.sim.limbs[limb].pos.y)) {
+            let best = 9;
+            for (let p = 0.3; p <= 1; p += 0.05) for (let a = 0; a < 6.28; a += 0.05) {
+              const pr = predictLaunch(c.sim, c.holds, { limb, dir: { x: Math.cos(a), y: Math.sin(a) }, power: p }, 1);
+              if (pr.caught?.holdId === h.id) { best = 0; break; }
+              for (const q of pr.path) best = Math.min(best, Math.hypot(q.x - h.pos.x, q.y - h.pos.y));
+            }
+            console.log('  ', limb, '->', h.id, h.type, h.pos.x, h.pos.y, 'closest', best.toFixed(2));
+          }
+        }
+      }
+      outcome = 'stuck'; break;
+    }
     // Do not shuffle between the same two positions for ever.
     const key = keyOf(c.sim);
     const seen = visits.get(key) ?? 0;

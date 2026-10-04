@@ -7,7 +7,10 @@
 import { ROUTES } from '../src/content/routes';
 import { climb, type Style } from '../src/game/climbBot';
 
-const want = process.argv.slice(2);
+const args = process.argv.slice(2);
+// --human: think the way a person on a phone does, a few seconds a move.
+const human = args.includes('--human');
+const want = args.filter((a) => !a.startsWith('--'));
 const routes = want.length ? ROUTES.filter((r) => want.some((w) => r.id.includes(w))) : ROUTES;
 const styles: Style[] = ['efficient', 'reckless'];
 
@@ -15,7 +18,7 @@ console.log('route                 grade style      outcome  moves dynos miss  t
 for (const route of routes) {
   for (const style of styles) {
     const t0 = Date.now();
-    const r = climb(route, style);
+    const r = climb(route, style, human ? { think: style === 'efficient' ? 4 : 2.5 } : {});
     const pad = (s: string | number, n: number) => String(s).padEnd(n);
     console.log(
       pad(route.id, 22) + pad(route.grade, 6) + pad(style, 11) + pad(r.outcome, 9) + pad(r.moves, 6) + pad(r.dynos, 6)

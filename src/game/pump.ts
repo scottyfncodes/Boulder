@@ -79,7 +79,7 @@ export const PUMP = {
    */
   restLine: 0.24,
   /** Effort above the rest line per unit of pump: how many effort-seconds fill the forearms. */
-  capacity: 42,
+  capacity: 46,
   /** Fastest recovery, pump per second, from a perfectly stable stance with fresh arms. */
   recover: 0.024,
   /** Of every bit of pump gained, how much stays for the rest of the climb. */
@@ -87,7 +87,7 @@ export const PUMP = {
   /** Throwing one limb at full pull, before the wall and the body are counted. */
   fling: 0.022,
   /** A full dyno, before the wall is counted. Everything leaves the wall. */
-  dyno: 0.085,
+  dyno: 0.12,
   /** Catching yourself: per (m/s)² of body speed over the first bit, on two hands. */
   catchShock: 0.02,
 } as const;

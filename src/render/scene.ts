@@ -113,6 +113,12 @@ export class WallScene {
     const fill = new THREE.DirectionalLight('#cfe0ff', 0.5);
     fill.position.set(-3.4, 1.4, 3);
     this.scene.add(fill);
+
+    // From the mat, up: a roof faces the floor, and without this its holds
+    // are shapes in the dark. Gyms light their caves too.
+    const under = new THREE.DirectionalLight('#f4ead8', 0.75);
+    under.position.set(0.8, -3, 4);
+    this.scene.add(under);
   }
 
   /**

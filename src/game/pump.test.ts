@@ -90,7 +90,7 @@ describe('the shape of it', () => {
     expect(timeToFail(pose(VERTICAL, 2, 2))).toBe(Infinity);
     expect(timeToFail(pose(VERTICAL, 2, 0))).toBeGreaterThan(50);
     expect(timeToFail(pose(ROOF, 2, 2))).toBeLessThan(timeToFail(pose(VERTICAL, 2, 0)));
-    expect(timeToFail(pose(ROOF, 1, 0))).toBeLessThan(15);
+    expect(timeToFail(pose(ROOF, 1, 0))).toBeLessThan(20);
   });
 
   it('the same hold costs whatever your body makes it cost: no hold enters into it', () => {
