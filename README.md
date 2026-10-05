@@ -72,6 +72,11 @@ catches something. The nearest catch is found first, so the answer never jumps
 back, and a hold it is locked onto stays locked further off it than it took to
 lock on. Anything further off flies where you pulled.
 
+**Room to pull.** A full pull is shorter when you start it low on the screen —
+never under half the usual — and shorter for a foot, which needs less of a
+fling than an arm; picking a foot up also drops the camera, so the foot is not
+sitting on the bottom edge with nowhere to be pulled back to.
+
 **A steady pull.** The drag is lightly smoothed, and letting go fires the aim
 you settled on a moment before lift-off, not wherever rolling your thumb off
 the glass dragged it.

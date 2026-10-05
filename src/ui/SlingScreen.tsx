@@ -49,6 +49,28 @@ import './sling.css';
  */
 
 /** Drag length, in pixels, that corresponds to a full pull. */
+/**
+ * Drag length for a full pull from where the finger went down. Most throws
+ * are pulled downwards, and feet live at the bottom of the screen, so a pull
+ * that starts low gets a shorter full pull — never so short it stops being
+ * fine-grained — rather than running off the glass. Feet get a shorter one
+ * anyway: they need less of a fling than an arm.
+ */
+function pullRoom(sel: Selection | null, y: number, w: number, h: number): number {
+  const base = maxDragPx(w, h);
+  const foot = sel === 'LF' || sel === 'RF';
+  const want = foot ? base * FOOT_PULL : base;
+  const below = h - y - EDGE_PX;
+  return Math.max(base * MIN_PULL, Math.min(want, below));
+}
+
+/** A foot's full pull, as a share of an arm's. */
+const FOOT_PULL = 0.72;
+/** The shortest a full pull gets, as a share of the usual, however low the finger starts. */
+const MIN_PULL = 0.5;
+/** How close to the bottom of the screen a pull is expected to stop, px. */
+const EDGE_PX = 14;
+
 function maxDragPx(w: number, h: number): number {
   return Math.max(150, Math.min(Math.min(w, h) * 0.52, 320));
 }
@@ -72,6 +94,8 @@ const HIT_STOP = { STICK: 55, DYNO: 220 };
  * the sim steps exactly as it always does.
  */
 const DYNO_TIME = 0.62;
+/** How far down the camera looks, metres, while a foot is picked up. */
+const FOOT_LOOK_DOWN = 0.55;
 /** How far up the wall the camera looks, metres, when it is pulled all the way back for a dyno. */
 const DYNO_LOOK_UP = 1.3;
 const DYNO_APEX_TIME = 0.28;
@@ -110,12 +134,14 @@ type Drag = {
   px: number;
   py: number;
   filter: AimFilter;
+  /** Drag length for a full pull, set when the finger went down. */
+  room: number;
   camFocus: number;
   camOrbit: number;
 };
 
-function newDrag(kind: Drag['kind'], x: number, y: number, cam: { focusY: number; orbit: number }): Drag {
-  return { kind, startX: x, startY: y, x, y, px: 0, py: 0, filter: freshAimFilter(), camFocus: cam.focusY, camOrbit: cam.orbit };
+function newDrag(kind: Drag['kind'], x: number, y: number, cam: { focusY: number; orbit: number }, room = 200): Drag {
+  return { kind, startX: x, startY: y, x, y, px: 0, py: 0, filter: freshAimFilter(), room, camFocus: cam.focusY, camOrbit: cam.orbit };
 }
 
 export type SlingScreenProps = {
@@ -669,7 +695,11 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       // Camera: follows the chest, slowly, and never jumps for a throw.
       const cam = camRef.current;
       if (followRef.current || zoom > 0.05) {
-        const want = clamp(pose.com.y + 0.55 + zoom * DYNO_LOOK_UP, 1.7, routeTop(route) - 0.65);
+        // A foot picked up drops the view, so the foot is not at the very
+        // bottom of the screen with nowhere to pull it back to.
+        const sel = selectedRef.current;
+        const footDrop = sel === 'LF' || sel === 'RF' ? FOOT_LOOK_DOWN : 0;
+        const want = clamp(pose.com.y + 0.55 - footDrop + zoom * DYNO_LOOK_UP, footDrop ? 1.2 : 1.7, routeTop(route) - 0.65);
         cam.focusY += (want - cam.focusY) * (zoom > 0.05 ? 0.09 : 0.045);
         // Sideways too, but only as far as the wall goes — a route that
         // traverses off the edge of a phone screen should not leave you there.
@@ -717,7 +747,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           const body = sel === 'BODY';
           let from = body ? coreOf(pose.hip, pose.shoulder) : limbs[sel];
           const fromPx = scene.project(from, body ? TORSO_Z : isHand(sel) ? HAND_Z : FOOT_Z);
-          const max = maxDragPx(rect.width, rect.height);
+          const max = drag?.kind === 'aim' ? drag.room : maxDragPx(rect.width, rect.height);
           let dx = 0;
           let dy = 0;
           if (drag?.kind === 'aim') {
@@ -921,11 +951,11 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       setSelected(hit);
       selectedRef.current = hit;
       followRef.current = true;
-      dragRef.current = newDrag('aim', x, y, cam);
+      dragRef.current = newDrag('aim', x, y, cam, pullRoom(hit, y, rect.width, rect.height));
       return;
     }
     if (selectedRef.current) {
-      dragRef.current = newDrag('aim', x, y, cam);
+      dragRef.current = newDrag('aim', x, y, cam, pullRoom(selectedRef.current, y, rect.width, rect.height));
       return;
     }
     followRef.current = false;
@@ -981,8 +1011,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     // What fires is the aim the player settled on, not where lift-off
     // smeared it, worked out against the body as it is right now — so the
     // arc on screen a moment ago and the throw are the same throw.
-    const rect = e.currentTarget.getBoundingClientRect();
-    const max = maxDragPx(rect.width, rect.height);
+    const max = drag.room;
     const now = performance.now();
     const settled = releaseAim(drag.filter, now);
     if (settled) { drag.px = settled.x; drag.py = settled.y; }
