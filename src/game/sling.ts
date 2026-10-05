@@ -270,8 +270,16 @@ export function maxSpeedOf(limb: LimbId): number {
   return isHand(limb) ? SLING.maxSpeedHand : SLING.maxSpeedFoot;
 }
 
+const holdMaps = new WeakMap<Hold[], Map<number, Hold>>();
+
+/** Holds by id. Built once per hold list: the step asks for it every time. */
 function holdMap(holds: Hold[]): Map<number, Hold> {
-  return new Map(holds.map((h) => [h.id, h]));
+  let m = holdMaps.get(holds);
+  if (!m || m.size !== holds.length) {
+    m = new Map(holds.map((h) => [h.id, h]));
+    holdMaps.set(holds, m);
+  }
+  return m;
 }
 
 // --- construction --------------------------------------------------------
@@ -1537,7 +1545,13 @@ const ASSIST_POWER = [0, 0.06, 0.12, -0.06];
 /** How much wider the cone is for the hold the aim is already locked onto. */
 const STICKY_CONE = 1.5;
 /** Most throws the assist will play forward looking for a catch, per aim. */
-const ASSIST_TRIES = 12;
+const ASSIST_TRIES = 28;
+/**
+ * Either side of the plain arc to feel for the real one, radians. Close in
+ * first: the tether and the body bend the real arc a little, and the window
+ * a throw catches through can be a degree wide.
+ */
+const ASSIST_NUDGES = [0, 0.02, -0.02, 0.045, -0.045, 0.07, -0.07, 0.1, -0.1];
 
 /**
  * Launch angle that puts a thrown limb through a point, ignoring the tether
@@ -1641,7 +1655,7 @@ export function assistLaunch(
         if (a === null) continue;
         // The tether and the body pull the real arc off the plain one a
         // little; feel either side of it.
-        for (const nudge of [0, 0.05, -0.05]) {
+        for (const nudge of ASSIST_NUDGES) {
           if (angleGap(a + nudge, chosen) > cone) continue;
           if (budget-- <= 0) return { aim, prediction: raw, assisted: null };
           const steered = { ...aim, power, dir: { x: Math.cos(a + nudge), y: Math.sin(a + nudge) } };
