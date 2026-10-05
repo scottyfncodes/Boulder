@@ -184,31 +184,65 @@ it never tells you which one to use.
 **A move sticks or it misses.** Failure always says why.
 
 **The pump.** This is the game's currency, and the question every route asks
-is how efficiently you can climb it. Nothing about it is per-hold: it is read
-off your body, every frame (`src/game/pump.ts`).
+is how much pump you spend for the height you gain. Nothing about it is
+per-hold: it is read off your body, every frame (`src/game/pump.ts`). Each
+forearm has its own pump; the bar shows the worse one — the one about to let
+go — and fills as it goes, green to red. A faint tick on the bar is the other
+arm.
 
-- *The wall where you are.* A continuous angle, not categories. Steeper costs
-  more for everything, and a lean adds core tension even with four on.
-- *What is holding you.* Feet take weight off the arms — less on steep ground,
-  some even on a roof (hooks) — and whatever the arms still carry is split
-  between the hands on, squared per hand, so one hand holding it all costs
-  far more than two sharing it.
-- *Moving.* Swinging, sagging and a limb in the air all cost. A throw costs a
-  burst by how hard you pulled, more off a steep wall and more with only one
-  limb left on; a dyno costs a big bite; stopping a moving body on a catch
-  costs by the square of its speed, double on one hand.
+Every frame each forearm gets an *effort*, and above a rest line it fills;
+below it, it drains. Roughly, effort is *wall × limbs × feet × movement*, all of
+it continuous — no thresholds, so a small shift in the body is a small change
+in the rate:
 
-Roughly: vertical with four on is a rest; vertical on two hands is work; one
-hand is expensive; an overhang with four on is real effort; a roof with four on
-is hard, on two very hard, and one hand on a roof empties the bar in about
-fifteen seconds. Stand somewhere stable and it comes back — never as fast as it
-went, slower the deeper you are — but a share of every effort stays for the
-rest of the climb (the dark end of the bar), so a rest buys time and never buys
-a free climb. The bar reads *fresh → pumped → struggling → critical*, with an
-arrow for which way it is going and a line underneath saying why ("recovering ·
-four on, upright", "burning · one hand, roof"). At the top your hands open.
-Fitness grows a little with your grade and mileage; the practice wall is
-generous.
+- *The wall where you are.* `1 + 3 × lean^1.6`, lean being the sine of the
+  angle: gentle off the vertical, then hard. At a roof a forearm is carrying
+  four times what the same grip costs on a vertical wall.
+- *What is holding you.* Each foot counts for how good a foot it is, from where
+  it is against the body: under the hips and in reach is a foot you stand on;
+  hauled up by the hip, at full stretch or way off to the side, it is only
+  touching. Standing feet do less the steeper the wall; hooks pull and keep
+  working upside down. Whatever the feet leave is the arms' load, split
+  between the hands by where the body hangs between them — the hand nearer
+  under the weight takes more — and squared per hand, so one hand holding it
+  all costs far more than two sharing it.
+- *Moving.* Swinging and a limb in the air cost, and recovery needs a still
+  body. A throw costs a burst by how hard you pulled, more off a steep wall and
+  more with only one limb left on; a dyno costs a big bite, all at once,
+  which on a bad sequence is often cheaper than climbing it; stopping a moving
+  body on a catch costs the catching arm by the square of its speed.
+
+What that comes to, in % of the bar per second, from a settled stance:
+
+| | vertical | 30° | 60° | 75° | 90° |
+|---|---|---|---|---|---|
+| four on | −1.4 | −0.8 | −0.2 | +0.2 | +0.3 |
+| three on (a foot off) | −0.8 | +0.2 | +1.5 | +2.0 | +2.3 |
+| one hand, one foot | +0.3 | +1.9 | +4.4 | +5.7 | +6.4 |
+| two hands, feet cut | +0.8 | +2.2 | +4.0 | +4.6 | +4.8 |
+| one hand | +4.6 | +9.6 | +16.7 | +19.0 | +19.8 |
+| shaking out, both feet on (one arm off, alternating) | −2.4 | −1.7 | −0.3 | +0.1 | +0.3 |
+
+**Resting is taking weight off your hands.** There is no rest button and no
+timer: stand somewhere your feet carry you and the bar comes down while you
+stay there, faster the better the stance and the stiller you are, slower the
+deeper the pump. **Shaking out** is the same idea one arm at a time: tap a
+picked-up hand again (or press X) and it comes off the hold and hangs by your
+side. A hanging arm recovers about twice as fast as one resting on a hold —
+but the other arm is holding everything meanwhile, and recovery needs the rest
+of you calm, so it only works where the feet can take it. On a vertical or
+gently steep wall with both feet on, *shake one, put it back, shake the other*
+recovers about twice as fast as hanging there; with one foot, or no feet, or
+under a roof, it is worthless or worse. Tap a hold to put the hand back.
+
+A share of every effort stays for the rest of the climb (the hatched start of
+the bar), so a rest buys time and never a free climb. The bar reads *fresh →
+pumped → struggling → critical*; while it is coming down the track glows green,
+a sheen runs back along the bar, faster the faster it is draining, and there
+is one quiet breath out as the rest begins. The line underneath says why
+("recovering · shaking out", "burning · one hand, roof"). When a forearm has
+nothing left, that hand opens on its own. Fitness grows a little with your grade
+and mileage; the practice wall is generous.
 
 **Tuning it.** `src/game/climbBot.ts` plays routes in the real physics with the
 real pump and dyno meter — a careful style that keeps feet on, throws soft and
@@ -441,13 +475,17 @@ src/game/aimSearch.test.ts aiming: the grid, sticky notches, the same answer for
                            handful of times, a shown throw that catches what it
                            showed, an assist that only gets better
 src/game/pump.test.ts      the pump: steeper costs more, fewer limbs cost more,
-                           one hand far more than two, moving costs, vertical
-                           with four on recovers and a roof does not, recovery
-                           slower than gain and slower the deeper you are,
-                           fatigue that stays so rests cannot be farmed, and
-                           what throws, dynos and dynamic catches cost
+                           one hand far more than two, feet count for how good
+                           they are, the recovery curve from slab to roof at
+                           every limb count, stillness, never below zero or
+                           the floor, shakeouts that work on good feet and not
+                           on bad, no jumps across angle, foot or limb changes,
+                           extreme angles, and what throws, dynos and catches
+                           cost
 src/game/pumpSim.test.ts   the pump read off the real body: a stance that rests
-                           on a vertical wall burns under a roof, throwing is
+                           on a vertical wall burns under a roof, foot support
+                           and the split between hands from the body, a real
+                           shakeout, one blown arm opening one hand, throwing is
                            reaching, hooked feet hold you on a roof and peel
                            off a vertical wall, the bot climbs a vertical route
                            fresh and a roof route pumped, generated roofs go
