@@ -55,24 +55,34 @@ hip — or by the hold it is on. Tap a limb first and pull from anywhere if your
 thumb is in the way; `Q`/`W`/`A`/`S` pick limbs on a keyboard, `E` picks the
 body.
 
-**Aim assist.** A throw that is nearly at an empty hold in reach — a few
-degrees off, a little short — is steered onto it, and the arc and the ringed
-hold show that before you let go. The miss that was there stays in where on
-the hold it lands. Anything further off flies where you pulled. Once it has
-locked onto a hold it stays locked a little past where it took the lock, so
-the arc does not flicker on and off while your thumb settles.
+**Aiming holds the world still.** From the moment you grab a limb or the
+belly until you let go, the body stops moving — the arc you are reading is the
+throw, not the last move settling — and the pump keeps counting from the
+position you are holding, so taking your time still costs. (If something is
+already in the air, it has to land first.) The pull snaps to a fine grid, half
+a degree and a hundredth of the power, and only moves to the next notch when
+the finger is clearly into it: the same finger position is always the same
+throw, and letting go fires exactly the arc on screen
+(`src/game/aimSearch.ts`).
 
-**A steady pull.** The drag is smoothed: heavily while your finger creeps,
-hardly at all while it sweeps, so fine adjustment holds still and big
-corrections do not lag. Letting go fires the aim you settled on a moment
-before lift-off, not wherever rolling your thumb off the glass dragged it,
-and the throw is worked out against the body as it is when it goes, so it
-matches the arc you were looking at.
+**Aim assist.** A throw that is nearly at an empty hold in reach is steered
+onto it: a fan of real throws either side of yours, played in the physics,
+nearest first, a few milliseconds' worth a frame and every one kept, until one
+catches something. The nearest catch is found first, so the answer never jumps
+back, and a hold it is locked onto stays locked further off it than it took to
+lock on. Anything further off flies where you pulled.
+
+**A steady pull.** The drag is lightly smoothed, and letting go fires the aim
+you settled on a moment before lift-off, not wherever rolling your thumb off
+the glass dragged it.
 
 **The dyno.** It is earned. Every limb that sticks puts a fifth of a tank of
 juice in the dyno meter, a flow streak pays extra, and every whiff, slip and
 pump-out drains it. Fill it and the belly lights up and breathes: the dyno is live.
-Press the belly, pull, let go. A full one sends the hands nearly three
+Press the belly, pull, let go. Drawing it down pulls the camera back up the
+wall — further the harder you pull — so the holds it can reach are on screen to
+pick from; it stays wide while you fly and eases back in once you stick. A full
+one sends the hands nearly three
 metres up the wall: it is for skipping a section, not saving a reach. The
 hands sail past whatever they meet while they are still going up fast and
 only close near the top of the jump, the deadpoint, so how hard you pull is
@@ -409,6 +419,10 @@ src/game/juice.test.ts     the dyno meter: earned by clean sticks, drained by
                            whiffs, fired only when full, emptied by firing
 src/game/aimInput.test.ts  the steadied pull: tremor smoothed out, sweeps kept,
                            lift-off smear ignored
+src/game/aimSearch.test.ts aiming: the grid, sticky notches, the same answer for
+                           the same notch, a sweep that changes its answer a
+                           handful of times, a shown throw that catches what it
+                           showed, an assist that only gets better
 src/game/pump.test.ts      the pump: steeper costs more, fewer limbs cost more,
                            one hand far more than two, moving costs, vertical
                            with four on recovers and a roof does not, recovery

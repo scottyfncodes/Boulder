@@ -17,8 +17,12 @@ import type { Vec2 } from './types';
  * Pure, no clock of its own: the caller passes time in milliseconds.
  */
 
-/** Cutoff while the finger is still, Hz. Lower is steadier. */
-const MIN_CUTOFF = 1.2;
+/**
+ * Cutoff while the finger is still, Hz. Lower is steadier but lags: the aim
+ * keeps creeping after the finger stops. The aim grid takes care of tremor,
+ * so this only has to take the edge off it.
+ */
+const MIN_CUTOFF = 3.0;
 /** How fast the cutoff opens up with speed. Higher is snappier on big moves. */
 const BETA = 0.012;
 /** Cutoff for the speed estimate itself, Hz. */

@@ -4,11 +4,12 @@ import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor } from '../game/body';
 import { type Attempt, type AttemptMode, type BetaMove, beginAttempt } from '../game/attempt';
 import {
-  type AssistedLaunch, type SlingEvent, type SlingState, SLING, aimFromPull, bodySpeed, canDyno, canLaunch, dyno,
-  dynoWindup, heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  poseOf, assistLaunch, predictDyno, pumpOut, reachableHolds, stepSling, windupPos,
+  type DynoPrediction, type Prediction, type SlingEvent, type SlingState, SLING, bodySpeed, canDyno, canLaunch, dyno,
+  heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
+  poseOf, pumpOut, reachableHolds, stepSling,
   SLING_LIMITS, bodyAngle, postureOf,
 } from '../game/sling';
+import { AimSearch } from '../game/aimSearch';
 import {
   type Pump, catchCost, dynoCost, flingCost, freshPump, gain as addPump, pumpReason, pumpStage, pumpTrend, tickPump,
 } from '../game/pump';
@@ -71,11 +72,13 @@ const HIT_STOP = { STICK: 55, DYNO: 220 };
  * the sim steps exactly as it always does.
  */
 const DYNO_TIME = 0.62;
+/** How far up the wall the camera looks, metres, when it is pulled all the way back for a dyno. */
+const DYNO_LOOK_UP = 1.3;
 const DYNO_APEX_TIME = 0.28;
+/** Milliseconds a frame may spend searching the aim assist's fan. */
+const AIM_BUDGET_MS = 6;
 /** How long the band takes to go slack after a release. */
 const SNAP_MS = 110;
-/** How long a held-still aim reuses its assisted arc before working it out again. */
-const ASSIST_REFRESH_MS = 120;
 /** How long a caught limb takes to settle onto the hold. */
 const SETTLE_MS = 120;
 /** How many notches the pull ratchets through on its way to full. */
@@ -186,9 +189,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     bands: { anchor: Vec2; from: Vec2; limb: LimbId; follow: 'tip' | 'joint' }[];
     start: number;
   } | null>(null);
-  /** The hold aim assist is locked onto, if any: it stays locked a little longer. */
-  const assistLockRef = useRef<number | null>(null);
-  const assistCacheRef = useRef<{ key: string; at: number; result: AssistedLaunch } | null>(null);
+  /** Every throw from the held-still body, kept while the pull is being made. */
+  const aimSearchRef = useRef<AimSearch | null>(null);
+  /** The aiming notch the pull is on, so it only moves when the finger clearly does. */
+  const aimNotchRef = useRef<{ angle: number; power: number } | null>(null);
   /** How far the body is drawn back on a dyno pull, this frame. What it launches from. */
   const dynoWindRef = useRef<Vec2 | null>(null);
   const settleRef = useRef<Partial<Record<LimbId, { from: Vec2; start: number }>>>({});
@@ -214,6 +218,8 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   const timeScaleRef = useRef(1);
   /** Extra camera frame on top of the player's zoom: a punch out on launch, in on the catch. */
   const framePunchRef = useRef(0);
+  /** 0..1: how far the camera has pulled back for a dyno. */
+  const dynoZoomRef = useRef(0);
   /** How high each hand was when the dyno let go, metres. What it is measured from. */
   const dynoFromRef = useRef<Partial<Record<LimbId, number>>>({});
   /** When a dyno last stuck. The other hand landing just after belongs to the same move. */
@@ -533,7 +539,28 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           dynoTimeRef.current.style.opacity = String(clamp((1 - timeScaleRef.current) / 0.72, 0, 1));
         }
       }
-      if ((ph === 'climbing' || ph === 'fallen') && now >= freezeRef.current) {
+      // Aiming holds the world still. While a limb or the belly is being
+      // pulled, the body does not sway under the arc, so the arc moves when
+      // the finger does and only then — the thing you are reading is the
+      // throw, not the last move settling. Not while something is already in
+      // the air: that has to land. The pump keeps counting either way.
+      const drag = dragRef.current;
+      const holding = ph === 'climbing' && drag?.kind === 'aim' && !!selectedRef.current
+        && !sim.dyno && !LIMBS.some((id) => sim.limbs[id].phase === 'flying');
+      // Throws remembered against a held-still body are only good while it is.
+      if (!holding) aimSearchRef.current = null;
+      if (holding && dt > 0 && !sim.fallen) {
+        accRef.current = 0;
+        const posture = { ...postureOf(sim), speed: 0 };
+        const events: SlingEvent[] = [];
+        pumpStateRef.current = tickPump(pumpStateRef.current, posture, dt / 1000);
+        if (pumpStateRef.current.pump >= 1 && posture.hands > 0) {
+          pumpOut(sim, events);
+          dragRef.current = null;
+        }
+        if (events.length) handleEvents(events, now);
+      }
+      if ((ph === 'climbing' || ph === 'fallen') && now >= freezeRef.current && !holding) {
         accRef.current += (dt / 1000) * timeScaleRef.current;
         const events: SlingEvent[] = [];
         let steps = 0;
@@ -627,11 +654,23 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         };
       }
 
+      // The dyno pulls the camera back: drawing the belly down opens the
+      // view up the wall, further the harder you pull, so the holds a dyno
+      // can reach are on screen to pick from; in the air it stays wide and
+      // rides up with the body; after the catch it eases back in.
+      {
+        const winding = selectedRef.current === 'BODY' && dragRef.current?.kind === 'aim' && dynoWindRef.current;
+        const pull = winding ? Math.min(1, Math.hypot(dynoWindRef.current!.x, dynoWindRef.current!.y) / SLING.dynoWindup) : 0;
+        const want = sim.dyno ? 1 : winding ? 0.35 + 0.65 * pull : 0;
+        dynoZoomRef.current += (want - dynoZoomRef.current) * (want > dynoZoomRef.current ? 0.14 : 0.025);
+      }
+      const zoom = dynoZoomRef.current;
+
       // Camera: follows the chest, slowly, and never jumps for a throw.
       const cam = camRef.current;
-      if (followRef.current) {
-        const want = clamp(pose.com.y + 0.55, 1.7, routeTop(route) - 0.65);
-        cam.focusY += (want - cam.focusY) * 0.045;
+      if (followRef.current || zoom > 0.05) {
+        const want = clamp(pose.com.y + 0.55 + zoom * DYNO_LOOK_UP, 1.7, routeTop(route) - 0.65);
+        cam.focusY += (want - cam.focusY) * (zoom > 0.05 ? 0.09 : 0.045);
         // Sideways too, but only as far as the wall goes — a route that
         // traverses off the edge of a phone screen should not leave you there.
         const lim = scene.focusXLimit(cam.frame);
@@ -660,8 +699,8 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       // The punch: out on the launch, in on the catch, and drawn in a little
       // while the belly is wound back — the camera leaning in to watch.
       framePunchRef.current *= Math.exp(-dt / 260);
-      const windIn = selectedRef.current === 'BODY' && dynoWindRef.current ? -0.35 * Math.min(1, Math.hypot(dynoWindRef.current.x, dynoWindRef.current.y) / SLING.dynoWindup) : 0;
-      scene.setCamera({ ...cam, frame: clamp(cam.frame + framePunchRef.current + windIn, FRAME_MIN, FRAME_MAX) });
+      const wide = zoom * Math.max(0, FRAME_MAX - cam.frame);
+      scene.setCamera({ ...cam, frame: clamp(cam.frame + framePunchRef.current + wide, FRAME_MIN, FRAME_MAX) });
 
       // --- overlay ---
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -688,31 +727,47 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             drag.py = f.y;
             ({ dx, dy } = pullOf(drag, max));
           }
-          const aim = aimFromPull(body ? 'RH' : sel, { x: dx, y: -dy }, max);
-          const pulling = drag?.kind === 'aim' && aim.power >= SLING.minPower;
+          // The pull, snapped to the aiming grid: the same finger position is
+          // always the same throw, and the world is holding still under it.
+          const snapped = AimSearch.snap({ x: dx, y: -dy }, max, aimNotchRef.current);
+          aimNotchRef.current = drag?.kind === 'aim' ? snapped : null;
+          const pulling = drag?.kind === 'aim' && snapped.power >= SLING.minPower;
+          if (pulling && !aimSearchRef.current) aimSearchRef.current = new AimSearch(sim, route.holds);
+          const search = aimSearchRef.current;
 
           // The wind-up. The limb itself comes back with the finger, the elbow
           // bends, and that is where it fires from — so the release is the
-          // band snapping through, not a pip vanishing.
+          // band snapping through, not a pip vanishing. Aim assist is a fan
+          // of real throws either side of the pull, searched a few a frame.
           let wind: Vec2 | null = null;
           let dynoWind: Vec2 | null = null;
-          if (pulling && !body) {
-            wind = windupPos(sim, sel, { x: dx, y: -dy }, aim.power);
-            limbs[sel] = wind;
-            aim.from = wind;
-          } else if (pulling && body) {
+          let prediction: Prediction | null = null;
+          let dynoPrediction: DynoPrediction | null = null;
+          if (pulling && search && !body) {
+            // As much of the fan as fits in a few milliseconds this frame;
+            // what is found is kept, so a held-still pull settles at once.
+            const t0 = performance.now();
+            let r = search.resolve(sel, snapped.angle, snapped.power, 1);
+            while (!r.settled && performance.now() - t0 < AIM_BUDGET_MS) r = search.resolve(sel, snapped.angle, snapped.power, 1);
+            wind = r.aim.from ?? null;
+            if (wind) limbs[sel] = wind;
+            prediction = r.prediction;
+          } else if (pulling && search && body) {
             // The body is the stone and every limb on the wall is band: it
             // draws back against them, they stretch, and they stay put.
-            const w = dynoWindup(sim, { x: dx, y: -dy }, aim.power);
+            const d = search.dyno(snapped.angle, snapped.power);
+            const w = d.wind;
             const shift = (p: Vec2) => ({ x: p.x + w.x, y: p.y + w.y });
             pose.hip = shift(pose.hip);
             pose.shoulder = shift(pose.shoulder);
             pose.head = shift(pose.head);
             for (const id of LIMBS) if (!isBand(sim.limbs[id])) limbs[id] = shift(limbs[id]);
             dynoWind = w;
+            dynoPrediction = d.prediction;
           }
           windRef.current = wind;
           dynoWindRef.current = dynoWind;
+          const aim = { power: pulling ? snapped.power : 0 };
 
           // The ratchet: a creak every notch the band is drawn back.
           const notch = pulling ? Math.floor(aim.power * NOTCHES) : 0;
@@ -723,21 +778,6 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           }
           notchRef.current = notch;
 
-          // Aim assist runs the throw forward a few times; while the finger holds
-          // still, reuse the last answer for a moment rather than every frame.
-          let assist: AssistedLaunch | null = null;
-          if (pulling && !body) {
-            const key = `${sel}:${Math.round(dx)}:${Math.round(dy)}`;
-            const cached = assistCacheRef.current;
-            if (cached && cached.key === key && now - cached.at < ASSIST_REFRESH_MS) assist = cached.result;
-            else {
-              assist = assistLaunch(sim, route.holds, aim, 1.0, assistLockRef.current);
-              assistCacheRef.current = { key, at: now, result: assist };
-            }
-          }
-          const prediction = assist?.prediction ?? null;
-          assistLockRef.current = assist?.assisted ?? null;
-          const dynoPrediction = pulling && body ? predictDyno(sim, route.holds, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, 1.5) : null;
           const lockId = prediction?.caught?.holdId ?? dynoPrediction?.caught[0]?.holdId ?? null;
           if (lockId !== lockRef.current) {
             if (lockId !== null) { sfxLock(); buzz(4); }
@@ -769,7 +809,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           lockRef.current = null;
           windRef.current = null;
           dynoWindRef.current = null;
-          assistLockRef.current = null;
+          aimSearchRef.current = null;
           notchRef.current = 0;
         }
 
@@ -947,17 +987,26 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     const settled = releaseAim(drag.filter, now);
     if (settled) { drag.px = settled.x; drag.py = settled.y; }
     const pull = pullOf(drag, max);
-    const aim = aimFromPull(sel === 'BODY' ? 'RH' : sel, { x: pull.dx, y: -pull.dy }, max);
-    if (aim.power < SLING.minPower) return;
+    const snapped = AimSearch.snap({ x: pull.dx, y: -pull.dy }, max, aimNotchRef.current);
+    aimNotchRef.current = null;
+    if (snapped.power < SLING.minPower) return;
     const events: SlingEvent[] = [];
-    const wind = sel !== 'BODY' ? windupPos(sim, sel, { x: pull.dx, y: -pull.dy }, aim.power) : null;
-    if (sel !== 'BODY' && wind) {
-      aim.from = wind;
-      const steered = assistLaunch(sim, route.holds, aim, 1.0, assistLockRef.current);
-      aim.dir = steered.aim.dir;
-      aim.power = steered.aim.power;
+    // The world held still while the pull was made, so this is the very
+    // throw the screen was showing for this notch.
+    const search = aimSearchRef.current ?? new AimSearch(sim, route.holds);
+    let aim = { limb: (sel === 'BODY' ? 'RH' : sel) as LimbId, dir: { x: 0, y: 1 }, power: snapped.power } as Parameters<typeof launch>[1];
+    let wind: Vec2 | null = null;
+    let dynoWind: Vec2 | null = null;
+    if (sel !== 'BODY') {
+      let r = search.resolve(sel, snapped.angle, snapped.power, 1);
+      for (let i = 0; i < 12 && !r.settled; i++) r = search.resolve(sel, snapped.angle, snapped.power, 1);
+      aim = r.aim;
+      wind = r.aim.from ?? null;
+    } else {
+      const d = search.dyno(snapped.angle, snapped.power);
+      aim = { ...aim, dir: d.dir };
+      dynoWind = d.wind;
     }
-    const dynoWind = sel === 'BODY' ? dynoWindup(sim, { x: pull.dx, y: -pull.dy }, aim.power) : null;
     // The bands of a dyno, caught before everything lets go: hold to body.
     const dynoBands = sel === 'BODY' && dynoWind
       ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => {
@@ -971,6 +1020,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     const handsBefore = sel === 'BODY'
       ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => ({ ...sim.limbs[id].pos }))
       : [];
+    aimSearchRef.current = null;
     const went = sel === 'BODY'
       ? dyno(sim, { dir: aim.dir, power: aim.power, wind: dynoWind ?? undefined }, events)
       : launch(sim, aim, events);
@@ -992,7 +1042,6 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       sfxSnap(aim.power);
       fxRef.current.kick(0.05 + 0.08 * aim.power);
       windRef.current = null;
-      assistLockRef.current = null;
       notchRef.current = 0;
       handleEvents(events, now);
       setSelected(null);
@@ -1086,6 +1135,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     juiceBoxRef.current?.classList.toggle('is-ready', lab0);
     timeScaleRef.current = 1;
     framePunchRef.current = 0;
+    dynoZoomRef.current = 0;
     setLaunches(0);
     setStreak(0);
     setSelected(null);
