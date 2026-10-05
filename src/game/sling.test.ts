@@ -12,6 +12,7 @@ import {
 import { anchorFor } from './body';
 import { dist } from './vec';
 import { beginAttempt, pullOn } from './attempt';
+import { LIMB_LENGTH } from '../render/climber';
 
 const holds = SLING_LAB.holds;
 const byId = new Map(holds.map((h) => [h.id, h]));
@@ -669,5 +670,88 @@ describe('no clock', () => {
     expect(heldCount(s)).toBe(4);
     expect(bodySpeed(s)).toBeLessThan(0.01);
     expect(Math.hypot(s.hip.x - hip.x, s.hip.y - hip.y)).toBeLessThan(0.01);
+  });
+});
+
+describe('the ground is for falling onto', () => {
+  /** The lowest any limb that is not on a hold gets over `seconds`, while something is still on. */
+  function lowestLoose(s: SlingState, seconds: number, wall: Hold[] = holds): number {
+    let low = Infinity;
+    for (let i = 0; i < Math.round(seconds / SLING.dt); i++) {
+      stepSling(s, wall, SLING.dt);
+      if (!LIMBS.some((id) => s.limbs[id].phase === 'held')) break;
+      for (const id of LIMBS) if (s.limbs[id].phase !== 'held') low = Math.min(low, s.limbs[id].pos.y);
+    }
+    return low;
+  }
+
+  it('a foot thrown straight at the floor stops short of it', () => {
+    const s = start();
+    run(s, 0.5);
+    launch(s, { limb: 'LF', dir: { x: 0, y: -1 }, power: 1 });
+    expect(lowestLoose(s, 3)).toBeGreaterThan(0.1);
+    expect(s.limbs.LF.onFloor).toBe(false);
+    expect(s.fallen).toBe(false);
+  });
+
+  it('a hand thrown down past the feet does not reach the floor either', () => {
+    const s = start();
+    run(s, 0.5);
+    launch(s, { limb: 'RH', dir: { x: 0.1, y: -1 }, power: 1 });
+    expect(lowestLoose(s, 3)).toBeGreaterThan(0.1);
+  });
+
+  it('feet with nothing to stand on hang clear of the floor instead of standing on the mat', () => {
+    const s = initialSling(holds, { LH: 1, RH: 2 });
+    for (const id of ['LF', 'RF'] as const) {
+      expect(s.limbs[id].phase).not.toBe('held');
+      expect(s.limbs[id].onFloor).toBe(false);
+    }
+    expect(lowestLoose(s, 4)).toBeGreaterThan(0.1);
+    // Hanging, not standing: nothing is on the mat.
+    expect(LIMBS.some((id) => s.limbs[id].onFloor)).toBe(false);
+  });
+
+  it('a foot that comes off low down does not land back on the mat and stand there', () => {
+    const s = start();
+    run(s, 0.5);
+    for (const f of ['LF', 'RF'] as const) launch(s, { limb: f, dir: { x: 0, y: -1 }, power: 0.4 });
+    run(s, 3);
+    for (const f of ['LF', 'RF'] as const) {
+      expect(s.limbs[f].phase).not.toBe('held');
+      expect(s.limbs[f].onFloor).toBe(false);
+    }
+  });
+
+  it('only a real fall puts a limb on the ground', () => {
+    const s = start();
+    run(s, 1);
+    for (const limb of LIMBS) launch(s, { limb, dir: { x: 0, y: -1 }, power: 0.6 });
+    run(s, 4);
+    expect(s.fallen).toBe(true);
+    expect(Math.min(...LIMBS.map((id) => s.limbs[id].pos.y))).toBeLessThan(0.1);
+  });
+});
+
+describe('the reach is the limb', () => {
+  it('a limb is drawn exactly as long as it can be thrown: straight at the edge, never stretched', () => {
+    expect(LIMB_LENGTH.arm).toBeCloseTo(SLING_LIMITS.ARM_MAX, 9);
+    expect(LIMB_LENGTH.leg).toBeCloseTo(SLING_LIMITS.LEG_MAX, 9);
+  });
+
+  it('no limb ever gets further from its shoulder or hip than its length, thrown as hard as it goes', () => {
+    const bare = holds.filter((h) => h.pos.y < 1.6);
+    for (const limb of LIMBS) {
+      for (const dir of [{ x: 0, y: 1 }, { x: 1, y: 0.3 }, { x: -1, y: 0.3 }, { x: 0.7, y: 0.7 }]) {
+        const s = initialSling(bare, SLING_LAB.start);
+        run(s, 0.5);
+        launch(s, { limb, dir, power: 1 });
+        const max = isHand(limb) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX;
+        for (let i = 0; i < Math.round(1 / SLING.dt); i++) {
+          stepSling(s, bare, SLING.dt);
+          expect(dist(anchorFor(limb, s.hip, s.shoulder), s.limbs[limb].pos)).toBeLessThanOrEqual(max * 1.02);
+        }
+      }
+    }
   });
 });

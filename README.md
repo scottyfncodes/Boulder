@@ -126,8 +126,14 @@ Each arm is a rope from the shoulder to the hand; each leg is a strut from the
 hip to the foot that pushes when the foot is below you and rocks you up when
 it is level with you. A launched limb flies under gravity until its tether
 goes taut, at which point the body gets yanked after it — that is the reach,
-1.4 arm-lengths for a hand and 1.34 leg-lengths for a foot, and a big throw with a bad stance takes the rest of you somewhere. Let go with
+and the limb is drawn exactly that long — straight at the edge of its reach, bent anywhere nearer, never stretched — and a big throw with a bad stance takes the rest of you somewhere. Let go with
 everything and you swing. Swing hard enough and holds let go.
+
+**The ground is for falling onto.** Nobody stands on the mat: the climber
+starts on the start holds, and while anything is still holding on, a hand or
+foot that is off the wall stays clear of the floor — a dangling leg folds at the
+knee, and a throw at the floor stops short of it. Only a fall, with nothing
+left on, puts a limb on the ground.
 
 **Holds catch what passes through them, and that is all.** A limb in flight
 that gets to a hold has it — all of it, wherever on the hold it landed — and a

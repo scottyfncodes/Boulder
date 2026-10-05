@@ -158,6 +158,13 @@ const FLOOR = 0;
 const MAT_HIP_MIN = 0.34;
 const MAT_SHOULDER_MIN = 0.3;
 const FOOT_FLOOR = 0.03;
+/**
+ * How far off the floor a limb that is not on anything stays while anything
+ * else is still holding on. Limbs meet the ground in a fall and only then:
+ * a dangling foot folds at the knee rather than dragging on the mat, and a
+ * throw at the floor stops short of it.
+ */
+const LIMB_CLEARANCE = 0.14;
 /** Furthest the torso tips from vertical while a hand is on, radians. */
 const MAX_LEAN = 0.7;
 /** Sideways offset a foot can carry weight from without the hips moving over it. */
@@ -336,15 +343,12 @@ export function initialSling(
     const anchor = anchorFor(limb, seed.hip, seed.shoulder);
     if (isHand(limb)) {
       limbs[limb] = freshLimb(limb, { x: anchor.x, y: anchor.y - BODY.arm * 0.9 });
-    } else if (seed.hip.y - FOOT_FLOOR < LEG_STAND * 1.08) {
-      // No foothold, mat in reach: stand on the mat, roughly under the hip.
-      const l = freshLimb(limb, { x: anchor.x, y: FOOT_FLOOR });
-      l.phase = 'held';
-      l.onFloor = true;
-      l.heldT = 10;
-      limbs[limb] = l;
     } else {
-      limbs[limb] = freshLimb(limb, { x: anchor.x, y: anchor.y - BODY.leg * 0.9 });
+      // No foothold: it hangs, clear of the floor. Nobody starts on the mat.
+      limbs[limb] = freshLimb(limb, {
+        x: anchor.x,
+        y: Math.max(LIMB_CLEARANCE, anchor.y - BODY.leg * 0.9),
+      });
     }
   }
 
@@ -447,7 +451,7 @@ export function windupPos(state: SlingState, limb: LimbId, pull: Vec2, power: nu
     target.x = anchor.x + (d.x / L) * max;
     target.y = anchor.y + (d.y / L) * max;
   }
-  if (target.y < FLOOR + 0.03) target.y = FLOOR + 0.03;
+  if (target.y < LIMB_CLEARANCE) target.y = LIMB_CLEARANCE;
   return target;
 }
 
@@ -1203,12 +1207,18 @@ export function stepSling(
       }
     }
 
-    // The mat. Bodies stop at it; so do limbs.
+    // The mat. Bodies stop at it; so do limbs — and while anything is still
+    // holding on, a loose limb does not get that far: only a fall puts a
+    // hand or a foot on the ground.
     if (state.hip.y < MAT_HIP_MIN) state.hip.y = MAT_HIP_MIN;
     if (state.shoulder.y < MAT_SHOULDER_MIN) state.shoulder.y = MAT_SHOULDER_MIN;
+    const floorY = groundFloor(state);
     for (const id of LIMBS) {
       const l = state.limbs[id];
-      if (l.phase !== 'held' && l.pos.y < FLOOR + 0.02) l.pos.y = FLOOR + 0.02;
+      if (l.phase !== 'held' && l.pos.y < floorY) {
+        l.pos.y = floorY;
+        if (l.vel.y < 0) l.vel.y = 0;
+      }
     }
   }
 
@@ -1364,7 +1374,7 @@ export function stepSling(
     const bv = isHand(id) ? state.shV : state.hipV;
     const stalled = l.taut && l.flightT > 0.12 && !state.dyno
       && Math.hypot(l.vel.x - bv.x, l.vel.y - bv.y) < SLING.tautStall;
-    const floored = l.pos.y <= FLOOR + 0.025;
+    const floored = l.pos.y <= groundFloor(state) + 0.005;
     const maxFlight = state.dyno ? SLING.dynoFlight : SLING.flightMax;
     if (l.flightT >= maxFlight || (hanging && !state.dyno) || stalled || floored) {
       l.phase = 'free';
@@ -1382,24 +1392,11 @@ export function stepSling(
   }
 
   // --- 7. the mat -----------------------------------------------------------
-  // Feet find the mat on their own only before the climber has left it: that
-  // is standing at the base of the wall, not landing on your feet after a fall.
+  // Feet never stand on the mat: the climber starts on the start holds, and
+  // the ground is for falling onto. Off the ground is off it.
   if (!state.left) {
     const anyFloor = LIMBS.some((id) => state.limbs[id].onFloor);
     if (!anyFloor && state.hip.y > SLING.leftHip && handsOn > 0) state.left = true;
-  }
-  if (!state.left && state.hip.y - FOOT_FLOOR < LEG_STAND * 1.08) {
-    for (const id of ['LF', 'RF'] as LimbId[]) {
-      const l = state.limbs[id];
-      if (l.phase === 'free' && l.pos.y <= FOOT_FLOOR + 0.01) {
-        l.phase = 'held';
-        l.onFloor = true;
-        l.holdId = null;
-        l.pos.y = FOOT_FLOOR;
-        l.vel = { x: 0, y: 0 };
-        l.heldT = 10;
-      }
-    }
   }
 
   const heldNow = LIMBS.filter((id) => state.limbs[id].phase === 'held').length;
@@ -1418,6 +1415,16 @@ export function stepSling(
 
   state.t += dt;
   return events;
+}
+
+/**
+ * How low a limb that is not on anything may go: the clearance while any
+ * limb is still on something (or a dyno is in the air), the floor itself
+ * once nothing is — that is a fall, and a fall ends on the ground.
+ */
+function groundFloor(state: SlingState): number {
+  const holding = state.dyno || LIMBS.some((id) => state.limbs[id].phase === 'held');
+  return holding && !state.fallen ? LIMB_CLEARANCE : FLOOR + 0.02;
 }
 
 /** Highest the hip could sensibly have fallen from: for the thud, not the sim. */
