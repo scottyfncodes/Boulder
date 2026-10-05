@@ -7,9 +7,10 @@ import {
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
   predictDyno, predictLaunch, reachableHolds, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
+  reachInDirection, reachOutline, inStretch,
   STUCK,
 } from './sling';
-import { anchorFor } from './body';
+import { BODY, anchorFor } from './body';
 import { dist } from './vec';
 import { beginAttempt, pullOn } from './attempt';
 import { LIMB_LENGTH } from '../render/climber';
@@ -404,7 +405,10 @@ describe('throwing past reach', () => {
         // Nothing to catch: the empty wall.
         const p = predictLaunch(s, [], { limb, dir, power: 1 });
         const end = Math.atan2(p.end.x - from.x, p.end.y - from.y);
-        expect(Math.abs(end - a)).toBeLessThan(0.2);
+        // A hand takes the body with it, so its throw goes further and droops
+        // a little more under gravity on the way; a whip round the body would
+        // be off by a radian or more.
+        expect(Math.abs(end - a)).toBeLessThan(isHand(limb) ? 0.3 : 0.2);
       }
     }
   });
@@ -752,6 +756,89 @@ describe('the reach is the limb', () => {
           expect(dist(anchorFor(limb, s.hip, s.shoulder), s.limbs[limb].pos)).toBeLessThanOrEqual(max * 1.02);
         }
       }
+    }
+  });
+});
+
+describe('a hand reaches with the whole body', () => {
+  const ARM = SLING_LIMITS.ARM_MAX;
+  const LEG = SLING_LIMITS.LEG_MAX;
+
+  /** Throws the right hand straight up at nothing; returns the highest it got and the worst held limb. */
+  function reachUp(wall: Hold[]) {
+    const s = initialSling(wall, SLING_LAB.start);
+    run(s, 0.5);
+    launch(s, { limb: 'RH', dir: { x: 0, y: 1 }, power: 1 });
+    let toe = 0;
+    let worst = 0;
+    for (let i = 0; i < Math.round(1.5 / SLING.dt); i++) {
+      stepSling(s, wall, SLING.dt);
+      const h = s.limbs.RH.pos;
+      toe = Math.max(toe, dist(h, s.limbs.RF.pos), dist(h, s.limbs.LF.pos));
+      for (const id of ['LH', 'LF', 'RF'] as LimbId[]) {
+        const l = s.limbs[id];
+        if (l.phase !== 'held') continue;
+        worst = Math.max(worst, dist(anchorFor(id, s.hip, s.shoulder), l.pos) / (isHand(id) ? ARM : LEG));
+      }
+    }
+    return { s, toe, worst };
+  }
+
+  it('stretches out to fingers-to-toes, straight, and no further', () => {
+    const bare = holds.filter((h) => h.pos.y < 1.6);
+    const { s, toe, worst } = reachUp(bare);
+    const body = LEG + BODY.torso + ARM;
+    expect(toe).toBeGreaterThan(body * 0.9);
+    expect(toe).toBeLessThan(body + 0.15);
+    // Everything still on stayed within its own length the whole time.
+    expect(worst).toBeLessThanOrEqual(1.005);
+    // And the climber comes back down to a stance rather than off the wall.
+    run(s, 2);
+    expect(s.fallen).toBe(false);
+    expect(s.limbs.LF.phase).toBe('held');
+    expect(s.limbs.RF.phase).toBe('held');
+    expect(s.hip.y).toBeGreaterThan(0.8);
+  });
+
+  it('catches a hold well past arm length that a full stretch gets to', () => {
+    const s0 = initialSling(holds, SLING_LAB.start);
+    run(s0, 0.5);
+    const shoulder = anchorFor('RH', s0.hip, s0.shoulder);
+    const far = { id: 99, pos: { x: shoulder.x, y: shoulder.y + ARM + 0.3 }, type: 'jug' as const, size: 0.115, dir: -Math.PI / 2 };
+    const wall = [...holds.filter((h) => h.pos.y < 1.6), far];
+    const s = initialSling(wall, SLING_LAB.start);
+    run(s, 0.5, []);
+    expect(reachableHolds(s, wall, 'RH').map((h) => h.id)).toContain(99);
+    // A throw the preview says gets there, and the real one does.
+    const aim = findAim(s, wall, 'RH', 99);
+    expect(aim).not.toBeNull();
+    const events: SlingEvent[] = [];
+    launch(s, aim!, events);
+    for (let i = 0; i < Math.round(1.2 / SLING.dt); i++) stepSling(s, wall, SLING.dt, 0, events);
+    expect(s.limbs.RH.holdId).toBe(99);
+    // Further from the shoulder it started at than an arm can go on its own.
+    expect(dist(shoulder, far.pos)).toBeGreaterThan(ARM + 0.25);
+    expect(s.fallen).toBe(false);
+  });
+
+  it('the reach outline is at least arm length all round, and further where the body can follow', () => {
+    const s = start();
+    run(s, 0.5);
+    const up = reachInDirection(s, 'RH', { x: 0, y: 1 });
+    expect(up).toBeGreaterThan(ARM + 0.25);
+    const outline = reachOutline(s, 'RH');
+    const a = anchorFor('RH', s.hip, s.shoulder);
+    for (const p of outline) expect(dist(a, p)).toBeGreaterThan(ARM - 0.2); // clipped above the floor at most
+    // Every point well inside the outline is in reach, and well outside is not.
+    expect(inStretch(s, 'RH', { x: a.x, y: a.y + up - 0.05 })).toBe(true);
+    expect(inStretch(s, 'RH', { x: a.x, y: a.y + up + 0.3 })).toBe(false);
+  });
+
+  it('a foot goes as far as its leg, and no further', () => {
+    const s = start();
+    run(s, 0.5);
+    for (const d of [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: -0.7, y: 0.7 }]) {
+      expect(reachInDirection(s, 'RF', d)).toBeCloseTo(LEG, 6);
     }
   });
 });

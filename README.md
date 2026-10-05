@@ -126,7 +126,12 @@ Each arm is a rope from the shoulder to the hand; each leg is a strut from the
 hip to the foot that pushes when the foot is below you and rocks you up when
 it is level with you. A launched limb flies under gravity until its tether
 goes taut, at which point the body gets yanked after it — that is the reach,
-and the limb is drawn exactly that long — straight at the edge of its reach, bent anywhere nearer, never stretched — and a big throw with a bad stance takes the rest of you somewhere. Let go with
+and the limb is drawn exactly that long — straight at full length, bent
+anywhere nearer, never stretched. A hand does not stop there: the climber goes
+with it, the body pulled after the throw until every limb still on something is
+at full length too, so the furthest a hand gets is the whole body stretched
+straight, fingers to toes. The dashed outline while you aim is that limit,
+worked out from what is holding you; feet reach as far as the leg. A big throw with a bad stance takes the rest of you somewhere. Let go with
 everything and you swing. Swing hard enough and holds let go.
 
 **The ground is for falling onto.** Nobody stands on the mat: the climber

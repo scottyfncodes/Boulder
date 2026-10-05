@@ -114,6 +114,11 @@ export const SLING = {
   /** How long a launched limb can still catch something, seconds. */
   flightMax: 0.85,
   /**
+   * After a full-body stretch, how long feet at full length are allowed to
+   * stay on while the body settles back under the hold, seconds.
+   */
+  stretchGrace: 0.4,
+  /**
    * A thrown limb that reaches full stretch stops there, the way an arm does
    * at the end of a reach, rather than whipping round its shoulder like a
    * stone on a string. How fast its sideways speed dies once taut, per second.
@@ -232,6 +237,13 @@ export type SlingState = {
   dyno: boolean;
   /** Whether that was true at the end of the last step. */
   dynoLast: boolean;
+  /**
+   * Seconds left in which the body is still coming off a full stretch: feet
+   * at full length stay on rather than popping while it settles back.
+   */
+  stretchGrace?: number;
+  /** A limb was stretching the body out last step. */
+  stretchLast?: boolean;
 };
 
 export type SlingEvent =
@@ -1088,8 +1100,12 @@ export function stepSling(
     state.hipV.x += state.peelSign * SLING.peel * 0.6 * g * dt;
   }
 
-  damp(state.hipV, SLING.dampBody + extraDamp, dt);
-  damp(state.shV, SLING.dampBody + extraDamp, dt);
+  // Coming back from a full stretch, the climber lowers themselves rather
+  // than dropping like a sack.
+  const easing = !state.dyno && (state.stretchGrace ?? 0) > 0
+    && !LIMBS.some((id) => state.limbs[id].phase === 'flying') ? 7 : 0;
+  damp(state.hipV, SLING.dampBody + extraDamp + easing, dt);
+  damp(state.shV, SLING.dampBody + extraDamp + easing, dt);
   for (const id of LIMBS) {
     const l = state.limbs[id];
     if (l.phase === 'held') { l.vel.x = 0; l.vel.y = 0; continue; }
@@ -1123,6 +1139,27 @@ export function stepSling(
   const wHip = 1 / SLING.massHip;
   const wSh = 1 / SLING.massShoulder;
 
+  // The stretch. A thrown limb at the end of its own length does not stop
+  // there: the climber goes with it, the body pulled after it, until every
+  // limb still on something is at full length too — fingers to toes, the
+  // whole body straight. Those limbs go first in each pass, so whatever is
+  // holding on has the last word on where the body can go.
+  // Only while the throw is still going out: a limb on its way back down
+  // does not drag the climber after it.
+  const stretching = state.dyno ? [] : LIMBS.filter((id) => {
+    const l = state.limbs[id];
+    // Hands reach with the whole body. A foot goes as far as the leg does.
+    if (l.phase !== 'flying' || !isHand(id)) return false;
+    const a = anchorFor(id, state.hip, state.shoulder);
+    const d = sub(l.pos, a);
+    const L = len(d);
+    return L > 1e-6 && (l.vel.x * d.x + l.vel.y * d.y) / L > SLING.tautStall;
+  });
+  const order = [...stretching, ...LIMBS.filter((id) => !stretching.includes(id))];
+  if (stretching.length) state.stretchGrace = SLING.stretchGrace;
+  else if (state.stretchGrace) state.stretchGrace = Math.max(0, state.stretchGrace - dt);
+  const onStretch = stretching.length > 0 || (state.stretchGrace ?? 0) > 0;
+
   for (let it = 0; it < SLING.iterations; it++) {
     // Rigid torso.
     {
@@ -1140,7 +1177,7 @@ export function stepSling(
       }
     }
 
-    for (const id of LIMBS) {
+    for (const id of order) {
       const l = state.limbs[id];
       const hand = isHand(id);
       const body = hand ? state.shoulder : state.hip;
@@ -1157,7 +1194,7 @@ export function stepSling(
 
       if (l.phase === 'held') {
         // Pinned tip: all the correction lands on the body.
-        if (!hand && L > maxL && !l.hooked) {
+        if (!hand && L > maxL && !l.hooked && !onStretch) {
           // A foot standing on something cannot hang from it. Fall away from
           // it and it is gone. A hooked one can.
           footPopped.add(id);
@@ -1178,7 +1215,13 @@ export function stepSling(
 
       const wt = 1 / limbMass(l);
       const wsum = wt + wb;
-      if (L > maxL) {
+      if (L > maxL && stretching.includes(id)) {
+        // Out at full length mid-throw: the body comes after it, led by the
+        // shoulder (or the hip, for a foot), so it turns into the reach.
+        const C = L - maxL;
+        body.x += nx * C;
+        body.y += ny * C;
+      } else if (L > maxL) {
         const C = L - maxL;
         l.pos.x -= nx * C * (wt / wsum);
         l.pos.y -= ny * C * (wt / wsum);
@@ -1222,6 +1265,49 @@ export function stepSling(
     }
   }
 
+  // The body has gone as far as what is holding it lets it. Settle it there
+  // properly — torso its own length, every limb on something within its own
+  // — and a thrown limb still out past its length from there is as far as
+  // it gets.
+  if (stretching.length) {
+    for (let it = 0; it < 24; it++) {
+      const d = sub(state.shoulder, state.hip);
+      const L = len(d);
+      if (L > 1e-9) {
+        const C = L - BODY.torso;
+        state.hip.x += (d.x / L) * C * 0.5;
+        state.hip.y += (d.y / L) * C * 0.5;
+        state.shoulder.x -= (d.x / L) * C * 0.5;
+        state.shoulder.y -= (d.y / L) * C * 0.5;
+      }
+      for (const id of LIMBS) {
+        const l = state.limbs[id];
+        if (l.phase !== 'held') continue;
+        const hand = isHand(id);
+        const body = hand ? state.shoulder : state.hip;
+        const a = anchorFor(id, state.hip, state.shoulder);
+        const v2 = sub(l.pos, a);
+        const L2 = len(v2);
+        const max = hand ? ARM_MAX : LEG_MAX;
+        if (L2 > max) {
+          body.x += (v2.x / L2) * (L2 - max);
+          body.y += (v2.y / L2) * (L2 - max);
+        }
+      }
+    }
+  }
+  for (const id of stretching) {
+    const l = state.limbs[id];
+    const anchor = anchorFor(id, state.hip, state.shoulder);
+    const max = isHand(id) ? ARM_MAX : LEG_MAX;
+    const d = sub(l.pos, anchor);
+    const L = len(d);
+    if (L > max) {
+      l.pos.x = anchor.x + (d.x / L) * max;
+      l.pos.y = anchor.y + (d.y / L) * max;
+    }
+  }
+
   // --- 4. velocities from what actually happened ----------------------------
   state.hipV = { x: (state.hip.x - hip0.x) / dt, y: (state.hip.y - hip0.y) / dt };
   state.shV = { x: (state.shoulder.x - sh0.x) / dt, y: (state.shoulder.y - sh0.y) / dt };
@@ -1251,6 +1337,18 @@ export function stepSling(
     bv.x += lost.x * share;
     bv.y += lost.y * share;
   }
+
+  // A stretch is the climber reaching, not being thrown: the body goes no
+  // faster than a reach goes, and when the reach is spent it stops there
+  // rather than carrying on and swinging off its feet.
+  if (stretching.length || state.stretchLast) {
+    const cap = stretching.length ? 1.2 : 0.15;
+    for (const v2 of [state.hipV, state.shV]) {
+      const sp = Math.hypot(v2.x, v2.y);
+      if (sp > cap) { v2.x *= cap / sp; v2.y *= cap / sp; }
+    }
+  }
+  state.stretchLast = stretching.length > 0;
 
   // --- 5. what the holds think of all this ------------------------------------
   // Total impulse the constraints put through the body this step. Summing each
@@ -1372,8 +1470,13 @@ export function stepSling(
     // Out at full stretch and stopped: that is as far as this throw goes.
     // Stopped relative to the body: a body sagging under it is not the throw.
     const bv = isHand(id) ? state.shV : state.hipV;
+    // A hand's throw takes the body with it, so for a hand it is the hand
+    // itself slowing down that says the stretch is spent; anything else has
+    // stopped once it stops moving against the body.
+    const rel = Math.hypot(l.vel.x - bv.x, l.vel.y - bv.y);
+    const abs = Math.hypot(l.vel.x, l.vel.y);
     const stalled = l.taut && l.flightT > 0.12 && !state.dyno
-      && Math.hypot(l.vel.x - bv.x, l.vel.y - bv.y) < SLING.tautStall;
+      && (isHand(id) ? Math.min(rel, abs) < SLING.tautStall && abs < SLING.tautStall * 2 : rel < SLING.tautStall);
     const floored = l.pos.y <= groundFloor(state) + 0.005;
     const maxFlight = state.dyno ? SLING.dynoFlight : SLING.flightMax;
     if (l.flightT >= maxFlight || (hanging && !state.dyno) || stalled || floored) {
@@ -1611,13 +1714,83 @@ export function predictDyno(
   return { path, caught, hands: hands() };
 }
 
-/** Holds a limb could plausibly be thrown at from here: within the tether, usable, not taken. */
-export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
+/**
+ * How far a thrown limb can get: the whole body stretched out behind it.
+ * The limb itself reaches its own length from where the body is now; past
+ * that the body comes with it, as far as every limb still on something lets
+ * it — each of those can be at most its own length, plus the body between
+ * the two, plus the thrown limb's length away. Fingers to toes, straight.
+ */
+export function stretchLimits(state: SlingState, limb: LimbId): { anchor: Vec2; base: number; limits: { at: Vec2; r: number }[] } {
   const anchor = anchorFor(limb, state.hip, state.shoulder);
-  const max = (isHand(limb) ? ARM_MAX : LEG_MAX) + 0.05;
+  const base = isHand(limb) ? ARM_MAX : LEG_MAX;
+  const limits: { at: Vec2; r: number }[] = [];
+  // A foot reaches as far as its leg: only hands take the body with them.
+  if (!isHand(limb)) limits.push({ at: anchor, r: base });
+  for (const id of LIMBS) {
+    if (id === limb) continue;
+    const l = state.limbs[id];
+    if (l.phase !== 'held') continue;
+    const own = isHand(id) ? ARM_MAX : LEG_MAX;
+    limits.push({ at: { ...l.pos }, r: own + BODY_SPAN[id][limb] + base });
+  }
+  return { anchor, base, limits };
+}
+
+/** Distance between two limbs' roots on an upright body: the body between them. */
+const BODY_SPAN: Record<LimbId, Record<LimbId, number>> = (() => {
+  const hip = { x: 0, y: 0 };
+  const shoulder = { x: 0, y: BODY.torso };
+  const out = {} as Record<LimbId, Record<LimbId, number>>;
+  for (const a of LIMBS) {
+    out[a] = {} as Record<LimbId, number>;
+    for (const b of LIMBS) out[a][b] = dist(anchorFor(a, hip, shoulder), anchorFor(b, hip, shoulder));
+  }
+  return out;
+})();
+
+/** How far out a thrown limb gets in a direction from its shoulder or hip, at full stretch. */
+export function reachInDirection(state: SlingState, limb: LimbId, dir: Vec2): number {
+  const { anchor, base, limits } = stretchLimits(state, limb);
+  const u = norm(dir);
+  let r = Infinity;
+  for (const { at, r: R } of limits) {
+    const ox = anchor.x - at.x;
+    const oy = anchor.y - at.y;
+    const b = u.x * ox + u.y * oy;
+    const disc = b * b - (ox * ox + oy * oy) + R * R;
+    r = Math.min(r, disc > 0 ? -b + Math.sqrt(disc) : 0);
+  }
+  // With nothing on, the limb's own length; and never less than that, since
+  // the body need not move at all to get there.
+  return Math.max(base, Number.isFinite(r) ? r : base);
+}
+
+/** Whether a point is within a thrown limb's full stretch, give or take `slack`. */
+export function inStretch(state: SlingState, limb: LimbId, p: Vec2, slack = 0): boolean {
+  const { anchor, base, limits } = stretchLimits(state, limb);
+  if (dist(anchor, p) <= base + slack) return true;
+  return limits.every(({ at, r }) => dist(at, p) <= r + slack);
+}
+
+/** The edge of a thrown limb's full stretch, as a closed outline. */
+export function reachOutline(state: SlingState, limb: LimbId, steps = 96): Vec2[] {
+  const anchor = anchorFor(limb, state.hip, state.shoulder);
+  const out: Vec2[] = [];
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const u = { x: Math.cos(a), y: Math.sin(a) };
+    const r = reachInDirection(state, limb, u);
+    out.push({ x: anchor.x + u.x * r, y: Math.max(LIMB_CLEARANCE, anchor.y + u.y * r) });
+  }
+  return out;
+}
+
+/** Holds a limb could plausibly be thrown at from here: within its full stretch, usable, not taken. */
+export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
   const blocked = blockedHolds(state, holds, limb);
   return holds.filter((h) =>
-    canUse(h.type, limb) && !blocked.has(h.id) && dist(anchor, h.pos) <= max + contactRadius(h.size, h.type),
+    canUse(h.type, limb) && !blocked.has(h.id) && inStretch(state, limb, h.pos, 0.05 + contactRadius(h.size, h.type)),
   );
 }
 

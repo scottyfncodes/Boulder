@@ -41,7 +41,11 @@ export type PullView = {
   /** Holds a dangling limb can simply be put back on. Tap one. */
   placeable: Hold[];
   /** The tether: how far from its anchor this limb can possibly get. */
-  reach: { anchor: Vec2; radius: number } | null;
+  /**
+   * How far this limb can get: its own length around its shoulder or hip,
+   * or, when given, the outline of the whole body stretched out after it.
+   */
+  reach: { anchor: Vec2; radius: number; outline?: Vec2[] } | null;
 };
 
 /** The bands contracting after a release, drawn for a few frames. */
@@ -108,7 +112,15 @@ function drawReachRing({ ctx, scene, pull }: SlingOverlayInput): void {
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = 'rgba(255,255,255,0.26)';
   ctx.beginPath();
-  ctx.arc(a.x, a.y, Math.abs(e.x - a.x), 0, Math.PI * 2);
+  if (pull.reach.outline && pull.reach.outline.length > 2) {
+    pull.reach.outline.forEach((p, i) => {
+      const q = scene.project(p, ARM_Z);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    });
+    ctx.closePath();
+  } else {
+    ctx.arc(a.x, a.y, Math.abs(e.x - a.x), 0, Math.PI * 2);
+  }
   ctx.stroke();
   ctx.restore();
 }

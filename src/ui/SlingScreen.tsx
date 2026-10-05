@@ -6,7 +6,7 @@ import { type Attempt, type AttemptMode, type BetaMove, beginAttempt } from '../
 import {
   type DynoPrediction, type Prediction, type SlingEvent, type SlingState, SLING, bodySpeed, canDyno, canLaunch, dyno,
   heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  letGo, poseOf, pumpOut, reachableHolds, stepSling,
+  letGo, poseOf, pumpOut, reachOutline, reachableHolds, stepSling,
   SLING_LIMITS, bodyAngle, postureOf,
 } from '../game/sling';
 import { AimSearch } from '../game/aimSearch';
@@ -863,6 +863,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             reach: body ? null : {
               anchor: anchorFor(sel, pose.hip, pose.shoulder),
               radius: isHand(sel) ? SLING_LIMITS.ARM_MAX : SLING_LIMITS.LEG_MAX,
+              outline: reachOutline(sim, sel),
             },
           };
         } else {
