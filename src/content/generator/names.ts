@@ -64,7 +64,7 @@ export function describe(
   const phrases = plan.items.map((item, i) => {
     const prev = plan.items[i - 1];
     if (item.kind === 'section' && prev?.kind === 'section' && prev.archetype === item.archetype) {
-      return `another ${sectionPhrase(item.archetype, path).replace(/^an? (long )?/, '')}`;
+      return `another ${sectionPhrase(item.archetype, path).replace(/^an? (very )?(long )?/, '')}`;
     }
     if (item.kind === 'crux') {
       const where = item.final ? 'near the top' : 'halfway';
@@ -87,7 +87,7 @@ function sectionPhrase(a: Archetype, path: PathStep[]): string {
   if (a === 'traverse') {
     const steps = path.filter((p) => p.tag === 'traverse');
     const dx = steps.reduce((s, p) => s + (p.to.x - p.from.x), 0);
-    const long = Math.abs(dx) > 1.2 ? 'a long ' : 'a ';
+    const long = Math.abs(dx) > 2.6 ? 'a very long ' : Math.abs(dx) > 1.2 ? 'a long ' : 'a ';
     return `${long}traverse ${dx >= 0 ? 'right' : 'left'}`;
   }
   return {

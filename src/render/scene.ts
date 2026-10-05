@@ -98,10 +98,11 @@ export class WallScene {
     const key = new THREE.DirectionalLight('#fff6e6', 2.1);
     key.position.set(2.6, 5.2, 4.2);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
     key.shadow.camera.near = 1;
     key.shadow.camera.far = 16;
-    const s = 4.2;
+    // Wide enough for the long routes across the cave.
+    const s = WALL.maxX + 1;
     key.shadow.camera.left = -s;
     key.shadow.camera.right = s;
     key.shadow.camera.top = s;

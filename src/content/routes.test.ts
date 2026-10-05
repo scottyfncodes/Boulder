@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ROUTES } from './routes';
+import { BOARD_SOURCES, ROUTES } from './routes';
+import { buildRoute, parseGeneratedId } from './generator';
+import { checkClimb, checkShape, checkStructure } from './generator/validate';
+import { TIERS } from './generator/difficulty';
+import { GRADES } from '../game/types';
 import { SETTERS } from './setters';
 import { solveRoute } from '../game/autoplay';
 import { initialState } from '../game/move';
@@ -45,6 +49,10 @@ describe('route data', () => {
         }
       });
 
+      // The long routes at the top of the board are checked against the
+      // setter that made them, below.
+      if (BOARD_SOURCES.has(route.id)) return;
+
       it('can actually be climbed', () => {
         const sol = solveRoute(route);
         expect(sol.sent).toBe(true);
@@ -61,4 +69,40 @@ describe('route data', () => {
 
     });
   }
+
+  it('has routes at every grade from V0 to V17', () => {
+    for (const g of GRADES) expect(ROUTES.some((r) => r.grade === g)).toBe(true);
+  });
+});
+
+describe('the top of the board', () => {
+  for (const [id, from] of BOARD_SOURCES) {
+    const route = ROUTES.find((r) => r.id === id)!;
+    it(`${route.grade} ${route.name} is still the route the setter climbed`, () => {
+      const p = parseGeneratedId(from)!;
+      const b = buildRoute(p.difficulty, p.seed, { relax: p.relax });
+      expect(b.route.holds).toEqual(route.holds);
+      expect(TIERS[p.difficulty].grades).toContain(route.grade);
+      expect(route.par).toBe(p.par);
+      expect(route.blueprint).toBeUndefined();
+      expect(checkStructure(b)).toBeNull();
+      expect(checkShape(b, p.difficulty)).toBeNull();
+      expect(checkClimb(b).ok).toBe(true);
+    }, 60000);
+  }
+
+  it('gets longer and wider as it gets harder', () => {
+    const top = ROUTES.filter((r) => BOARD_SOURCES.has(r.id));
+    const width = (r: typeof top[number]) => {
+      const xs = r.holds.map((h) => h.pos.x);
+      return Math.max(...xs) - Math.min(...xs);
+    };
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const v10 = ROUTES.filter((r) => r.grade === 'V10');
+    const v11to13 = top.filter((r) => ['V11', 'V12', 'V13'].includes(r.grade));
+    const v14up = top.filter((r) => !['V11', 'V12', 'V13'].includes(r.grade));
+    expect(mean(v11to13.map(width))).toBeGreaterThan(mean(v10.map(width)));
+    expect(mean(v14up.map(width))).toBeGreaterThan(mean(v11to13.map(width)));
+    expect(mean(v14up.map((r) => r.par))).toBeGreaterThan(mean(v10.map((r) => r.par)));
+  });
 });

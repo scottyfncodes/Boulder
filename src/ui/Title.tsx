@@ -38,7 +38,7 @@ export function Title({
         </div>
 
         <div className="title__kicker">Fling · Stick · Send</div>
-        <h1 className="title__mark">BOULDER</h1>
+        <h1 className="title__mark">BRUH</h1>
         <p className="title__tag">
           A bouldering game where you throw your limbs at the wall one at a time
           and the rest of you has to deal with it.

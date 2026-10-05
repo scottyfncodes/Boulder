@@ -122,10 +122,9 @@ describe('difficulty changes the shape, not just the pitch', () => {
       expect(lat[i]).toBeGreaterThan(lat[i - 1]);
       expect(turns[i]).toBeGreaterThan(turns[i - 1]);
     }
-    // Width saturates on a 3.4 m wall, so only the big steps are strict.
-    expect(ext[1]).toBeGreaterThan(ext[0]);
-    expect(ext[2]).toBeGreaterThan(ext[1]);
-    expect(ext[4]).toBeGreaterThan(ext[2]);
+    for (let i = 1; i < DIFFICULTIES.length; i++) expect(ext[i]).toBeGreaterThan(ext[i - 1]);
+    // The top tiers go most of the way across the cave.
+    expect(ext[DIFFICULTIES.indexOf('mythic')]).toBeGreaterThan(4.5);
   });
 
   it('easy is readable: mostly up, never a perfectly straight ladder', () => {
@@ -146,6 +145,8 @@ describe('difficulty changes the shape, not just the pitch', () => {
     expect(has('hard')).toBeGreaterThan(0.4);
     expect(has('veryHard')).toBe(1);
     expect(has('brutal')).toBe(1);
+    expect(has('elite')).toBe(1);
+    expect(has('mythic')).toBe(1);
   });
 
   it('roofs and steep sections only appear from hard up, and always from very hard', () => {
@@ -155,6 +156,13 @@ describe('difficulty changes the shape, not just the pitch', () => {
     expect(steep('hard')).toBeGreaterThan(0.2);
     expect(steep('veryHard')).toBe(1);
     expect(steep('brutal')).toBe(1);
+    expect(steep('elite')).toBe(1);
+    expect(steep('mythic')).toBe(1);
+  });
+
+  it('harder routes are longer', () => {
+    const moves = DIFFICULTIES.map((d) => mean(POP[d].map((b) => b.spine.length)));
+    for (let i = 1; i < DIFFICULTIES.length; i++) expect(moves[i]).toBeGreaterThan(moves[i - 1]);
   });
 
   it('harder tiers combine more ideas', () => {
@@ -163,13 +171,15 @@ describe('difficulty changes the shape, not just the pitch', () => {
     expect(kinds('hard')).toBeGreaterThan(kinds('moderate'));
     expect(kinds('brutal')).toBeGreaterThan(kinds('veryHard'));
     expect(kinds('brutal')).toBeGreaterThanOrEqual(3.5);
+    expect(kinds('mythic')).toBeGreaterThan(kinds('brutal'));
   });
 
   it('has cruxes where it should, and puts the last one late', () => {
     expect(share(POP.easy, (b) => b.plan.cruxes.length > 0)).toBe(0);
     expect(share(POP.hard, (b) => b.plan.cruxes.length >= 1)).toBe(1);
     expect(share(POP.brutal, (b) => b.plan.cruxes.length >= 2)).toBe(1);
-    for (const d of ['hard', 'veryHard', 'brutal'] as const) {
+    expect(share(POP.mythic, (b) => b.plan.cruxes.length >= 3)).toBe(1);
+    for (const d of ['hard', 'veryHard', 'brutal', 'elite', 'mythic'] as const) {
       const at = POP[d].map((b) => shapeOf(b.path).cruxAt!).filter((x) => x !== null);
       expect(mean(at)).toBeGreaterThan(0.6);
     }

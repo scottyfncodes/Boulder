@@ -10,6 +10,7 @@ import { TIERS } from './difficulty';
 import { makePlan, type Plan, type PlanItem } from './plan';
 import { Rand } from './rand';
 import { describe } from './names';
+import { shapeOf } from './shape';
 
 /**
  * Turns a plan into holds.
@@ -23,20 +24,20 @@ import { describe } from './names';
  * this file decides nothing about route shape on its own.
  */
 
-/** Where the line may go. Holds sit a little outside it. */
-const LINE_MIN_X = -1.18;
-const LINE_MAX_X = 1.18;
-/** Sideways sections hug a hold rail rather than a shoulder width, so they may run wider. */
-const RAIL_MIN_X = -1.32;
-const RAIL_MAX_X = 1.32;
-const HOLD_MIN_X = -1.52;
-const HOLD_MAX_X = 1.52;
+/**
+ * Where the line may go is the tier's `span` either side of centre; holds sit
+ * a little outside it. Sideways sections hug a hold rail rather than a
+ * shoulder width, so they may run a little wider.
+ */
+const RAIL_EXTRA = 0.14;
+const HOLD_EXTRA = 0.34;
 const FOOT_MIN_Y = 0.36;
 /** Hands start here, feet a leg below. Same as every route in the book. */
 const START_Y = 1.5;
-/** The line tops out around here; the finish jug goes just above it. */
-const TOP_Y = 3.66;
-const CEILING_Y = 3.74;
+/** How far over the tier's top the line may poke before the finish. */
+const CEILING_EXTRA = 0.08;
+/** Highest a hand hold sits above the tier's top, finish aside. */
+const HOLD_TOP_EXTRA = 0.42;
 
 /** No two holds closer than this, centre to centre. */
 const HAND_GAP = 0.17;
@@ -110,6 +111,10 @@ class Setter {
   private nextId = 1;
   private stepsSinceFoot = 0;
   tag = 'start';
+  readonly lineMax: number;
+  readonly railMax: number;
+  readonly holdMax: number;
+  readonly ceiling: number;
 
   constructor(
     readonly t: TierParams,
@@ -121,6 +126,10 @@ class Setter {
     this.y = START_Y;
     this.heading = heading;
     this.drift = heading;
+    this.lineMax = t.span;
+    this.railMax = t.span + RAIL_EXTRA;
+    this.holdMax = t.span + HOLD_EXTRA;
+    this.ceiling = t.top + CEILING_EXTRA;
   }
 
   /** The standard pull-on: two jugs, two chips. Every route starts standing. */
@@ -135,9 +144,8 @@ class Setter {
 
   /** Room left on the side the line is heading. */
   room(heading: 1 | -1, rail = false): number {
-    const max = rail ? RAIL_MAX_X : LINE_MAX_X;
-    const min = rail ? RAIL_MIN_X : LINE_MIN_X;
-    return heading > 0 ? max - this.x : this.x - min;
+    const max = rail ? this.railMax : this.lineMax;
+    return heading > 0 ? max - this.x : this.x + max;
   }
 
   /** Points the heading at whichever side has more room. */
@@ -146,14 +154,13 @@ class Setter {
   }
 
   step(dx: number, dy: number, style: StepStyle = {}, rail = false): void {
-    const minX = rail ? RAIL_MIN_X : LINE_MIN_X;
-    const maxX = rail ? RAIL_MAX_X : LINE_MAX_X;
+    const maxX = rail ? this.railMax : this.lineMax;
     // Bounce off the edges of the wall rather than leaving it.
-    if (this.x + dx > maxX || this.x + dx < minX) {
+    if (this.x + dx > maxX || this.x + dx < -maxX) {
       dx = -dx;
       this.heading = (this.heading * -1) as 1 | -1;
     }
-    if (this.y + dy > CEILING_Y) dy = Math.max(0, CEILING_Y - this.y);
+    if (this.y + dy > this.ceiling) dy = Math.max(0, this.ceiling - this.y);
     if (this.y + dy < START_Y - 0.12) dy = START_Y - 0.12 - this.y;
 
     const from = { x: this.x, y: this.y };
@@ -216,8 +223,8 @@ class Setter {
     // reuses the one already there.
     const tries = [0, 0.08, -0.06, 0.14];
     for (const extra of tries) {
-      const x = clampN(hx + perp.x * side * extra, HOLD_MIN_X, HOLD_MAX_X);
-      const y = clampN(hy + perp.y * side * extra, FOOT_MIN_Y + 0.4, 4.08);
+      const x = clampN(hx + perp.x * side * extra, -this.holdMax, this.holdMax);
+      const y = clampN(hy + perp.y * side * extra, FOOT_MIN_Y + 0.4, this.t.top + HOLD_TOP_EXTRA);
       if (this.clear(x, y, HAND_GAP)) {
         const dir = holdDir(type, x, bodyX, style.dirMode ?? 'auto');
         // A sidepull with nothing to pull across is just a bad crimp.
@@ -256,7 +263,7 @@ class Setter {
       delete this.holds[i].hard;
       for (const h of this.holds) {
         if (h !== this.holds[i] && Math.hypot(h.pos.x - hand.pos.x, h.pos.y - hand.pos.y) < HAND_GAP) {
-          return this.add('jug', x, Math.min(4.08, Math.max(fy, hand.pos.y + HAND_GAP)), DOWN, { finish: true, spine: true });
+          return this.add('jug', x, Math.min(this.t.top + HOLD_TOP_EXTRA, Math.max(fy, hand.pos.y + HAND_GAP)), DOWN, { finish: true, spine: true });
         }
       }
       this.spine.push(hand.id);
@@ -267,7 +274,7 @@ class Setter {
   }
 
   addFoot(type: HoldType, x: number, y: number): boolean {
-    const fx = clampN(x, HOLD_MIN_X, HOLD_MAX_X);
+    const fx = clampN(x, -this.holdMax, this.holdMax);
     const fy = Math.max(FOOT_MIN_Y, y);
     if (!this.clear(fx, fy, FOOT_GAP)) return true; // something is already there to stand on
     this.add(type, fx, fy, DOWN, type === 'volume' ? { roll: this.r.range(-0.8, 0.8) } : {});
@@ -645,9 +652,11 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
   // has somewhere to go.
   const firstLateral = plan.items.findIndex((x) => x.kind === 'section' && (x.archetype === 'traverse' || x.archetype === 'roof'));
   const heading = r.sign();
-  const crosses = difficulty === 'hard' || difficulty === 'veryHard' || difficulty === 'brutal';
+  // From hard up the line crosses the wall, starting near one side of the
+  // tier's span: on the wide tiers that is most of the way across the cave.
+  const crosses = difficulty !== 'easy' && difficulty !== 'moderate';
   const startX = crosses
-    ? -heading * r.range(0.7, 0.95)
+    ? -heading * r.range(0.7, 0.95) * (t.span / 1.18)
     : firstLateral >= 0
       ? -heading * r.range(0.4, 0.7)
       : difficulty === 'easy' ? r.range(-0.3, 0.3) : r.range(-0.6, 0.6);
@@ -680,7 +689,7 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
       s.tag = item.archetype;
       const fixed = SECTIONS_RISE(item.archetype);
       const rise = fixed === null
-        ? Math.max(0.3, (TOP_Y - s.y - remainingFixed) / Math.max(1, risingLeft))
+        ? Math.max(0.3, (t.top - s.y - remainingFixed) / Math.max(1, risingLeft))
         : fixed;
       s.heading = s.drift;
       const y0 = s.y;
@@ -697,17 +706,17 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
   // Top out. If the line came up short, climb the rest on whatever the tier
   // climbs on; then one big jug to match.
   s.tag = 'topout';
-  while (s.y < TOP_Y - 0.2) {
-    s.step(r.range(-0.05, 0.05), Math.min(0.26, TOP_Y - s.y), { palette: easeFor(t), halfWidth: 0.26 });
+  while (s.y < t.top - 0.2) {
+    s.step(r.range(-0.05, 0.05), Math.min(0.26, t.top - s.y), { palette: easeFor(t), halfWidth: 0.26 });
   }
-  const finishY = clampN(s.y + r.range(0.26, 0.32), 3.78, 4.04);
-  const finishX = clampN(s.x + r.range(-0.08, 0.08), HOLD_MIN_X + 0.1, HOLD_MAX_X - 0.1);
+  const finishY = clampN(s.y + r.range(0.26, 0.32), t.top + 0.12, t.top + 0.38);
+  const finishX = clampN(s.x + r.range(-0.08, 0.08), -s.holdMax + 0.1, s.holdMax - 0.1);
   const finishId = s.finish(finishX, finishY);
 
   const steep = plan.sections.filter((a) => a === 'roof' || a === 'overhang').length;
   const overhang = Math.round(r.range(t.overhang[0], t.overhang[1]) + steep * t.steepBonus);
   const profile = foldsFor(steepBands, overhang, seed);
-  const grade = gradeFor(t, plan, r);
+  const grade = gradeFor(t, plan, s.path, r);
   const meta = describe(difficulty, plan, s.path, seed, r);
 
   const route: Route = {
@@ -775,14 +784,21 @@ function SECTIONS_RISE(a: Archetype): number | null {
   return a === 'traverse' || a === 'roof' ? FIXED_RISE[a] ?? 0 : null;
 }
 
-/** Inside a tier, the busier route gets the higher grade. */
-function gradeFor(t: TierParams, plan: Plan, r: Rand): Grade {
+/**
+ * Inside a tier, the busier route gets the higher grade, and so does the one
+ * that goes further across the wall.
+ */
+function gradeFor(t: TierParams, plan: Plan, path: PathStep[], r: Rand): Grade {
   if (t.grades.length === 1) return t.grades[0];
   const busy = plan.sections.length + plan.cruxes.length * 1.5;
   const lo = t.sections[0] + t.cruxes[0] * 1.5;
   const hi = t.sections[1] + t.cruxes[1] * 1.5;
-  const f = hi > lo ? (busy - lo) / (hi - lo) : r.next();
-  const idx = Math.round(clampN(f * 0.8 + r.range(0, 0.4), 0, 1) * (t.grades.length - 1));
+  const fBusy = hi > lo ? clampN((busy - lo) / (hi - lo), 0, 1) : r.next();
+  const { lateralTravel } = shapeOf(path);
+  const wide = t.shape.minLateralTravel * 1.6 - t.shape.minLateralTravel;
+  const fWide = clampN((lateralTravel - t.shape.minLateralTravel) / Math.max(0.01, wide), 0, 1);
+  const f = 0.5 * fBusy + 0.5 * fWide;
+  const idx = Math.round(clampN(f * 0.8 + r.range(0, 0.25), 0, 1) * (t.grades.length - 1));
   return t.grades[idx];
 }
 

@@ -9,7 +9,7 @@ import { type Profile, SAVE_VERSION, freshProfile } from './progress';
  */
 
 const KEY = 'bruh.profile.v1';
-/** The game has been called SEND and Boulder. Saves outlive names. */
+/** The game has been called SEND and Boulder, and is now Bruh. Saves outlive names. */
 const LEGACY_KEYS = ['boulder.profile.v1', 'send.profile.v1'];
 
 export function loadProfile(): Profile {
