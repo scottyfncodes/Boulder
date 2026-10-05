@@ -16,8 +16,11 @@ export const WALL = {
   minX: -1.7,
   maxX: 1.7,
   minY: 0.2,
-  /** The cave goes up a long way. Most routes stop around four metres; the long ones do not. */
-  maxY: 6.2,
+  /**
+   * The cave goes up a long way. Most routes stop around four metres; the
+   * long ones do not, and the hardest go well past seven.
+   */
+  maxY: 7.8,
   /** Height the finish jug tends to sit at. */
   topY: 3.9,
 } as const;
@@ -36,4 +39,11 @@ export const DECOR: { x: number; y: number; type: Hold['type']; size: number; ro
   { x: 1.18, y: 0.35, type: 'foothold', size: 0.065, roll: 1.4 },
   { x: -1.15, y: 2.62, type: 'crimp', size: 0.07, roll: -0.9 },
   { x: 0.98, y: 1.72, type: 'pocket', size: 0.075, roll: 0.2 },
+  // Up high, where the long routes go.
+  { x: 1.42, y: 4.7, type: 'sloper', size: 0.12, roll: 0.3 },
+  { x: -1.48, y: 5.2, type: 'pinch', size: 0.09, roll: -0.7 },
+  { x: 0.55, y: 5.85, type: 'crimp', size: 0.075, roll: 1.1 },
+  { x: -0.7, y: 6.45, type: 'jug', size: 0.1, roll: 0.2 },
+  { x: 1.5, y: 6.9, type: 'pocket', size: 0.08, roll: -0.4 },
+  { x: -1.35, y: 7.35, type: 'crimp', size: 0.07, roll: 0.6 },
 ];

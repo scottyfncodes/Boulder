@@ -47,9 +47,10 @@
 }
 .setter__map {
   flex: none;
-  width: 6.2rem;
-  height: auto;
-  aspect-ratio: 3.4 / 4.05;
+  /* The map's own viewBox sets its shape: the long routes draw tall and thin. */
+  height: 8.4rem;
+  width: auto;
+  max-width: 6.2rem;
 }
 .routemap__wall { fill: rgba(255, 255, 255, 0.05); stroke: var(--line); stroke-width: 0.02; }
 .setter__info { flex: 1; min-width: 0; }

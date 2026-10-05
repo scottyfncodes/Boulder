@@ -21,6 +21,14 @@ const LINES: Partial<Record<Grade, string>> = {
   V7: 'You are the person other people ask about the sequence.',
   V8: 'There is not much left on this wall.',
   V9: 'Setters are starting to take it personally.',
+  V10: 'Double digits. Your forearms have a group chat.',
+  V11: 'The routes go sideways now. So does your social life.',
+  V12: 'You have a favourite crimp. You have named it.',
+  V13: 'The cave is wider than you remember. You remember all of it.',
+  V14: 'People stop climbing to watch. Some of them are filming.',
+  V15: 'There are maybe a dozen people who have done this. Hi.',
+  V16: 'The setter did not think anyone would do that. Neither did you.',
+  V17: 'Bruh.',
 };
 
 export type BreakthroughProps = {

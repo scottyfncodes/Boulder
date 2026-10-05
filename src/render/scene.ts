@@ -101,7 +101,8 @@ export class WallScene {
     key.shadow.mapSize.set(1024, 1024);
     key.shadow.camera.near = 1;
     key.shadow.camera.far = 16;
-    const s = 4.2;
+    // Tall enough for the long routes up the cave.
+    const s = Math.max(4.2, WALL.maxY / 2 + 1.5);
     key.shadow.camera.left = -s;
     key.shadow.camera.right = s;
     key.shadow.camera.top = s;

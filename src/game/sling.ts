@@ -48,13 +48,14 @@ export const SLING = {
    * goes taut, as a multiple of the limb's length. A thrown arm is the whole
    * climber reaching — shoulder out, side long, on tiptoe — so it goes past
    * the arm's own length. The route checker plays with the shorter, static
-   * reach in body.ts, so every route stays climbable with room to spare.
+   * reach in body.ts, so every route stays climbable with room to spare —
+   * and the wide routes up the grades are a long way across.
    */
-  armReach: 1.24,
-  legReach: 1.27,
-  /** Launch speed at full pull, metres per second. */
-  maxSpeedHand: 4.6,
-  maxSpeedFoot: 4.2,
+  armReach: 1.4,
+  legReach: 1.34,
+  /** Launch speed at full pull, metres per second. Enough to get to the end of the reach. */
+  maxSpeedHand: 5.2,
+  maxSpeedFoot: 4.7,
   /**
    * Gravity on a limb in flight, as a fraction of the real thing. An arm
    * being thrown is muscle as well as mass: it flies flatter and longer than a

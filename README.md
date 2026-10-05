@@ -1,4 +1,4 @@
-# Boulder
+# Bruh
 
 A browser game about flinging your limbs at a climbing wall.
 
@@ -9,8 +9,9 @@ slingshot, and let go. It flies, and then the rest of the body has to deal with
 whatever that was. Grab the hips and pull, and the whole body goes: a dyno,
 everything off the wall, one or two hands to catch it. Every hold sticks the
 same; what a climb costs is how you climbed it, and the pump bar is the bill.
-Twenty handcrafted routes from V0 to V10 on a wall that bends into roofs, a
-route setter that will set you a new problem at any of five difficulties, five
+Twenty handcrafted routes from V0 to V10 and fourteen long ones from V11 to
+V17 up a tall cave that bends into roofs, a route setter that will set you a
+new problem at any of seven difficulties, five
 route setters with strong opinions and poor judgement, and a climber who is
 technically cooperating.
 
@@ -125,7 +126,7 @@ Each arm is a rope from the shoulder to the hand; each leg is a strut from the
 hip to the foot that pushes when the foot is below you and rocks you up when
 it is level with you. A launched limb flies under gravity until its tether
 goes taut, at which point the body gets yanked after it — that is the reach,
-and a big throw with a bad stance takes the rest of you somewhere. Let go with
+1.4 arm-lengths for a hand and 1.34 leg-lengths for a foot, and a big throw with a bad stance takes the rest of you somewhere. Let go with
 everything and you swing. Swing hard enough and holds let go.
 
 **Holds catch what passes through them, and that is all.** A limb in flight
@@ -329,8 +330,8 @@ sim bugs during the build, which is most of why it exists.
 
 ### The route setter
 
-`src/content/generator/` sets new problems on demand, at five difficulties —
-Easy, Moderate, Hard, Very Hard and Brutal. The point is that a harder route is
+`src/content/generator/` sets new problems on demand, at seven difficulties —
+Easy, Moderate, Hard, Very Hard, Brutal, Elite (V11–V13) and Mythic (V14–V17). The point is that a harder route is
 a *different shape*, not the same ladder tipped back further: the question a
 hard route asks is "how does this want to be climbed?", not "can you hang on".
 
@@ -354,7 +355,14 @@ different sections, one of them a zigzag, traverse or arête. Hard
 links two or three, must include a traverse or roof, and always has one crux.
 Very Hard links three and must include a traverse *and* a roof or steep
 section. Brutal links four — traverse, zigzag, roof or steep, and something
-technical — with two cruxes, the last of them near the top. The same table
+technical — with two cruxes, the last of them near the top. Elite links five
+and Mythic five or six, each with a traverse, a roof and a zigzag, two or three
+cruxes, and a lot more wall. Every tier has a `top`, the height its line tops
+out at — 3.66 m for Easy, then 3.9, 4.3, 4.8, 5.3, 6.0 and 6.8 m — so the
+harder the route, the further up the cave it goes and the more moves it takes:
+about twelve hand moves on an Easy route, thirty-odd on a Mythic one, on the
+same 3.4 m of width. Inside a tier the grade goes to the busier route and the
+longer one. The same table
 sets zigzag widths, traverse lengths, how long the route may go sideways
 before it has to go up, hold shapes and hardness, foot density, and a modest
 pitch range; roofs and steep sections add a few degrees, and that is the only
@@ -370,7 +378,7 @@ you reach it thinking you have this.
 
 **The line crosses the wall once.** Hard routes start near one edge and drift
 toward the other; sideways sections share out the width that is left between
-them. On a wall this short, anything set above an earlier section is in reach
+them. On a wall this narrow, anything set just above an earlier section is in reach
 of it, so a route that doubled back would just be climbed straight up the
 middle. Reversals are local and deliberate — they are cruxes.
 
@@ -396,7 +404,11 @@ usually instant).
 
 **Progression.** Generated routes are scored, kept in your records and show
 personal bests, but they never move your grade or open new rungs on the board
-— a route you can reroll until it suits you does not get to do that.
+— a route you can reroll until it suits you does not get to do that. The
+exception is the top of the board: V11 to V17 were set by the generator,
+validated once, and pinned in `routes.ts` by their generator ids under names
+of their own. They rebuild from the id at load, count like any board route,
+and a test checks each one still rebuilds hold for hold and still goes.
 
 **Camera.** Routes that use the whole wall would run off a phone screen, so
 the camera now follows the climber sideways as well as up, as far as the wall

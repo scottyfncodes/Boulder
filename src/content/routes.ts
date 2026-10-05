@@ -15,7 +15,7 @@ import {
  * against them.
  */
 
-export const ROUTES: Route[] = [
+const HAND_SET: Route[] = [
   {
     id: 'warmup',
     name: 'This Is A Warmup',
@@ -574,6 +574,47 @@ export const ROUTES: Route[] = [
 
 /** Unused named directions kept available to setters. */
 void [LEFT, RIGHT, UP, deg];
+
+type BoardSet = { id: string; from: string; name: string; setter: string };
+
+/**
+ * The top of the board, V11 to V17. Nobody hand-sets a route seven metres
+ * up the cave hold by hold; these were set by the route setter, climbed
+ * by the same headless climber, and pinned here by their generator ids, so
+ * they rebuild exactly from the id and never need climbing again at load.
+ * Unlike the setter's corner, they are board routes: they count toward your
+ * grade.
+ */
+const BOARD_SET: BoardSet[] = [
+  { id: 'hostile-takeover', from: 'gen-elite-qwvgis-0-32', name: 'Hostile Takeover', setter: 'dave' },
+  { id: 'quarterly-review', from: 'gen-elite-7xp5m7-0-50', name: 'Quarterly Review', setter: 'kevin' },
+  { id: 'scope-creep', from: 'gen-elite-aci4j9-0-31', name: 'Scope Creep', setter: 'melissa' },
+  { id: 'golden-handcuffs', from: 'gen-elite-1jd3het-0-42', name: 'Golden Handcuffs', setter: 'chad' },
+  { id: 'synergy', from: 'gen-elite-1abtb2r-0-33', name: 'Synergy', setter: 'kevin' },
+  { id: 'restructuring', from: 'gen-elite-1pvazaw-0-46', name: 'Restructuring', setter: 'sadist' },
+  { id: 'out-of-office', from: 'gen-mythic-32ps9i-0-42', name: 'Out Of Office', setter: 'dave' },
+  { id: 'the-long-game', from: 'gen-mythic-1a1tpds-0-50', name: 'The Long Game', setter: 'melissa' },
+  { id: 'reply-all', from: 'gen-mythic-1qfa6ou-0-50', name: 'Reply All', setter: 'kevin' },
+  { id: 'business-class', from: 'gen-mythic-7xp5m7-0-78', name: 'Business Class', setter: 'chad' },
+  { id: 'hard-pivot', from: 'gen-mythic-1it4a0v-0-56', name: 'Hard Pivot', setter: 'dave' },
+  { id: 'burnout', from: 'gen-mythic-9ijbgc-0-57', name: 'Burnout', setter: 'sadist' },
+  { id: 'unpaid-overtime', from: 'gen-mythic-2m3zwu-0-38', name: 'Unpaid Overtime', setter: 'melissa' },
+  { id: 'bruh', from: 'gen-mythic-v6ci05-0-93', name: 'Bruh', setter: 'sadist' },
+];
+
+/** Where each board route came from, for the tests that check it still goes. */
+export const BOARD_SOURCES: ReadonlyMap<string, string> = new Map(BOARD_SET.map((b) => [b.id, b.from]));
+
+function boardRoute(b: BoardSet): Route {
+  const gen = generatedRouteById(b.from);
+  if (!gen) throw new Error(`board route ${b.id} has a bad generator id`);
+  // A plain board route from here on: no blueprint, so a send counts.
+  const { blueprint: _blueprint, seed: _seed, ...rest } = gen;
+  void _blueprint; void _seed;
+  return { ...rest, id: b.id, name: b.name, setter: b.setter };
+}
+
+export const ROUTES: Route[] = [...HAND_SET, ...BOARD_SET.map(boardRoute)];
 
 export const ROUTES_BY_ID: Map<string, Route> = new Map(ROUTES.map((r) => [r.id, r]));
 
