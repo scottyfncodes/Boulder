@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { LimbId, Pose, Vec2 } from '../game/types';
 import { isHand } from '../game/types';
 import { anchorFor, BODY } from '../game/body';
+import { SLING_LIMITS } from '../game/sling';
 import { BERNIE } from './palette';
 import { ARM_Z, FOOT_Z, HAND_Z, HEAD_Z, HIP_Z, LEG_Z, TORSO_Z } from './depths';
 import { WallWarp, placeOn } from './fold';
@@ -58,10 +59,17 @@ function clamp(n: number, lo: number, hi: number): number {
   return n < lo ? lo : n > hi ? hi : n;
 }
 
-const UPPER_ARM = BODY.arm * 0.5;
-const LOWER_ARM = BODY.arm * 0.5;
-const UPPER_LEG = BODY.leg * 0.5;
-const LOWER_LEG = BODY.leg * 0.5;
+/**
+ * A limb is drawn as long as it can reach: the reach is the limb, straight.
+ * Anything nearer than that and the elbow or knee bends; nothing is ever
+ * further, so a limb never stretches.
+ */
+const UPPER_ARM = SLING_LIMITS.ARM_MAX * 0.5;
+const LOWER_ARM = SLING_LIMITS.ARM_MAX * 0.5;
+const UPPER_LEG = SLING_LIMITS.LEG_MAX * 0.5;
+const LOWER_LEG = SLING_LIMITS.LEG_MAX * 0.5;
+/** Full length of a drawn limb, straight: the same as its reach. */
+export const LIMB_LENGTH = { arm: UPPER_ARM + LOWER_ARM, leg: UPPER_LEG + LOWER_LEG } as const;
 
 /**
  * Places the elbow or knee for a two-bone limb.
@@ -305,10 +313,16 @@ export class Climber {
     for (const limb of ['LH', 'RH', 'LF', 'RF'] as LimbId[]) {
       const rig = this.bones[limb];
       const anchor = anchorFor(limb, hip, shoulder);
-      const target = limbs[limb];
       const hand = isHand(limb);
       const l1 = hand ? UPPER_ARM : UPPER_LEG;
       const l2 = hand ? LOWER_ARM : LOWER_LEG;
+      // The sim keeps every limb inside its reach; this only stops a frame's
+      // rounding from showing as a stretch.
+      const raw = limbs[limb];
+      const d = Math.hypot(raw.x - anchor.x, raw.y - anchor.y);
+      const target = d > l1 + l2
+        ? { x: anchor.x + ((raw.x - anchor.x) * (l1 + l2)) / d, y: anchor.y + ((raw.y - anchor.y) * (l1 + l2)) / d }
+        : raw;
       const joint = twoBoneJoint(anchor, target, l1, l2, hand ? 'down' : 'out', hip.x);
       const z = hand ? ARM_Z : LEG_Z;
       rig.upper.aim(warp, anchor, joint, z);
