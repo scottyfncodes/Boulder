@@ -82,20 +82,63 @@
   border: 1px solid rgba(255, 255, 255, 0.16);
   overflow: hidden;
 }
+.stamina__track { transition: border-color 0.4s, box-shadow 0.4s; }
+/* The pump fills from the left: green while there is plenty left, red as the
+   forearm goes. Clipped, not scaled, so the colour says how full it is. */
 .stamina__fill {
+  position: relative;
   height: 100%;
-  transform-origin: left center;
-  background: linear-gradient(90deg, #ff5e4d, #f2c249 45%, #5fd1a0);
+  clip-path: inset(0 100% 0 0);
+  background: linear-gradient(90deg, #5fd1a0, #f2c249 55%, #ff5e4d);
   transition: none;
+  overflow: hidden;
 }
 .stamina__track { position: relative; }
-/* What this climb has cost for good, eating in from the empty end. */
+/* What this climb has cost for good, from the start of the bar. No rest gets it back. */
 .stamina__floor {
   position: absolute;
   inset: 0;
-  transform-origin: right center;
-  transform: scaleX(0);
+  clip-path: inset(0 100% 0 0);
   background: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.55) 0 3px, rgba(0, 0, 0, 0.3) 3px 6px);
+}
+/* The other forearm, when it is not as far gone: what a shakeout is for. */
+.stamina__other {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.75);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+/* Recovering: the track breathes green, and a slow sheen runs back down the
+   bar — faster and brighter the faster it is coming back. */
+.stamina[data-trend='recovering'] .stamina__track {
+  border-color: rgba(110, 242, 180, 0.55);
+  box-shadow: 0 0 calc(2px + var(--recover, 0) * 8px) rgba(110, 242, 180, 0.35);
+}
+.stamina__fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  transition: opacity 0.4s;
+}
+.stamina[data-trend='recovering'] .stamina__fill::after {
+  opacity: calc(0.25 + var(--recover, 0) * 0.6);
+  animation: drain calc(2.2s - var(--recover, 0) * 1.2s) linear infinite;
+}
+@keyframes drain {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stamina[data-trend='recovering'] .stamina__fill::after { animation: none; }
 }
 .stamina__why {
   margin-top: 0.22rem;

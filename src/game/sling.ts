@@ -6,7 +6,7 @@ import {
 } from './holds';
 import { clamp, clamp01, dist, len, norm, sub } from './vec';
 import { type WallProfile, ROOF_ANGLE, angleAt, flatProfile } from './profile';
-import type { Posture } from './pump';
+import type { ArmId, FootSupport, Posture } from './pump';
 
 /**
  * Slingshot limbs.
@@ -241,8 +241,8 @@ export type SlingEvent =
   | { kind: 'off'; at: Vec2 }
   /** The climber met the mat. */
   | { kind: 'fell'; at: Vec2; from: number }
-  /** The pool ran out: the hands opened on their own. */
-  | { kind: 'pumped'; at: Vec2 };
+  /** A forearm ran out: its hand opened on its own. `hands` is how many opened. */
+  | { kind: 'pumped'; at: Vec2; hands: number };
 
 export type LaunchAim = {
   limb: LimbId;
@@ -502,18 +502,32 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
 /**
  * Pumping out. The hands open — that is all — and the physics does the rest:
  * feet on holds peel, feet on nothing fall, and either way the mat is next.
+ * Each forearm has its own pump, so `hands` says which ones have gone: one
+ * blown arm opens one hand, and the other is left holding the lot.
  */
-export function pumpOut(state: SlingState, events: SlingEvent[] = []): boolean {
+export function pumpOut(state: SlingState, events: SlingEvent[] = [], hands: readonly LimbId[] = ['LH', 'RH']): boolean {
   if (state.fallen) return false;
   let opened = 0;
-  for (const id of ['LH', 'RH'] as LimbId[]) {
+  for (const id of hands) {
     const l = state.limbs[id];
     if (l.phase !== 'held') continue;
     release(state, l, [], 'Pumped stupid. Arms opened on their own.');
     opened++;
   }
   if (opened === 0) return false;
-  events.push({ kind: 'pumped', at: { ...state.shoulder } });
+  events.push({ kind: 'pumped', at: { ...state.shoulder }, hands: opened });
+  return true;
+}
+
+/**
+ * Taking a hand off on purpose: it comes off the hold and hangs, to be shaken
+ * out and put back on. Nothing else changes — whatever was on that hand is
+ * now on everything else, and if that is not enough, the physics says so.
+ */
+export function letGo(state: SlingState, limb: LimbId): boolean {
+  const l = state.limbs[limb];
+  if (state.fallen || !isHand(limb) || l.phase !== 'held' || l.holdId === null) return false;
+  release(state, l, [], '');
   return true;
 }
 
@@ -549,12 +563,22 @@ export function postureOf(state: SlingState): Posture {
   let hands = 0;
   let feet = 0;
   let reaching = false;
+  const held = { LH: false, RH: false } as Record<ArmId, boolean>;
+  const shaking = { LH: false, RH: false } as Record<ArmId, boolean>;
+  const footSupport: FootSupport[] = [];
+  const com = centreOfMass(state);
   for (const id of LIMBS) {
     const l = state.limbs[id];
     if (l.phase === 'flying') reaching = true;
+    if (isHand(id) && l.phase === 'free' && !state.dyno) shaking[id as ArmId] = true;
     if (l.phase !== 'held') continue;
-    if (isHand(id)) hands++;
-    else feet++;
+    if (isHand(id)) {
+      hands++;
+      held[id as ArmId] = true;
+    } else {
+      feet++;
+      footSupport.push(footSupportOf(state, l, com));
+    }
   }
   return {
     angle: bodyAngle(state),
@@ -563,7 +587,58 @@ export function postureOf(state: SlingState): Posture {
     speed: bodySpeed(state),
     reaching: reaching || state.dyno,
     grounded: !state.left,
+    held,
+    shaking,
+    leftShare: hands === 2 ? leftShareOf(state, com) : undefined,
+    footSupport,
   };
+}
+
+/** Where the weight is: hips and shoulders, by their masses. */
+function centreOfMass(state: SlingState): Vec2 {
+  const m = SLING.massHip + SLING.massShoulder;
+  return {
+    x: (state.hip.x * SLING.massHip + state.shoulder.x * SLING.massShoulder) / m,
+    y: (state.hip.y * SLING.massHip + state.shoulder.y * SLING.massShoulder) / m,
+  };
+}
+
+/** 0 at `a`, 1 at `b`, smooth in between. */
+function smoothstep(a: number, b: number, x: number): number {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * How good a foot is to stand on, 0..1, from where it is against the body.
+ * Under the hips is a foot you can stand on; up by the hips is a rockover at
+ * best; at full stretch, or way out to the side of where the weight is, it is
+ * only touching. A hook is a different thing: it pulls, and holds well.
+ */
+function footSupportOf(state: SlingState, l: SlingLimb, com: Vec2): FootSupport {
+  const below = state.hip.y - l.pos.y;
+  const under = 0.25 + 0.75 * smoothstep(-0.15, 0.5, below);
+  const reach = dist(anchorFor(l.id, state.hip, state.shoulder), l.pos) / LEG_MAX;
+  const stretch = 1 - 0.6 * smoothstep(0.85, 1.0, reach);
+  const out = 1 - 0.45 * smoothstep(0.35, 0.95, Math.abs(l.pos.x - com.x));
+  const support = under * stretch * out;
+  const hooked = !!l.hooked && l.holdId !== null;
+  return { support: hooked ? Math.max(support, 0.85) : support, hooked };
+}
+
+/**
+ * How much of the arms' load is on the left hand when both are on: the body
+ * hangs between them, and the hand nearer under the weight takes more. Hang
+ * the hips under one hand and the other goes light.
+ */
+function leftShareOf(state: SlingState, com: Vec2): number {
+  const lx = state.limbs.LH.pos.x;
+  const rx = state.limbs.RH.pos.x;
+  const span = rx - lx;
+  if (Math.abs(span) < 0.08) return 0.5;
+  const raw = (rx - com.x) / span;
+  // Never all of it: the light hand is still balancing.
+  return 0.2 + 0.6 * smoothstep(0, 1, raw);
 }
 
 export type DynoAim = {

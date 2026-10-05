@@ -94,7 +94,7 @@ export function Title({
         </div>
 
         <p className="title__foot">
-          No timers. No pump. Just physics, and a man in sunglasses who is not especially invested.
+          No timers. Just pump, physics, and a man in sunglasses who is not especially invested.
         </p>
       </div>
     </div>

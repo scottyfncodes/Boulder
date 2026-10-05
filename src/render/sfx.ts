@@ -221,6 +221,12 @@ export function sfxChalk(): void {
   noise(c, 'bandpass', 1300, 0.6, { at: 0.16, attack: 0.003, release: 0.14, peak: 0.3 }, 600);
 }
 
+/** Weight off the hands: a long, quiet breath out as the forearms start to come back. */
+export function sfxExhale(): void {
+  const c = ready(); if (!c) return;
+  noise(c, 'bandpass', 900, 0.8, { attack: 0.12, release: 0.55, peak: 0.07 }, 420);
+}
+
 /** The forearms, when they are nearly done. */
 export function sfxHeartbeat(level: number): void {
   const c = ready(); if (!c) return;

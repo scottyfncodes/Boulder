@@ -3,10 +3,10 @@ import { LIMBS, isHand } from './types';
 import {
   type LaunchAim, type SlingEvent, type SlingState, SLING, arcAngle, bodyAngle, bodySpeed, canDyno, canLaunch,
   dyno, heldCount, initialSling, isSlingSent, launch, launchSpeed, postureOf, predictDyno, predictLaunch,
-  pumpOut, reachableHolds, stepSling, assistLaunch, placeLimb, placeableHolds, cloneSling,
+  pumpOut, reachableHolds, stepSling, assistLaunch, placeLimb, placeableHolds, cloneSling, letGo,
 } from './sling';
 import {
-  type Pump, PUMP, catchCost, dynoCost, effort, flingCost, freshPump, gain, tickPump,
+  type ArmId, type Pump, blownArms, catchCost, dynoCost, flingCost, freshPump, gain, restRate, tickPump,
 } from './pump';
 import { profileOf } from './profile';
 import { freshJuice, isFull, onMiss, onStick, spendDyno, onDynoStuck, type Juice } from './juice';
@@ -36,8 +36,10 @@ export type ClimbReport = {
   misses: number;
   /** Seconds on the wall. */
   time: number;
-  /** Seconds spent shaking out. */
+  /** Seconds spent resting, hands on or shaking out. */
   rested: number;
+  /** Times a hand came off to be shaken out. */
+  shakeouts: number;
   maxPump: number;
   endPump: number;
   floor: number;
@@ -68,13 +70,14 @@ function step(c: Ctx, events: SlingEvent[] = []): SlingEvent[] {
   if (!c.sim.fallen) {
     const posture = postureOf(c.sim);
     c.pump = tickPump(c.pump, posture, DT);
-    if (c.pump.pump >= 1 && posture.hands > 0) pumpOut(c.sim, events);
+    const blown = blownArms(c.pump).filter((a) => c.sim.limbs[a].phase === 'held');
+    if (blown.length) pumpOut(c.sim, events, blown);
   }
   for (let i = seen; i < events.length; i++) {
     const e = events[i];
     if (e.kind === 'catch') {
       const hands = LIMBS.filter((id) => isHand(id) && c.sim.limbs[id].phase === 'held').length;
-      c.pump = gain(c.pump, catchCost(bodySpeed(c.sim), isHand(e.limb), hands, bodyAngle(c.sim)));
+      c.pump = gain(c.pump, catchCost(bodySpeed(c.sim), isHand(e.limb), hands, bodyAngle(c.sim)), isHand(e.limb) ? e.limb as ArmId : undefined);
     }
   }
   c.maxPump = Math.max(c.maxPump, c.pump.pump);
@@ -102,6 +105,38 @@ function settle(c: Ctx, max = 2.5): SlingEvent[] {
 function wait(c: Ctx, seconds: number): void {
   const end = c.t + seconds;
   while (c.t < end && !c.sim.fallen) step(c);
+}
+
+/**
+ * One shakeout: the worse forearm comes off and hangs while the other holds
+ * on, then goes back on the hold it came off. Tried on a copy first — a
+ * climber can feel whether the feet will take it — and only done for real if
+ * the copy is still on and the bar came down. Returns whether it happened.
+ */
+function shakeOnce(c: Ctx): boolean {
+  const s = c.sim;
+  const held = (['LH', 'RH'] as ArmId[]).filter((a) => s.limbs[a].phase === 'held' && s.limbs[a].holdId !== null);
+  if (held.length < 2) return false;
+  const arm = c.pump.arms.LH.pump >= c.pump.arms.RH.pump ? 'LH' : 'RH';
+  const hold = c.holds.find((h) => h.id === s.limbs[arm].holdId);
+  if (!hold) return false;
+  const run = (k: Ctx): boolean => {
+    const before = k.pump.pump;
+    if (!letGo(k.sim, arm)) return false;
+    // Long enough to get something back; no longer than it takes to catch the other arm up.
+    const end = k.t + 6;
+    while (k.t < end && !k.sim.fallen) {
+      step(k);
+      if (k.pump.arms[arm].pump <= k.pump.arms[arm === 'LH' ? 'RH' : 'LH'].pump - 0.02) break;
+    }
+    if (k.sim.fallen) return false;
+    placeLimb(k.sim, arm, hold.id, k.holds, []);
+    settle(k, 1);
+    return !k.sim.fallen && k.sim.limbs[arm].phase === 'held' && k.pump.pump < before - 0.005;
+  };
+  const ghost: Ctx = { ...c, sim: cloneSling(c.sim), trace: [], nextTrace: Infinity };
+  if (!run(ghost)) return false;
+  return run(c);
 }
 
 /** The softest throw at `hold` the physics says catches it, if there is one. */
@@ -236,7 +271,7 @@ function bestDyno(c: Ctx): { dir: Vec2; power: number; high: number } | null {
 
 export function climb(
   route: Route, style: Style,
-  opts: { maxSeconds?: number; maxMoves?: number; fitness?: number; think?: number } = {},
+  opts: { maxSeconds?: number; maxMoves?: number; fitness?: number; think?: number; shake?: boolean } = {},
 ): ClimbReport {
   const maxSeconds = opts.maxSeconds ?? 300;
   const maxMoves = opts.maxMoves ?? 70;
@@ -249,6 +284,7 @@ export function climb(
   let dynos = 0;
   let misses = 0;
   let rested = 0;
+  let shakeouts = 0;
   let high = handTop(sim);
   let outcome: ClimbReport['outcome'] = 'timeout';
   const visits = new Map<string, number>();
@@ -260,12 +296,18 @@ export function climb(
     high = Math.max(high, handTop(c.sim));
     void events;
 
-    // Shake out, if this is somewhere that gives anything back.
+    // Rest, if this is somewhere that gives anything back: hands on if the
+    // stance is a rest by itself, and the careful climber shakes out one
+    // arm at a time if the feet will take it.
     const restAt = style === 'efficient' ? 0.45 : 0.85;
-    if (c.pump.pump > restAt && effort(postureOf(c.sim)) < PUMP.restLine * 0.8) {
+    if (c.pump.pump > restAt) {
       const before = c.t;
       const goal = Math.max(c.pump.floor + 0.04, 0.2);
-      while (c.pump.pump > goal && c.t - before < 30 && !c.sim.fallen) step(c);
+      while (c.pump.pump > goal && c.t - before < 40 && !c.sim.fallen) {
+        if (style === 'efficient' && opts.shake !== false && shakeOnce(c)) { shakeouts++; continue; }
+        if (restRate(postureOf(c.sim), c.pump.pump) >= -0.002) break;
+        wait(c, 0.5);
+      }
       rested += c.t - before;
     }
 
@@ -324,7 +366,7 @@ export function climb(
   }
   if (outcome === 'timeout' && c.sim.fallen) outcome = 'fell';
   return {
-    route: route.id, style, outcome, moves, dynos, misses, time: round(c.t), rested: round(rested),
+    route: route.id, style, outcome, moves, dynos, misses, time: round(c.t), rested: round(rested), shakeouts,
     maxPump: round(c.maxPump), endPump: round(c.pump.pump), floor: round(c.pump.floor), high: round(high),
     trace: c.trace,
   };

@@ -6,12 +6,13 @@ import { type Attempt, type AttemptMode, type BetaMove, beginAttempt } from '../
 import {
   type DynoPrediction, type Prediction, type SlingEvent, type SlingState, SLING, bodySpeed, canDyno, canLaunch, dyno,
   heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
-  poseOf, pumpOut, reachableHolds, stepSling,
+  letGo, poseOf, pumpOut, reachableHolds, stepSling,
   SLING_LIMITS, bodyAngle, postureOf,
 } from '../game/sling';
 import { AimSearch } from '../game/aimSearch';
 import {
-  type Pump, catchCost, dynoCost, flingCost, freshPump, gain as addPump, pumpReason, pumpStage, pumpTrend, tickPump,
+  type ArmId, type Pump, type PumpTrend, blownArms, catchCost, dynoCost, flingCost, freshPump, gain as addPump,
+  pumpReason, pumpStage, pumpTrend, tickPump,
 } from '../game/pump';
 import { profileOf, routeTop } from '../game/profile';
 import { flowStreak } from '../game/scoring';
@@ -27,7 +28,7 @@ import { GRADE_COLOR } from '../render/palette';
 import { HAND_Z, FOOT_Z, HIP_Z, HOLD_Z, TORSO_Z } from '../render/depths';
 import { Fx } from '../render/fx';
 import {
-  buzz, isMuted, setMuted, sfxChalk, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
+  buzz, isMuted, setMuted, sfxChalk, sfxExhale, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
   sfxSnap, sfxStretch, sfxThrow, sfxThud, unlockAudio,
   sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice,
 } from '../render/sfx';
@@ -126,6 +127,8 @@ function coreOf(hip: Vec2, shoulder: Vec2): Vec2 {
 
 type Drag = {
   kind: 'aim' | 'look';
+  /** The thing pressed was already picked up: a second tap on a hand takes it off. */
+  again?: boolean;
   startX: number;
   startY: number;
   x: number;
@@ -155,6 +158,11 @@ export type SlingScreenProps = {
 };
 
 type Phase = 'inspect' | 'climbing' | 'fallen' | 'sent';
+
+/** Forearms that are blown and still have a hand on something: those open. */
+function blownHeld(p: Pump, sim: SlingState): LimbId[] {
+  return blownArms(p).filter((a) => sim.limbs[a].phase === 'held');
+}
 
 export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsNote }: SlingScreenProps) {
   const glRef = useRef<HTMLCanvasElement>(null);
@@ -230,6 +238,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   const pumpStateRef = useRef<Pump>(freshPump(lab0 ? fitness * 2.5 : fitness));
   const baseBarRef = useRef<HTMLDivElement>(null);
   const floorBarRef = useRef<HTMLDivElement>(null);
+  /** The other forearm: a faint tick on the bar, so a shakeout shows which arm it is for. */
+  const otherArmRef = useRef<HTMLDivElement>(null);
+  const staminaRef = useRef<HTMLDivElement>(null);
+  const trendRef = useRef<PumpTrend>('steady');
   const pumpRef = useRef<HTMLSpanElement>(null);
   const whyRef = useRef<HTMLDivElement>(null);
   const vignetteRef = useRef<HTMLDivElement>(null);
@@ -417,7 +429,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           {
             const s = simRef.current;
             const hands = LIMBS.filter((id) => isHand(id) && s.limbs[id].phase === 'held').length;
-            pumpStateRef.current = addPump(pumpStateRef.current, catchCost(bodySpeed(s), isHand(e.limb), hands, bodyAngle(s)));
+            // The hand that caught it is the forearm that takes it.
+            const arm = isHand(e.limb) ? (e.limb as ArmId) : undefined;
+            pumpStateRef.current = addPump(pumpStateRef.current, catchCost(bodySpeed(s), isHand(e.limb), hands, bodyAngle(s)), arm);
           }
           sfxGrab(e.grade, streakNow);
           // The juice. A dyno's own catch is paid back by the dyno; the second
@@ -489,7 +503,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           setJuice(onPumped(juiceRef.current));
           buzz([30, 20, 30, 20, 60]);
           fx.kick(0.25);
-          reasonRef.current = 'Pumped stupid. Arms opened on their own.';
+          reasonRef.current = e.hands > 1
+            ? 'Pumped stupid. Both hands opened on their own.'
+            : 'Pumped. That forearm had nothing left, and the hand opened.';
           say('PUMPED', reasonRef.current, 1600);
           setStreak(0);
           break;
@@ -580,10 +596,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         const posture = { ...postureOf(sim), speed: 0 };
         const events: SlingEvent[] = [];
         pumpStateRef.current = tickPump(pumpStateRef.current, posture, dt / 1000);
-        if (pumpStateRef.current.pump >= 1 && posture.hands > 0) {
-          pumpOut(sim, events);
-          dragRef.current = null;
-        }
+        if (pumpOut(sim, events, blownHeld(pumpStateRef.current, sim))) dragRef.current = null;
         if (events.length) handleEvents(events, now);
       }
       if ((ph === 'climbing' || ph === 'fallen') && now >= freezeRef.current && !holding) {
@@ -613,7 +626,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         if (ph === 'climbing' && dt > 0 && !sim.fallen) {
           const posture = postureOf(sim);
           pumpStateRef.current = tickPump(pumpStateRef.current, posture, (dt / 1000) * timeScaleRef.current);
-          if (pumpStateRef.current.pump >= 1 && posture.hands > 0) pumpOut(sim, events);
+          pumpOut(sim, events, blownHeld(pumpStateRef.current, sim));
         }
         if (events.length) handleEvents(events, now);
         if (phaseRef.current === 'climbing' && isSlingSent(sim, route.finish)) celebrate(now);
@@ -624,17 +637,34 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       {
         const p = pumpStateRef.current;
         const climbing = phaseRef.current === 'climbing';
-        // The bar is what is left: it empties as the forearms fill. The dark
-        // end is what this climb has cost for good — no rest gets that back.
-        if (baseBarRef.current) baseBarRef.current.style.transform = `scaleX(${1 - p.pump})`;
-        if (floorBarRef.current) floorBarRef.current.style.transform = `scaleX(${p.floor})`;
+        // The bar fills as the worse forearm does. The hatched start of it is
+        // what this climb has cost for good — no rest gets that back. The
+        // tick is the other forearm, which is what a shakeout is for.
+        if (baseBarRef.current) baseBarRef.current.style.clipPath = `inset(0 ${(1 - p.pump) * 100}% 0 0)`;
+        if (floorBarRef.current) floorBarRef.current.style.clipPath = `inset(0 ${(1 - p.floor) * 100}% 0 0)`;
+        if (otherArmRef.current) {
+          const other = Math.min(p.arms.LH.pump, p.arms.RH.pump);
+          otherArmRef.current.style.left = `${other * 100}%`;
+          otherArmRef.current.style.opacity = p.pump - other > 0.015 ? '1' : '0';
+        }
+        const trend = climbing ? pumpTrend(p) : 'steady';
+        if (trend !== trendRef.current) {
+          // Coming off the boil: one quiet breath out, so you hear the rest
+          // you have found before you read it.
+          if (trend === 'recovering' && climbing) sfxExhale();
+          trendRef.current = trend;
+          if (staminaRef.current) staminaRef.current.dataset.trend = trend;
+        }
+        // How fast it is coming back, for the shimmer on the bar.
+        if (staminaRef.current) {
+          staminaRef.current.style.setProperty('--recover', String(clamp(-p.rate / 0.03, 0, 1)));
+        }
         if (pumpRef.current || whyRef.current) {
           const posture = postureOf(sim);
-          const trend = pumpTrend(posture);
           const arrow = trend === 'recovering' ? ' ↓' : trend === 'steady' ? '' : trend === 'climbing' ? ' ↑' : ' ↑↑';
           if (pumpRef.current) pumpRef.current.textContent = `${pumpStage(p.pump)}${arrow}`;
           if (whyRef.current) {
-            whyRef.current.textContent = `${trend} · ${pumpReason(posture)}`;
+            whyRef.current.textContent = `${trend} · ${pumpReason(posture, trend)}`;
             whyRef.current.dataset.trend = trend;
           }
         }
@@ -948,10 +978,11 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     if (hit) {
       // Press straight onto it and pull in one gesture, or tap to pick it up
       // and pull from anywhere. Thumbs differ.
+      const again = selectedRef.current === hit;
       setSelected(hit);
       selectedRef.current = hit;
       followRef.current = true;
-      dragRef.current = newDrag('aim', x, y, cam, pullRoom(hit, y, rect.width, rect.height));
+      dragRef.current = { ...newDrag('aim', x, y, cam, pullRoom(hit, y, rect.width, rect.height)), again };
       return;
     }
     if (selectedRef.current) {
@@ -993,6 +1024,12 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     if (moved < TAP_PX) {
       // A tap. With a dangling limb picked up, a tap on a hold in reach puts
       // it there. Otherwise the tap just keeps the thing picked up.
+      // A second tap on a hand that is on: take it off, to shake it out. It
+      // stays picked up, so a tap on a hold puts it back.
+      if (drag.again && sel !== 'BODY' && isHand(sel) && sim.limbs[sel].phase === 'held') {
+        if (letGo(sim, sel)) bump((n) => n + 1);
+        return;
+      }
       if (sel !== 'BODY' && sim.limbs[sel].phase === 'free') {
         const hold = holdAtScreen(sceneRef.current, drag.x, drag.y, route);
         if (hold !== null) {
@@ -1109,6 +1146,11 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         setSelected((cur) => (cur === pick ? null : pick));
       }
       if (e.key === 'Escape') setSelected(null);
+      // X: take the picked-up hand off, to shake it out.
+      if (e.key === 'x' || e.key === 'X') {
+        const sel = selectedRef.current;
+        if (sel && sel !== 'BODY' && isHand(sel) && letGo(sim, sel)) bump((n) => n + 1);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1276,7 +1318,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       </header>
 
       {phase === 'climbing' && (
-        <div className="stamina">
+        <div className="stamina" ref={staminaRef} data-trend="steady">
           <div className="stamina__row">
             <span className="stamina__label">Pump</span>
             <span className="stamina__word" ref={pumpRef}>fresh</span>
@@ -1284,6 +1326,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           <div className="stamina__track">
             <div className="stamina__fill" ref={baseBarRef} />
             <div className="stamina__floor" ref={floorBarRef} />
+            <div className="stamina__other" ref={otherArmRef} />
           </div>
           <div className="stamina__why" ref={whyRef} />
           <div className={`juice${lab ? ' is-ready' : ''}`} ref={juiceBoxRef}>
@@ -1335,8 +1378,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             its shoulder, its hip, or the hold it is on), pull it back, let go. Grab the belly and
             pull to dyno the whole body — once you have earned it: every clean stick fills the
             dyno meter, every whiff drains it, and a dyno spends the lot. Tap a dangling limb,
-            then a hold, to put it back on. The pump runs from the moment you pull on: hanging on
-            your arms burns it, standing on your feet barely does.
+            then a hold, to put it back on. The pump fills from the moment you pull on: hanging on
+            your arms fills it, and weight on your feet lets it drain. Tap a picked-up hand again
+            to take it off and shake it out — if your feet can hold you.
           </div>
           {holdToInspect && (
             <HoldInspector hold={holdToInspect} onClose={() => setInspectHold(null)} />
