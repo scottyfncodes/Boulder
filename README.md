@@ -10,8 +10,8 @@ whatever that was. Grab the hips and pull, and the whole body goes: a dyno,
 everything off the wall, one or two hands to catch it. Every hold sticks the
 same; what a climb costs is how you climbed it, and the pump bar is the bill.
 Twenty handcrafted routes from V0 to V10 and fourteen long ones from V11 to
-V17 across a wide cave that bends into roofs, a route setter that will set you
-a new problem at any of seven difficulties, five
+V17 up a tall cave that bends into roofs, a route setter that will set you a
+new problem at any of seven difficulties, five
 route setters with strong opinions and poor judgement, and a climber who is
 technically cooperating.
 
@@ -357,12 +357,12 @@ Very Hard links three and must include a traverse *and* a roof or steep
 section. Brutal links four — traverse, zigzag, roof or steep, and something
 technical — with two cruxes, the last of them near the top. Elite links five
 and Mythic five or six, each with a traverse, a roof and a zigzag, two or three
-cruxes, and a lot more wall: every tier has a `span` (how far either side of
-centre the line may go — 1.18 m up to Moderate, then 1.45, 1.85, 2.3, 2.9 and
-3.5 m) and a `top` (3.66 m, rising to 4.3 and 4.9 m for Elite and Mythic), so
-the harder the route, the longer it is and the more of it goes sideways.
-Inside a tier the grade goes to the busier route and the one that goes further
-across. The same table
+cruxes, and a lot more wall. Every tier has a `top`, the height its line tops
+out at — 3.66 m for Easy, then 3.9, 4.3, 4.8, 5.3, 6.0 and 6.8 m — so the
+harder the route, the further up the cave it goes and the more moves it takes:
+about twelve hand moves on an Easy route, thirty-odd on a Mythic one, on the
+same 3.4 m of width. Inside a tier the grade goes to the busier route and the
+longer one. The same table
 sets zigzag widths, traverse lengths, how long the route may go sideways
 before it has to go up, hold shapes and hardness, foot density, and a modest
 pitch range; roofs and steep sections add a few degrees, and that is the only
@@ -376,10 +376,9 @@ nothing for the feet. The last crux goes 60–95% of the way through the route,
 and the move before it is a jug — somewhere to get your breath, if your feet are on — so
 you reach it thinking you have this.
 
-**The line crosses the wall once.** Hard routes start near one edge of their
-span and drift toward the other; sideways sections share out the width that is
-left between them. The cave is eight metres wide, and a Mythic route uses
-most of it. On a wall this short, anything set above an earlier section is in reach
+**The line crosses the wall once.** Hard routes start near one edge and drift
+toward the other; sideways sections share out the width that is left between
+them. On a wall this narrow, anything set just above an earlier section is in reach
 of it, so a route that doubled back would just be climbed straight up the
 middle. Reversals are local and deliberate — they are cruxes.
 

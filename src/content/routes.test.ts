@@ -91,18 +91,15 @@ describe('the top of the board', () => {
     }, 60000);
   }
 
-  it('gets longer and wider as it gets harder', () => {
+  it('gets longer and taller as it gets harder', () => {
     const top = ROUTES.filter((r) => BOARD_SOURCES.has(r.id));
-    const width = (r: typeof top[number]) => {
-      const xs = r.holds.map((h) => h.pos.x);
-      return Math.max(...xs) - Math.min(...xs);
-    };
+    const height = (r: typeof top[number]) => Math.max(...r.holds.map((h) => h.pos.y));
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
     const v10 = ROUTES.filter((r) => r.grade === 'V10');
     const v11to13 = top.filter((r) => ['V11', 'V12', 'V13'].includes(r.grade));
     const v14up = top.filter((r) => !['V11', 'V12', 'V13'].includes(r.grade));
-    expect(mean(v11to13.map(width))).toBeGreaterThan(mean(v10.map(width)));
-    expect(mean(v14up.map(width))).toBeGreaterThan(mean(v11to13.map(width)));
+    expect(mean(v11to13.map(height))).toBeGreaterThan(mean(v10.map(height)) + 1);
+    expect(mean(v14up.map(height))).toBeGreaterThan(mean(v11to13.map(height)) + 0.5);
     expect(mean(v14up.map((r) => r.par))).toBeGreaterThan(mean(v10.map((r) => r.par)));
   });
 });

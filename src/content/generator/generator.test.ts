@@ -79,7 +79,8 @@ describe('generated routes, end to end', () => {
 
           it('sets a par a clean climb could hit', () => {
             expect(route.par).toBeGreaterThan(8);
-            expect(route.par).toBeLessThan(60);
+            // Taller tiers take more moves: the cap scales with the climb.
+            expect(route.par).toBeLessThan(25 * (TIERS[d].top - 1.5));
           });
 
           it('did not need many tries', () => {
@@ -122,9 +123,10 @@ describe('difficulty changes the shape, not just the pitch', () => {
       expect(lat[i]).toBeGreaterThan(lat[i - 1]);
       expect(turns[i]).toBeGreaterThan(turns[i - 1]);
     }
-    for (let i = 1; i < DIFFICULTIES.length; i++) expect(ext[i]).toBeGreaterThan(ext[i - 1]);
-    // The top tiers go most of the way across the cave.
-    expect(ext[DIFFICULTIES.indexOf('mythic')]).toBeGreaterThan(4.5);
+    // Width saturates on a 3.4 m wall, so only the big steps are strict.
+    expect(ext[1]).toBeGreaterThan(ext[0]);
+    expect(ext[2]).toBeGreaterThan(ext[1]);
+    expect(ext[4]).toBeGreaterThan(ext[2]);
   });
 
   it('easy is readable: mostly up, never a perfectly straight ladder', () => {
@@ -160,9 +162,16 @@ describe('difficulty changes the shape, not just the pitch', () => {
     expect(steep('mythic')).toBe(1);
   });
 
-  it('harder routes are longer', () => {
+  it('harder routes are longer, and go further up the wall', () => {
     const moves = DIFFICULTIES.map((d) => mean(POP[d].map((b) => b.spine.length)));
-    for (let i = 1; i < DIFFICULTIES.length; i++) expect(moves[i]).toBeGreaterThan(moves[i - 1]);
+    const tops = DIFFICULTIES.map((d) => mean(POP[d].map((b) => Math.max(...b.route.holds.map((h) => h.pos.y)))));
+    for (let i = 1; i < DIFFICULTIES.length; i++) {
+      expect(moves[i]).toBeGreaterThan(moves[i - 1]);
+      expect(tops[i]).toBeGreaterThan(tops[i - 1]);
+    }
+    // The top tier goes well past seven metres; easy stays around four.
+    expect(tops[DIFFICULTIES.indexOf('mythic')]).toBeGreaterThan(6.8);
+    expect(tops[0]).toBeLessThan(4.2);
   });
 
   it('harder tiers combine more ideas', () => {

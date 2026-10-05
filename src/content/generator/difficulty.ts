@@ -70,12 +70,10 @@ export type TierParams = {
   /** Grades this tier is published at, easiest first. */
   grades: readonly Grade[];
   /**
-   * How far either side of the wall's centre the line may wander, metres.
-   * Harder routes get more of the wall: the cave is wide, and the top grades
-   * spend most of their moves going across it rather than up it.
+   * Height the line tops out at, metres; the finish jug goes just above it.
+   * Harder routes go further up the cave: more wall, more moves, more pump
+   * before the jug.
    */
-  span: number;
-  /** Height the line tops out at, metres. The finish jug goes just above it. */
   top: number;
   /** How many sections the route is built from. */
   sections: readonly [min: number, max: number];
@@ -130,7 +128,6 @@ export type TierParams = {
 export const TIERS: Record<Difficulty, TierParams> = {
   easy: {
     difficulty: 'easy',
-    span: 1.18,
     top: 3.66,
     grades: ['V0', 'V1'],
     sections: [1, 2],
@@ -156,8 +153,7 @@ export const TIERS: Record<Difficulty, TierParams> = {
   },
   moderate: {
     difficulty: 'moderate',
-    span: 1.18,
-    top: 3.66,
+    top: 3.9,
     grades: ['V2', 'V3'],
     sections: [2, 2],
     pool: [['zigzag', 4], ['slab', 2], ['traverse', 2], ['dihedral', 2], ['arete', 1]],
@@ -182,8 +178,7 @@ export const TIERS: Record<Difficulty, TierParams> = {
   },
   hard: {
     difficulty: 'hard',
-    span: 1.45,
-    top: 3.66,
+    top: 4.3,
     grades: ['V4', 'V5'],
     sections: [2, 3],
     pool: [
@@ -194,7 +189,7 @@ export const TIERS: Record<Difficulty, TierParams> = {
     forbid: [],
     zigLateral: [0.15, 0.2],
     zigLeg: [2, 3],
-    traverseLength: [1.0, 1.6],
+    traverseLength: [0.8, 1.3],
     maxConsecutiveLateral: 5,
     drift: 0.08,
     bendChance: 0.5,
@@ -209,12 +204,11 @@ export const TIERS: Record<Difficulty, TierParams> = {
     footDensity: 0.9,
     overhang: [6, 14],
     steepBonus: 4,
-    shape: { minLateralTravel: 1.4, maxLateralExtent: 3.3, minDirectionChanges: 2, maxDirectionChanges: 12 },
+    shape: { minLateralTravel: 1.2, maxLateralExtent: 2.8, minDirectionChanges: 2, maxDirectionChanges: 12 },
   },
   veryHard: {
     difficulty: 'veryHard',
-    span: 1.85,
-    top: 3.66,
+    top: 4.8,
     grades: ['V6', 'V7'],
     sections: [3, 3],
     pool: [
@@ -225,7 +219,7 @@ export const TIERS: Record<Difficulty, TierParams> = {
     forbid: [],
     zigLateral: [0.17, 0.22],
     zigLeg: [2, 3],
-    traverseLength: [1.4, 2.3],
+    traverseLength: [1.1, 1.8],
     maxConsecutiveLateral: 7,
     drift: 0.09,
     bendChance: 0.6,
@@ -241,14 +235,13 @@ export const TIERS: Record<Difficulty, TierParams> = {
     footDensity: 0.8,
     overhang: [10, 18],
     steepBonus: 4,
-    shape: { minLateralTravel: 2.4, maxLateralExtent: 4.0, minDirectionChanges: 3, maxDirectionChanges: 16 },
+    shape: { minLateralTravel: 1.9, maxLateralExtent: 3.0, minDirectionChanges: 3, maxDirectionChanges: 16 },
   },
   brutal: {
     difficulty: 'brutal',
-    span: 2.3,
-    top: 3.66,
+    top: 5.3,
     grades: ['V8', 'V9', 'V10'],
-    sections: [4, 5],
+    sections: [4, 4],
     pool: [
       ['traverse', 4], ['zigzag', 3], ['roof', 3], ['overhang', 2],
       ['crack', 2], ['dihedral', 1], ['arete', 1], ['compression', 2], ['slab', 1],
@@ -257,8 +250,8 @@ export const TIERS: Record<Difficulty, TierParams> = {
     forbid: [],
     zigLateral: [0.19, 0.24],
     zigLeg: [2, 2],
-    traverseLength: [1.8, 2.9],
-    maxConsecutiveLateral: 9,
+    traverseLength: [1.2, 2.0],
+    maxConsecutiveLateral: 8,
     drift: 0.1,
     bendChance: 0.7,
     cruxes: [2, 2],
@@ -273,34 +266,33 @@ export const TIERS: Record<Difficulty, TierParams> = {
     footDensity: 0.7,
     overhang: [14, 22],
     steepBonus: 4,
-    shape: { minLateralTravel: 3.4, maxLateralExtent: 4.9, minDirectionChanges: 4, maxDirectionChanges: 22 },
+    shape: { minLateralTravel: 2.6, maxLateralExtent: 3.0, minDirectionChanges: 4, maxDirectionChanges: 22 },
   },
   /**
    * Past V10 the routes stop being boulder problems you can see the whole of
-   * from the mat. They go a long way across the cave, and higher, and the
-   * crux is the third hard thing on them.
+   * from the mat. They go a long way up the cave, and the crux is the third
+   * hard thing on them.
    */
   elite: {
     difficulty: 'elite',
-    span: 2.9,
-    top: 4.3,
+    top: 6.0,
     grades: ['V11', 'V12', 'V13'],
     sections: [5, 5],
     pool: [
-      ['traverse', 5], ['zigzag', 4], ['roof', 3], ['overhang', 2],
+      ['traverse', 3], ['zigzag', 3], ['roof', 3], ['overhang', 3],
       ['crack', 2], ['dihedral', 1], ['arete', 1], ['compression', 2], ['slab', 1],
     ],
     require: [['traverse'], ['roof'], ['zigzag'], ['overhang', 'crack', 'compression', 'arete', 'dihedral', 'slab']],
     forbid: [],
-    zigLateral: [0.21, 0.26],
+    zigLateral: [0.19, 0.24],
     zigLeg: [2, 2],
-    traverseLength: [2.3, 3.6],
-    maxConsecutiveLateral: 11,
+    traverseLength: [1.2, 2.0],
+    maxConsecutiveLateral: 8,
     drift: 0.1,
     bendChance: 0.75,
     cruxes: [2, 3],
     cruxChance: 0.6,
-    cruxKinds: [['span', 4], ['reversal', 3], ['drop', 3], ['lunge', 2], ['squeeze', 2]],
+    cruxKinds: [['span', 3], ['reversal', 3], ['drop', 3], ['lunge', 3], ['squeeze', 2]],
     cruxAt: [0.84, 0.95],
     handPalette: [
       ['jug', 1], ['crimp', 3], ['pinch', 3], ['sloper', 3], ['sidepull', 2],
@@ -310,29 +302,28 @@ export const TIERS: Record<Difficulty, TierParams> = {
     footDensity: 0.65,
     overhang: [16, 24],
     steepBonus: 4,
-    shape: { minLateralTravel: 4.6, maxLateralExtent: 6.2, minDirectionChanges: 5, maxDirectionChanges: 28 },
+    shape: { minLateralTravel: 2.8, maxLateralExtent: 3.0, minDirectionChanges: 5, maxDirectionChanges: 28 },
   },
   mythic: {
     difficulty: 'mythic',
-    span: 3.5,
-    top: 4.9,
+    top: 6.8,
     grades: ['V14', 'V15', 'V16', 'V17'],
     sections: [5, 6],
     pool: [
-      ['traverse', 5], ['zigzag', 4], ['roof', 4], ['overhang', 2],
+      ['traverse', 3], ['zigzag', 3], ['roof', 4], ['overhang', 3],
       ['crack', 2], ['dihedral', 1], ['arete', 1], ['compression', 2], ['slab', 1],
     ],
     require: [['traverse'], ['roof'], ['zigzag'], ['overhang', 'crack', 'compression', 'arete']],
     forbid: [],
-    zigLateral: [0.23, 0.28],
+    zigLateral: [0.19, 0.24],
     zigLeg: [2, 2],
-    traverseLength: [2.8, 4.4],
-    maxConsecutiveLateral: 13,
-    drift: 0.11,
+    traverseLength: [1.2, 2.0],
+    maxConsecutiveLateral: 8,
+    drift: 0.1,
     bendChance: 0.8,
     cruxes: [3, 3],
     cruxChance: 1,
-    cruxKinds: [['span', 4], ['reversal', 3], ['drop', 3], ['lunge', 2], ['squeeze', 2]],
+    cruxKinds: [['span', 3], ['reversal', 3], ['drop', 3], ['lunge', 3], ['squeeze', 2]],
     cruxAt: [0.86, 0.96],
     handPalette: [
       ['crimp', 3], ['pinch', 3], ['sloper', 3], ['sidepull', 2],
@@ -342,7 +333,7 @@ export const TIERS: Record<Difficulty, TierParams> = {
     footDensity: 0.6,
     overhang: [18, 26],
     steepBonus: 4,
-    shape: { minLateralTravel: 5.6, maxLateralExtent: 7.4, minDirectionChanges: 6, maxDirectionChanges: 34 },
+    shape: { minLateralTravel: 2.8, maxLateralExtent: 3.0, minDirectionChanges: 6, maxDirectionChanges: 34 },
   },
 };
 

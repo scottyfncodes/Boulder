@@ -133,19 +133,6 @@ type Option =
   | { kind: 'place'; limb: LimbId; hold: Hold }
   | { kind: 'dyno'; dir: Vec2; power: number };
 
-/** Where the route ends, sideways: on a long traverse that is where progress is. */
-function finishX(route: Route): number {
-  const xs = route.holds.filter((h) => route.finish.includes(h.id)).map((h) => h.pos.x);
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
-}
-
-/** How far the nearer held hand still has to go sideways to get to the finish. */
-function handGap(s: SlingState, fx: number): number {
-  let gap = Infinity;
-  for (const id of ['LH', 'RH'] as LimbId[]) if (s.limbs[id].phase === 'held') gap = Math.min(gap, Math.abs(s.limbs[id].pos.x - fx));
-  return gap === Infinity ? 9 : gap;
-}
-
 function handTop(s: SlingState): number {
   let top = -9;
   for (const id of ['LH', 'RH'] as LimbId[]) if (s.limbs[id].phase === 'held') top = Math.max(top, s.limbs[id].pos.y);
@@ -157,7 +144,6 @@ function options(c: Ctx, style: Style): Option[] {
   const s = c.sim;
   const out: Option[] = [];
   const finish = new Set(c.route.finish);
-  const fx = finishX(c.route);
   const taken = new Set(LIMBS.map((id) => s.limbs[id].holdId).filter((x) => x !== null));
   for (const limb of LIMBS) {
     const l = s.limbs[limb];
@@ -173,10 +159,8 @@ function options(c: Ctx, style: Style): Option[] {
     const holds = reachableHolds(s, c.holds, limb)
       .filter((h) => h.id !== l.holdId && (!taken.has(h.id) || (finish.has(h.id) && isHand(limb))))
       .filter((h) => !(isHand(limb) && h.type === 'foothold'))
-      // Up, mostly: nobody climbs down to climb up — unless down is across,
-      // toward the finish, the way a traverse goes.
-      .filter((h) => h.pos.y > l.pos.y - (isHand(limb) ? 0.05 : 0.15) || l.phase !== 'held'
-        || (h.pos.y > l.pos.y - 0.3 && Math.abs(h.pos.x - fx) < Math.abs(l.pos.x - fx) - 0.1))
+      // Up, mostly: nobody climbs down to climb up.
+      .filter((h) => h.pos.y > l.pos.y - (isHand(limb) ? 0.05 : 0.15) || l.phase !== 'held')
       // Feet go somewhere between under the hips and a high step beside them.
       .filter((h) => isHand(limb) || (h.pos.y < s.hip.y + 0.45 && h.pos.y > s.hip.y - 1.05))
       .sort((a, b) => b.pos.y - a.pos.y)
@@ -207,10 +191,7 @@ function judge(c: Ctx, o: Option, style: Style, visits: Map<string, number>): nu
   const onFinish = (['LH', 'RH'] as LimbId[]).filter((id) => s.limbs[id].phase === 'held' && finish.includes(s.limbs[id].holdId ?? -1)).length;
   if (isSlingSent(s, finish)) return 1e6 - ghost.pump.pump;
   const spent = ghost.pump.pump - c.pump.pump;
-  // Up, and across toward the finish: on the long routes most of the
-  // distance to the top is sideways.
-  const fx = finishX(c.route);
-  const progress = 2 * handTop(s) + s.hip.y + 1.2 * onFinish - 1.6 * handGap(s, fx) - 0.6 * Math.abs(s.hip.x - fx);
+  const progress = 2 * handTop(s) + s.hip.y + 1.2 * onFinish;
   const support = 0.35 * held;
   const care = style === 'efficient' ? 0.8 : 0.6;
   // Somewhere already been is somewhere that did not work out.

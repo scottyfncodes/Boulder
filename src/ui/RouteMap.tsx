@@ -8,13 +8,7 @@ import { GRADE_COLOR } from '../render/palette';
  * finish. No line drawn between them — working out the line is the game.
  */
 export function RouteMap({ route, className }: { route: Route; className?: string }) {
-  // The middle of the cave, or as much more of it as the route uses: the long
-  // routes go a long way across, and a map of the whole cave for a route up
-  // the middle is mostly empty wall.
-  const xs = route.holds.map((h) => Math.abs(h.pos.x));
-  const half = Math.min(WALL.maxX, Math.max(1.7, Math.max(...xs) + 0.2));
-  const left = -half;
-  const w = 2 * half;
+  const w = WALL.maxX - WALL.minX;
   const top = routeTop(route);
   const h = top - WALL.minY;
   // Steep bands shaded darker, so a roof reads on the map before you are under it.
@@ -27,7 +21,7 @@ export function RouteMap({ route, className }: { route: Route; className?: strin
   const starts = new Set(Object.values(route.start));
   const accent = GRADE_COLOR[route.grade];
   // SVG y runs down; the wall's runs up.
-  const sx = (x: number) => x - left;
+  const sx = (x: number) => x - WALL.minX;
   const sy = (y: number) => top - y;
   return (
     <svg
