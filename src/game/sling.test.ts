@@ -6,7 +6,7 @@ import {
   type SlingEvent, type SlingState,
   SLING, aimFromPull, bodySpeed, canDyno, canLaunch, cloneSling, dyno, gradeOfSeat, heldCount,
   initialSling, isSlingSent, launch, launchSpeed, limbPositions, placeLimb, placeableHolds, poseOf,
-  predictDyno, predictLaunch, reachableHolds, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
+  predictDyno, predictLaunch, reachableHolds, reachOutline, canReach, seatOn, stepSling, dynoWindup, assistLaunch, type LaunchAim, isBand, SLING_LIMITS,
   STUCK,
 } from './sling';
 import { anchorFor } from './body';
@@ -147,6 +147,59 @@ describe('reach', () => {
       pos: { x: anchor.x, y: anchor.y + 1.02 },
     };
     expect(reachableHolds(s, [...holds, far], 'RH').some((h) => h.id === 999)).toBe(true);
+  });
+
+  it('is not a circle round the shoulder: the body goes after the limb', () => {
+    const s = start();
+    run(s, 0.5);
+    const anchor = anchorFor('RH', s.hip, s.shoulder);
+    // Out to the side and up, well past arm's length from where the shoulder is.
+    const far: Hold = {
+      id: 999, type: 'jug', size: 0.115, dir: -Math.PI / 2,
+      pos: { x: anchor.x + 0.95, y: anchor.y + 0.75 },
+    };
+    expect(dist(anchor, far.pos)).toBeGreaterThan(SLING_LIMITS.ARM_MAX + 0.15);
+    const wall = [...holds.filter((h) => dist(h.pos, far.pos) > 0.5), far];
+    expect(reachableHolds(s, wall, 'RH').some((h) => h.id === 999)).toBe(true);
+    const aim = findAim(s, wall, 'RH', 999);
+    expect(aim).not.toBeNull();
+    const shoulder = { ...s.shoulder };
+    const events: SlingEvent[] = [];
+    launch(s, aim!, events);
+    for (let i = 0; i < Math.round(1.2 / SLING.dt); i++) stepSling(s, wall, SLING.dt, 0, events);
+    expect(events.some((e) => e.kind === 'catch' && e.holdId === 999)).toBe(true);
+    // To get there the climber moved: the shoulders went toward it.
+    expect(s.shoulder.x).toBeGreaterThan(shoulder.x + 0.1);
+  });
+
+  it('is shaped by what is still on: it bulges where the body can follow and is not everything', () => {
+    const s = start();
+    run(s, 0.5);
+    const anchor = anchorFor('RH', s.hip, s.shoulder);
+    const ring = reachOutline(s, 'RH').map((p) => dist(p, anchor));
+    expect(Math.max(...ring)).toBeGreaterThan(SLING_LIMITS.ARM_MAX * 1.25);
+    expect(Math.max(...ring) / Math.min(...ring)).toBeGreaterThan(1.15);
+    const tooFar: Hold = { id: 998, type: 'jug', size: 0.115, dir: -Math.PI / 2, pos: { x: anchor.x + 2.6, y: anchor.y } };
+    expect(reachableHolds(s, [tooFar], 'RH')).toHaveLength(0);
+  });
+
+  it('depends on the last move: the same hold is in reach from one stance and not another', () => {
+    const s = start();
+    run(s, 0.5);
+    // Take the left foot off: the hips lose the leg that held them back from
+    // going right, so the right hand gets further right — and less far down.
+    const footless = cloneSling(s);
+    footless.limbs.LF.phase = 'free';
+    footless.limbs.LF.holdId = null;
+    const anchor = anchorFor('RH', s.hip, s.shoulder);
+    const differ: boolean[] = [];
+    for (let dx = -2; dx <= 2; dx += 0.1) {
+      for (let dy = -2; dy <= 2; dy += 0.1) {
+        const p = { x: anchor.x + dx, y: anchor.y + dy };
+        differ.push(canReach(s, holds, 'RH', p) !== canReach(footless, holds, 'RH', p));
+      }
+    }
+    expect(differ.filter(Boolean).length).toBeGreaterThan(20);
   });
 });
 
@@ -393,7 +446,7 @@ describe('the aim preview is honest', () => {
 });
 
 describe('throwing past reach', () => {
-  it('stops at full stretch near where it was aimed, instead of whipping round the body', () => {
+  it('goes where it was aimed, the body following, instead of whipping round a fixed shoulder', () => {
     for (const limb of ['RH', 'RF'] as LimbId[]) {
       for (const deg of [30, 60, 90]) {
         const s = start();
@@ -404,7 +457,8 @@ describe('throwing past reach', () => {
         // Nothing to catch: the empty wall.
         const p = predictLaunch(s, [], { limb, dir, power: 1 });
         const end = Math.atan2(p.end.x - from.x, p.end.y - from.y);
-        expect(Math.abs(end - a)).toBeLessThan(0.2);
+        // Gravity bends a long throw down a little; it never swings it round.
+        expect(Math.abs(end - a)).toBeLessThan(0.4);
       }
     }
   });
@@ -447,11 +501,12 @@ describe('aim assist', () => {
       if (locked !== null) break;
     }
     expect(locked).not.toBeNull();
-    // Keep walking off the hold until a fresh aim no longer locks onto it.
+    // Keep walking off the hold until a fresh aim no longer ends up on it —
+    // straight on or steered.
     let lost: LaunchAim | null = null;
-    for (let d = deg; d <= deg + 30; d += 1) {
+    for (let d = deg; d <= deg + 60; d += 1) {
       const a = { limb: 'RH' as LimbId, dir: rotate(d), power: 0.62 };
-      if (assistLaunch(s, holds, a).assisted !== locked) { lost = a; break; }
+      if (assistLaunch(s, holds, a).prediction.caught?.holdId !== locked) { lost = a; break; }
     }
     expect(lost).not.toBeNull();
     // Already locked on, it stays on.
