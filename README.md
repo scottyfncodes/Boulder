@@ -115,6 +115,11 @@ for every metre past the first. The practice wall's dynos are free.
 hold in reach can be tapped, and it goes straight on. A limb that is holding on
 has to be flung.
 
+**Seeing your reach.** Pick up a limb and the camera zooms in or out and
+moves to show every hold that limb can get to, so the whole choice is on
+screen; put it down and the view eases back. Pinch to zoom the view yourself
+(the mouse wheel does the same on a desktop).
+
 **Restart.** The ↺ in the corner (or `R`) puts you back at the start and
 pulls straight back on. Before your first throw it is free and the onsight
 survives; after it, tap twice — it counts the way coming off does, a fall on
