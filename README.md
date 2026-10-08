@@ -124,10 +124,15 @@ you are in is, and it is the thing you are managing the whole way up. See
 **The body is a live thing.** Hip and shoulder are particles on a rigid torso.
 Each arm is a rope from the shoulder to the hand; each leg is a strut from the
 hip to the foot that pushes when the foot is below you and rocks you up when
-it is level with you. A launched limb flies under gravity until its tether
-goes taut, at which point the body gets yanked after it — that is the reach,
-and the limb is drawn exactly that long — straight at the edge of its reach, bent anywhere nearer, never stretched — and a big throw with a bad stance takes the rest of you somewhere. Let go with
-everything and you swing. Swing hard enough and holds let go.
+it is level with you. A launched limb flies under gravity until it is at full
+length, and then the body goes after it — hips shift, the torso leans, the
+climber moves their weight — for as long as the limb is still going the way
+it was thrown and the limbs still on the wall let the body follow. There is
+no fixed point it swings round. A reach that lands leaves the climber where
+the move put them, which is what decides the next one; a reach that catches
+nothing leaves the limb dangling and the body pulls back in to where it
+reached from. A big throw with a bad stance still takes the rest of you
+somewhere. Let go with everything and you swing. Swing hard enough and holds let go.
 
 **The ground is for falling onto.** Nobody stands on the mat: the climber
 starts on the start holds, and while anything is still holding on, a hand or
@@ -176,7 +181,8 @@ change which way gravity pulls in the wall's plane.
 ## How the game works
 
 **Aim is honest.** The trajectory you see is the trajectory the sim uses, the
-reach ring is the exact distance past which the limb cannot arrive, and the
+reach outline is the edge of where the limb can get to with the body following
+it (`src/game/reach.ts` solves it from what is still on the wall), and the
 landing reticle is where the limb will actually land. The game is hard because
 holds are small and bodies are awkward, not because the interface is lying.
 
@@ -310,6 +316,7 @@ already rewards clean placements once.
 ```
 src/game/      the sim — pure, deterministic, no DOM, no React
 src/game/sling.ts   the body: particles, tethers, launches, dynos, catches, slips
+src/game/reach.ts   free reach: where a limb can get to with the body following it
 src/game/pump.ts    the pump: effort from the wall, the limbs on, and moving
 src/game/profile.ts the wall's shape: where it bends, how far it leans
 src/game/climbBot.ts a climber that plays the real game, for tuning

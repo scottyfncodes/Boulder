@@ -40,8 +40,11 @@ export type PullView = {
   reachable: Hold[];
   /** Holds a dangling limb can simply be put back on. Tap one. */
   placeable: Hold[];
-  /** The tether: how far from its anchor this limb can possibly get. */
-  reach: { anchor: Vec2; radius: number } | null;
+  /**
+   * The reach envelope's edge: everywhere this limb can get to, the body
+   * moving after it as far as what is still on the wall allows.
+   */
+  reach: { outline: Vec2[] } | null;
 };
 
 /** The bands contracting after a release, drawn for a few frames. */
@@ -98,17 +101,21 @@ export function drawSlingOverlay(input: SlingOverlayInput): void {
   if (input.shout) drawShout(ctx, input.scene, input.shout);
 }
 
-/** The hard edge of what this limb can do from here. */
+/** The hard edge of what this limb can do from here, body and all. */
 function drawReachRing({ ctx, scene, pull }: SlingOverlayInput): void {
-  if (!pull || !pull.reach) return;
-  const a = scene.project(pull.reach.anchor, ARM_Z);
-  const e = scene.project({ x: pull.reach.anchor.x + pull.reach.radius, y: pull.reach.anchor.y }, ARM_Z);
+  if (!pull || !pull.reach || pull.reach.outline.length < 3) return;
   ctx.save();
+  ctx.beginPath();
+  pull.reach.outline.forEach((p, i) => {
+    const q = scene.project(p, ARM_Z);
+    if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  ctx.fill();
   ctx.setLineDash([5, 7]);
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = 'rgba(255,255,255,0.26)';
-  ctx.beginPath();
-  ctx.arc(a.x, a.y, Math.abs(e.x - a.x), 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
   ctx.stroke();
   ctx.restore();
 }

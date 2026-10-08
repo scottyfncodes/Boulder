@@ -7,6 +7,7 @@ import {
 import { clamp, clamp01, dist, len, norm, sub } from './vec';
 import { type WallProfile, ROOF_ANGLE, angleAt, flatProfile } from './profile';
 import type { ArmId, FootSupport, Posture } from './pump';
+import { type Envelope, type ReachLimits, envelopeOf, envelopeOutline, holdsInEnvelope, inEnvelope } from './reach';
 
 /**
  * Slingshot limbs.
@@ -119,8 +120,23 @@ export const SLING = {
    * stone on a string. How fast its sideways speed dies once taut, per second.
    */
   tautArrest: 25,
-  /** A taut limb moving slower than this against the body, m/s, has stalled: the throw is over. */
+  /** A taut limb moving slower than this, m/s, has stalled: the throw is over. */
   tautStall: 0.45,
+  /**
+   * While a limb reaches, the rest of the climber carries the body: arms
+   * pull, legs push, and the body goes where the reach takes it instead of
+   * sagging off it. This much of the body's weight is carried per limb still
+   * on the wall, up to all of it — one limb on is a desperate reach, two or
+   * more is a climber moving their weight.
+   */
+  reachCarry: 0.5,
+  /** How much of the body's speed survives a reach landing on its hold. */
+  reachSettle: 0.25,
+  /** Seconds a climber takes to pull back in after a reach that caught nothing. */
+  reachRecover: 0.6,
+  /** How hard they pull back: a spring to where they reached from, per second squared, and its damping. */
+  reachReturn: 55,
+  reachReturnDamp: 13,
   /** Seconds after a catch before the hold is asked whether it can take the load. */
   lockOnGrace: 0.16,
   /** Smoothing time for the load reading, seconds. */
@@ -171,6 +187,17 @@ const MAX_LEAN = 0.7;
 const STANCE_WIDTH = 0.26;
 /** Holds this close to where a limb was thrown from cannot catch it on the way out. */
 const LAUNCH_CLEAR = 0.16;
+/** The body limits the reach envelope is solved with: the same ones the step enforces. */
+/** Highest the shoulders go over the hands holding them while reaching: a press, not a mantle. */
+const REACH_PRESS = 0.3;
+/** How far a standing foot lets the hips go on a reach, as a fraction of the leg. */
+const REACH_FOOT = 0.93;
+/** Highest a reaching foot goes over its hip: a high step. */
+const HIGH_STEP = 0.45;
+const REACH_LIMITS: ReachLimits = {
+  arm: ARM_MAX, leg: LEG_MAX, maxLean: MAX_LEAN, hipMin: MAT_HIP_MIN + 0.1, stance: STANCE_WIDTH,
+  press: REACH_PRESS, highStep: HIGH_STEP, footHold: REACH_FOOT,
+};
 
 export type LimbPhase = 'held' | 'flying' | 'free';
 
@@ -209,6 +236,8 @@ export type SlingLimb = {
   hooked?: boolean;
   /** Where a thrown limb left its hold from, while it is still leaving. */
   launchAt?: Vec2 | null;
+  /** Which way a thrown limb was thrown: the body follows it only that way. */
+  launchDir?: Vec2 | null;
 };
 
 export type SlingState = {
@@ -232,6 +261,12 @@ export type SlingState = {
   dyno: boolean;
   /** Whether that was true at the end of the last step. */
   dynoLast: boolean;
+  /**
+   * Where the body was when a limb was thrown, and how long is left of
+   * getting back there after a reach that caught nothing. A climber who
+   * stretches out for a hold and misses pulls their weight back in.
+   */
+  reachHome?: { hip: Vec2; shoulder: Vec2; t: number } | null;
 };
 
 export type SlingEvent =
@@ -355,7 +390,7 @@ export function initialSling(
   const state: SlingState = {
     hip: { ...seed.hip }, hipV: { x: 0, y: 0 },
     shoulder: { ...seed.shoulder }, shV: { x: 0, y: 0 },
-    limbs, profile, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false,
+    limbs, profile, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false, reachHome: null,
   };
   state.heldLast = heldCount(state);
   // Let it settle. Heavy damping for the warm-up only, so the opening frame is
@@ -406,6 +441,7 @@ export function cloneSling(s: SlingState): SlingState {
     hip: { ...s.hip }, hipV: { ...s.hipV },
     shoulder: { ...s.shoulder }, shV: { ...s.shV },
     limbs,
+    reachHome: s.reachHome ? { hip: { ...s.reachHome.hip }, shoulder: { ...s.reachHome.shoulder }, t: s.reachHome.t } : null,
   };
 }
 
@@ -490,6 +526,8 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   l.zone = null;
   l.grade = null;
 
+  l.launchDir = { ...d };
+  state.reachHome = { hip: { ...state.hip }, shoulder: { ...state.shoulder }, t: 0 };
   const bodyV = isHand(aim.limb) ? state.shV : state.hipV;
   l.vel = { x: bodyV.x + d.x * speed, y: bodyV.y + d.y * speed };
   l.prev = { ...l.pos };
@@ -767,13 +805,15 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
   state.shV.y += d.y * speed;
   state.dyno = true;
   state.left = true;
+  state.reachHome = null;
   events.push({ kind: 'dyno', from, power: aim.power });
   return true;
 }
 
 /**
- * Holds a dangling limb can simply be put back on: in reach of its anchor,
- * usable by it, and not already full.
+ * Holds a dangling limb can simply be put back on: in reach of where its
+ * shoulder or hip is right now, usable by it, and not already full. Putting a
+ * limb on does not move the body; getting somewhere further is a throw.
  */
 export function placeableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
   const l = state.limbs[limb];
@@ -816,6 +856,44 @@ export function placeLimb(
   l.capacity = capacityOf(hold, l, anchorFor(limb, state.hip, state.shoulder));
   events.push({ kind: 'place', limb, holdId: hold.id, at: { ...l.pos } });
   return true;
+}
+
+// --- reach -----------------------------------------------------------------
+
+const envCache = new WeakMap<SlingState, { key: string; env: Record<string, Envelope> }>();
+
+/**
+ * Everywhere a limb can get to from here, with the body free to move after
+ * it as far as everything still on the wall allows (`reach.ts`). This, not a
+ * circle round the shoulder, is the reach.
+ */
+export function reachEnvelope(state: SlingState, limb: LimbId): Envelope {
+  const key = [state.hip.x, state.hip.y, state.shoulder.x, state.shoulder.y,
+    ...LIMBS.flatMap((id) => [state.limbs[id].pos.x, state.limbs[id].pos.y, state.limbs[id].phase, state.limbs[id].hooked ? 1 : 0])].join(',');
+  let c = envCache.get(state);
+  if (!c || c.key !== key) {
+    c = { key, env: {} };
+    envCache.set(state, c);
+  }
+  if (!c.env[limb]) {
+    const limbs = {} as Record<LimbId, { pos: Vec2; held: boolean; hooked?: boolean }>;
+    for (const id of LIMBS) {
+      const l = state.limbs[id];
+      limbs[id] = { pos: l.pos, held: l.phase === 'held', hooked: l.hooked };
+    }
+    c.env[limb] = envelopeOf({ hip: state.hip, shoulder: state.shoulder, limbs }, limb, REACH_LIMITS);
+  }
+  return c.env[limb];
+}
+
+/** Whether a limb can get to a point from here, the body coming with it. */
+export function canReach(state: SlingState, _holds: Hold[], limb: LimbId, p: Vec2): boolean {
+  return inEnvelope(reachEnvelope(state, limb), p);
+}
+
+/** The reach envelope's edge, as a ring of points round the limb's anchor, for drawing. */
+export function reachOutline(state: SlingState, limb: LimbId, n = 96): Vec2[] {
+  return envelopeOutline(reachEnvelope(state, limb), anchorFor(limb, state.hip, state.shoulder), n);
 }
 
 // --- holds ---------------------------------------------------------------
@@ -962,14 +1040,32 @@ export function stepSling(
   /** Hands on, or the body hanging off a hooked foot: either keeps it on the wall. */
   const hanging = (n: number) => n > 0 || hooks > 0;
 
+  // A limb in the air on purpose: the body is going after it, and the feet
+  // stay on while it does — a climber reaching does not step off their feet.
+  const home = state.reachHome && state.reachHome.t > 0 && !state.dyno ? state.reachHome : null;
+  const reaching = !state.dyno && (LIMBS.some((id) => state.limbs[id].phase === 'flying') || !!home);
+
   // Counted at the end of the previous step, not the start of this one, so a
   // launch between steps still reads as letting go.
   const heldBefore = state.heldLast;
 
   // --- 1. forces -----------------------------------------------------------
-  // Gravity, with an overhang costing the arms more than the feet can give back.
-  state.hipV.y -= g * (1 + 0.25 * hang) * dt;
-  state.shV.y -= g * (1 + 0.25 * hang) * dt;
+  // Gravity, with an overhang costing the arms more than the feet can give back
+  // — less whatever the limbs still on are carrying while one reaches.
+  const carried = reaching ? Math.min(1, SLING.reachCarry * heldCount(state)) : 0;
+  state.hipV.y -= g * (1 + 0.25 * hang) * (1 - carried) * dt;
+  state.shV.y -= g * (1 + 0.25 * hang) * (1 - carried) * dt;
+  if (home) {
+    // Missed: back in to where the reach started, as long as something is on to pull from.
+    if (heldCount(state) > 0) {
+      for (const [p, v, to] of [[state.hip, state.hipV, home.hip], [state.shoulder, state.shV, home.shoulder]] as const) {
+        v.x += ((to.x - p.x) * SLING.reachReturn - v.x * SLING.reachReturnDamp) * dt;
+        v.y += ((to.y - p.y) * SLING.reachReturn - v.y * SLING.reachReturnDamp) * dt;
+      }
+    }
+    home.t -= dt;
+    if (home.t <= 0) state.reachHome = null;
+  }
 
   let handsOn = 0;
   // Muscle: the spring part of each limb's load, on top of what the rope carries.
@@ -1055,7 +1151,8 @@ export function stepSling(
     // Nothing rights a body with no hand on it: that is the whole reason it
     // is about to leave.
     if (sw > 0 && (hanging(handsOn) || state.dyno)) {
-      const a = (sx / sw - state.hip.x) * SLING.restore * g;
+      // Reaching, the climber leans out on purpose; the pull back comes after.
+      const a = (sx / sw - state.hip.x) * SLING.restore * g * (1 - carried);
       state.hipV.x += a * dt;
       state.shV.x += a * dt;
     }
@@ -1118,6 +1215,11 @@ export function stepSling(
   }
 
   // --- 3. constraints --------------------------------------------------------
+  let pressTop: number | null = null;
+  for (const id of ['LH', 'RH'] as LimbId[]) {
+    const l = state.limbs[id];
+    if (l.phase === 'held') pressTop = Math.max(pressTop ?? -Infinity, l.pos.y + REACH_PRESS);
+  }
   const corr = { LH: 0, RH: 0, LF: 0, RF: 0 } as Record<LimbId, number>;
   const footPopped = new Set<LimbId>();
   const wHip = 1 / SLING.massHip;
@@ -1157,14 +1259,18 @@ export function stepSling(
 
       if (l.phase === 'held') {
         // Pinned tip: all the correction lands on the body.
-        if (!hand && L > maxL && !l.hooked) {
+        if (!hand && L > maxL && !l.hooked && !reaching) {
           // A foot standing on something cannot hang from it. Fall away from
-          // it and it is gone. A hooked one can.
+          // it and it is gone. A hooked one can. While a limb is reaching the
+          // feet are where the body pushes from, so they bound it instead.
           footPopped.add(id);
           continue;
         }
-        if (L > maxL) {
-          const C = L - maxL;
+        // A standing foot bounds a reach a little short of full stretch, so
+        // the body it lets go to is one the foot can still stand under.
+        const holdL = !hand && reaching && !l.hooked ? maxL * REACH_FOOT : maxL;
+        if (L > holdL) {
+          const C = L - holdL;
           body.x += nx * C;
           body.y += ny * C;
           corr[id] += C;
@@ -1180,11 +1286,21 @@ export function stepSling(
       const wsum = wt + wb;
       if (L > maxL) {
         const C = L - maxL;
-        l.pos.x -= nx * C * (wt / wsum);
-        l.pos.y -= ny * C * (wt / wsum);
-        body.x += nx * C * (wb / wsum);
-        body.y += ny * C * (wb / wsum);
-      } else if (L < minL) {
+        // Free reach: a limb at full stretch does not swing round a fixed
+        // shoulder — the body goes after it, hips shifting and torso leaning.
+        // Everything still on the wall pulls the body back to where it can
+        // be, and the limb stops there (below): that is the edge of the reach.
+        // A foot going up past a high step is a hook, and the hips do not
+        // climb after it: that is the old tether, the limb stopping.
+        const follows = l.phase === 'flying' && reaching && (hand || l.pos.y <= state.hip.y + HIGH_STEP);
+        const toLimb = follows ? 0 : wt / wsum;
+        l.pos.x -= nx * C * toLimb;
+        l.pos.y -= ny * C * toLimb;
+        body.x += nx * C * (1 - toLimb);
+        body.y += ny * C * (1 - toLimb);
+      } else if (L < minL && !(l.phase === 'flying' && reaching)) {
+        // (A limb reaching past its own shoulder or hip goes by in front of
+        // it — a knee bends, an arm crosses — rather than bouncing off it.)
         const C = minL - L;
         l.pos.x += nx * C * (wt / wsum);
         l.pos.y += ny * C * (wt / wsum);
@@ -1207,6 +1323,10 @@ export function stepSling(
       }
     }
 
+    // Reaching, the shoulders go no higher than a press over the hands that
+    // are holding them: a climber pulls up to a hold, they do not float over it.
+    if (reaching && pressTop !== null && state.shoulder.y > pressTop) state.shoulder.y = pressTop;
+
     // The mat. Bodies stop at it; so do limbs — and while anything is still
     // holding on, a loose limb does not get that far: only a fall puts a
     // hand or a foot on the ground.
@@ -1218,6 +1338,22 @@ export function stepSling(
       if (l.phase !== 'held' && l.pos.y < floorY) {
         l.pos.y = floorY;
         if (l.vel.y < 0) l.vel.y = 0;
+      }
+    }
+  }
+
+  // A reaching limb goes as far as the body could follow it, and no further.
+  if (reaching) {
+    for (const id of LIMBS) {
+      const l = state.limbs[id];
+      if (l.phase !== 'flying') continue;
+      const anchor = anchorFor(id, state.hip, state.shoulder);
+      const max = isHand(id) ? ARM_MAX : LEG_MAX;
+      const d = sub(l.pos, anchor);
+      const L = len(d);
+      if (L > max) {
+        l.pos.x = anchor.x + (d.x / L) * max;
+        l.pos.y = anchor.y + (d.y / L) * max;
       }
     }
   }
@@ -1359,6 +1495,15 @@ export function stepSling(
         kind: 'catch', limb: id, holdId: caught.hold.id, at: { ...l.pos }, grade, seat, zone, speed,
         dyno: state.dyno,
       });
+      // A reach that lands is a climber arriving, not a body still flying:
+      // they stop their weight where the move put it. (A dyno's catch is
+      // the opposite — that is the whole point of it.)
+      state.reachHome = null;
+      if (!state.dyno) {
+        const keep = SLING.reachSettle;
+        state.hipV.x *= keep; state.hipV.y *= keep;
+        state.shV.x *= keep; state.shV.y *= keep;
+      }
       // A hand on something: the dyno is over, whatever the other hand does.
       state.dyno = false;
       continue;
@@ -1369,17 +1514,20 @@ export function stepSling(
     const anchor = anchorFor(id, state.hip, state.shoulder);
     const limbLen = isHand(id) ? BODY.arm : BODY.leg;
     const hanging = l.flightT > 0.25 && l.pos.y < anchor.y - limbLen * 0.55 && len(l.vel) < 1.0;
-    // Out at full stretch and stopped: that is as far as this throw goes.
-    // Stopped relative to the body: a body sagging under it is not the throw.
-    const bv = isHand(id) ? state.shV : state.hipV;
-    const stalled = l.taut && l.flightT > 0.12 && !state.dyno
-      && Math.hypot(l.vel.x - bv.x, l.vel.y - bv.y) < SLING.tautStall;
+    // Out at full stretch and no longer going the way it was thrown: that is
+    // as far as this reach goes. A limb dragging the body along with it is
+    // still going, however still it is against the body; one sagging back
+    // under gravity is not, and the body does not go down with it.
+    const dir = l.launchDir ?? norm(l.vel);
+    const onward = l.vel.x * dir.x + l.vel.y * dir.y;
+    const stalled = l.taut && l.flightT > 0.12 && !state.dyno && onward < SLING.tautStall;
     const floored = l.pos.y <= groundFloor(state) + 0.005;
     const maxFlight = state.dyno ? SLING.dynoFlight : SLING.flightMax;
     if (l.flightT >= maxFlight || (hanging && !state.dyno) || stalled || floored) {
       l.phase = 'free';
       l.touch = null;
       l.flightT = 0;
+      if (!state.dyno && state.reachHome) state.reachHome.t = SLING.reachRecover;
       events.push({
         kind: 'miss', limb: id, at: { ...l.pos },
         reason: state.dyno ? 'Caught nothing but air.' : missReason(state, l, holds),
@@ -1611,14 +1759,9 @@ export function predictDyno(
   return { path, caught, hands: hands() };
 }
 
-/** Holds a limb could plausibly be thrown at from here: within the tether, usable, not taken. */
+/** Holds a limb could plausibly be thrown at from here: in its reach envelope, usable, not taken. */
 export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
-  const anchor = anchorFor(limb, state.hip, state.shoulder);
-  const max = (isHand(limb) ? ARM_MAX : LEG_MAX) + 0.05;
-  const blocked = blockedHolds(state, holds, limb);
-  return holds.filter((h) =>
-    canUse(h.type, limb) && !blocked.has(h.id) && dist(anchor, h.pos) <= max + contactRadius(h.size, h.type),
-  );
+  return holdsInEnvelope(reachEnvelope(state, limb), holds, blockedHolds(state, holds, limb), 0.05);
 }
 
 /** How far off a hold a throw can be and still be steered onto it, radians. */
