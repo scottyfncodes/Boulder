@@ -172,6 +172,27 @@ describe('reach', () => {
     expect(s.shoulder.x).toBeGreaterThan(shoulder.x + 0.1);
   });
 
+  it('puts every hold in reach in play, whatever is in front of it', () => {
+    const s = start();
+    run(s, 0.5);
+    for (const limb of LIMBS) {
+      const l = s.limbs[limb];
+      const taken = new Set(LIMBS.map((id) => s.limbs[id].holdId));
+      const inReach = reachableHolds(s, holds, limb).filter((h) => !taken.has(h.id));
+      expect(inReach.length).toBeGreaterThan(2);
+      let got = 0;
+      for (const h of inReach) {
+        const d = dist(h.pos, l.pos);
+        const dir = { x: (h.pos.x - l.pos.x) / d, y: (h.pos.y - l.pos.y) / d };
+        for (let power = 0.1; power <= 1 + 1e-9; power += 0.05) {
+          if (assistLaunch(s, holds, { limb, dir, power }).prediction.caught?.holdId === h.id) { got++; break; }
+        }
+      }
+      // Two holds set on the same spot can only be told apart by which is nearer.
+      expect(got).toBeGreaterThanOrEqual(inReach.length - 1);
+    }
+  });
+
   it('is shaped by what is still on: it bulges where the body can follow and is not everything', () => {
     const s = start();
     run(s, 0.5);
@@ -515,10 +536,13 @@ describe('aim assist', () => {
     expect(kept.prediction.caught?.holdId).toBe(locked);
   });
 
-  it('leaves a throw alone that already catches, or is nowhere near anything', () => {
+  it('turns a throw at a hold into a reach for it, and leaves one at nothing alone', () => {
     const s = start();
     const good = { limb: 'RH' as LimbId, dir: { x: 0, y: 1 }, power: 0.62 };
-    expect(assistLaunch(s, holds, good)).toMatchObject({ aim: good, assisted: null });
+    const plain = predictLaunch(s, holds, good).caught?.holdId;
+    const reach = assistLaunch(s, holds, good);
+    expect(reach.assisted).toBe(plain);
+    expect(reach.prediction.caught?.holdId).toBe(plain);
     const wild = { limb: 'RH' as LimbId, dir: { x: 0, y: -1 }, power: 0.6 };
     expect(assistLaunch(s, holds, wild)).toMatchObject({ aim: wild, assisted: null });
   });
