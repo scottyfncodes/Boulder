@@ -1,6 +1,6 @@
 import type { Hold, LimbId, Vec2 } from './types';
 import {
-  type DynoPrediction, type LaunchAim, type Prediction, type SlingState, SLING, dynoWindup, predictDyno,
+  type DynoPrediction, type LaunchAim, type Prediction, type SlingState, SLING, dynoWindup, pickTarget, predictDyno,
   predictLaunch, windupPos,
 } from './sling';
 import { clamp01 } from './vec';
@@ -14,7 +14,10 @@ import { clamp01 } from './vec';
  * position is always the same throw: the arc on screen is the throw that
  * goes, and it only changes when the finger crosses to the next notch.
  *
- * Aim assist is a fan in the real physics, not a guess at a plain arc: the
+ * A pull is a reach for a hold first: where it points and how hard pick a
+ * hold anywhere in the reach envelope (`pickTarget`), and the limb goes to
+ * it, whatever is in front of it. Only a pull that points at nothing in reach
+ * is a plain throw, and for that, aim assist is a fan in the real physics: the
  * throws either side of yours, nearest first, a few more each frame, until
  * one catches something. Because the nearest are tried first, the first catch
  * found is the closest one there is, and the answer never jumps back. A hold
@@ -42,6 +45,7 @@ export type AimResult = {
 
 export class AimSearch {
   private memo = new Map<string, { aim: LaunchAim; prediction: Prediction }>();
+  private reaches = new Map<string, { aim: LaunchAim; prediction: Prediction; hold: number } | null>();
   private dynoMemo = new Map<string, { prediction: DynoPrediction; wind: Vec2 }>();
   /** The hold the last answer was on, if any. */
   lock: number | null = null;
@@ -71,6 +75,25 @@ export class AimSearch {
       if (Math.abs(p - pq) < STICK) q = pq;
     }
     return { angle: k * AIM_STEP, power: q * POWER_STEP };
+  }
+
+  /** The reach for a notch, if it points at a hold in reach, played forward once and kept. */
+  private reachAt(limb: LimbId, k: number, power: number): { aim: LaunchAim; prediction: Prediction; hold: number } | null {
+    const angle = k * AIM_STEP;
+    const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+    const from = windupPos(this.state, limb, { x: -dir.x, y: -dir.y }, power);
+    const base: LaunchAim = { limb, dir, power, from };
+    // Picking the hold is geometry, and cheap; playing it forward is kept.
+    const hold = pickTarget(this.state, this.holds, base, this.lock);
+    if (!hold) return null;
+    const key = `${limb}:${k}:${Math.round(power / POWER_STEP)}:${hold.id}`;
+    const known = this.reaches.get(key);
+    if (known !== undefined) return known;
+    const aim = { ...base, target: { id: hold.id, at: { ...hold.pos } } };
+    const prediction = predictLaunch(this.state, this.holds, aim, 1.5);
+    const hit = prediction.caught?.holdId === hold.id ? { aim, prediction, hold: hold.id } : null;
+    this.reaches.set(key, hit);
+    return hit;
   }
 
   /** The throw for a notch, played forward once and kept. */
@@ -103,6 +126,10 @@ export class AimSearch {
       if (!this.known(limb, k, power)) budget--;
       return this.throwAt(limb, k, power);
     };
+    if (power >= SLING.minPower) {
+      const reach = this.reachAt(limb, k0, power);
+      if (reach) return this.answer(reach, true);
+    }
     const raw = spend(k0);
     if (raw.prediction.caught || power < SLING.minPower) {
       this.lock = raw.prediction.caught?.holdId ?? null;

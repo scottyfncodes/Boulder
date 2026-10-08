@@ -136,39 +136,68 @@ export function inEnvelope(env: Envelope, p: Vec2, slack = 0): boolean {
 }
 
 /**
+ * The body pose nearest the current one from which the limb reaches `p`.
+ * Nearest, so a reach moves the body no more than it has to. When no pose
+ * gets all the way — a hold only in reach by the width of its edge — the one
+ * that gets closest.
+ */
+export function poseFor(env: Envelope, p: Vec2, from: BodyPose): BodyPose {
+  let best: BodyPose | null = null;
+  let bestD = Infinity;
+  let closest = env.poses[0];
+  let closestGap = Infinity;
+  for (let i = 0; i < env.anchors.length; i++) {
+    const q = env.poses[i];
+    const gap = Math.max(dist(env.anchors[i], p) - env.max, p.y - env.tops[i]);
+    if (gap > 0) {
+      if (gap < closestGap) { closestGap = gap; closest = q; }
+      continue;
+    }
+    const d = dist(q.hip, from.hip) + dist(q.shoulder, from.shoulder);
+    if (d < bestD) { bestD = d; best = q; }
+  }
+  return best ?? closest;
+}
+
+/** How far the envelope goes from `centre` along the unit direction `d`. */
+export function envelopeExtent(env: Envelope, centre: Vec2, d: Vec2): number {
+  const r = env.max;
+  let far = 0;
+  for (let k = 0; k < env.anchors.length; k++) {
+    const a = env.anchors[k];
+    // The stretch of the ray centre + s·d inside the disc round `a`...
+    const ox = centre.x - a.x;
+    const oy = centre.y - a.y;
+    const b = ox * d.x + oy * d.y;
+    const c = ox * ox + oy * oy - r * r;
+    const disc = b * b - c;
+    if (disc < 0) continue;
+    let lo = -b - Math.sqrt(disc);
+    let hi = -b + Math.sqrt(disc);
+    // ...and under that pose's ceiling.
+    const top = env.tops[k];
+    if (top !== Infinity) {
+      if (Math.abs(d.y) < 1e-9) { if (centre.y > top) continue; }
+      else if (d.y > 0) hi = Math.min(hi, (top - centre.y) / d.y);
+      else lo = Math.max(lo, (top - centre.y) / d.y);
+    }
+    if (hi >= Math.max(lo, 0) && hi > far) far = hi;
+  }
+  return far;
+}
+
+/**
  * The outline of the envelope as a ring of points around the limb's anchor:
  * in each direction, the furthest the limb can get. Not a circle — it bulges
  * wherever the body can follow and pinches wherever it is pinned.
  */
 export function envelopeOutline(env: Envelope, centre: Vec2, n = 96): Vec2[] {
   const out: Vec2[] = [];
-  const r = env.max;
   for (let i = 0; i < n; i++) {
     const t = (i / n) * Math.PI * 2;
-    const dx = Math.cos(t);
-    const dy = Math.sin(t);
-    let far = 0;
-    for (let k = 0; k < env.anchors.length; k++) {
-      const a = env.anchors[k];
-      // The stretch of the ray centre + s·d inside the disc round `a`...
-      const ox = centre.x - a.x;
-      const oy = centre.y - a.y;
-      const b = ox * dx + oy * dy;
-      const c = ox * ox + oy * oy - r * r;
-      const disc = b * b - c;
-      if (disc < 0) continue;
-      let lo = -b - Math.sqrt(disc);
-      let hi = -b + Math.sqrt(disc);
-      // ...and under that pose's ceiling.
-      const top = env.tops[k];
-      if (top !== Infinity) {
-        if (Math.abs(dy) < 1e-9) { if (centre.y > top) continue; }
-        else if (dy > 0) hi = Math.min(hi, (top - centre.y) / dy);
-        else lo = Math.max(lo, (top - centre.y) / dy);
-      }
-      if (hi >= Math.max(lo, 0) && hi > far) far = hi;
-    }
-    out.push({ x: centre.x + dx * far, y: centre.y + dy * far });
+    const d = { x: Math.cos(t), y: Math.sin(t) };
+    const far = envelopeExtent(env, centre, d);
+    out.push({ x: centre.x + d.x * far, y: centre.y + d.y * far });
   }
   return out;
 }

@@ -7,7 +7,7 @@ import {
 import { clamp, clamp01, dist, len, norm, sub } from './vec';
 import { type WallProfile, ROOF_ANGLE, angleAt, flatProfile } from './profile';
 import type { ArmId, FootSupport, Posture } from './pump';
-import { type Envelope, type ReachLimits, envelopeOf, envelopeOutline, holdsInEnvelope, inEnvelope } from './reach';
+import { type Envelope, type ReachLimits, envelopeExtent, envelopeOf, envelopeOutline, holdsInEnvelope, inEnvelope, poseFor } from './reach';
 
 /**
  * Slingshot limbs.
@@ -114,6 +114,10 @@ export const SLING = {
   iterations: 10,
   /** How long a launched limb can still catch something, seconds. */
   flightMax: 0.85,
+  /** A reach for a hold can take longer: it is going somewhere, not falling. */
+  reachFlightMax: 1.3,
+  /** Slowest a limb moves on a reach for a hold, m/s, however gently it was pulled. */
+  reachSpeed: 3.2,
   /**
    * A thrown limb that reaches full stretch stops there, the way an arm does
    * at the end of a reach, rather than whipping round its shoulder like a
@@ -238,6 +242,8 @@ export type SlingLimb = {
   launchAt?: Vec2 | null;
   /** Which way a thrown limb was thrown: the body follows it only that way. */
   launchDir?: Vec2 | null;
+  /** The hold a reach is going for. It goes there, past anything on the way. */
+  target?: number | null;
 };
 
 export type SlingState = {
@@ -267,6 +273,8 @@ export type SlingState = {
    * stretches out for a hold and misses pulls their weight back in.
    */
   reachHome?: { hip: Vec2; shoulder: Vec2; t: number } | null;
+  /** Where the body is going to get a limb onto the hold it is reaching for. */
+  reachPose?: { hip: Vec2; shoulder: Vec2 } | null;
 };
 
 export type SlingEvent =
@@ -297,6 +305,12 @@ export type LaunchAim = {
    * against the pull. Left out, it fires from wherever it is.
    */
   from?: Vec2;
+  /**
+   * The hold this is a reach for, picked from the reach envelope by where the
+   * pull points and how hard it is. The limb goes to it rather than flying
+   * blind and grabbing whatever it passes. Left out, it is a plain throw.
+   */
+  target?: { id: number; at: Vec2 } | null;
 };
 
 function bodyMass(): number {
@@ -390,7 +404,7 @@ export function initialSling(
   const state: SlingState = {
     hip: { ...seed.hip }, hipV: { x: 0, y: 0 },
     shoulder: { ...seed.shoulder }, shV: { x: 0, y: 0 },
-    limbs, profile, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false, reachHome: null,
+    limbs, profile, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false, reachHome: null, reachPose: null,
   };
   state.heldLast = heldCount(state);
   // Let it settle. Heavy damping for the warm-up only, so the opening frame is
@@ -442,6 +456,7 @@ export function cloneSling(s: SlingState): SlingState {
     shoulder: { ...s.shoulder }, shV: { ...s.shV },
     limbs,
     reachHome: s.reachHome ? { hip: { ...s.reachHome.hip }, shoulder: { ...s.reachHome.shoulder }, t: s.reachHome.t } : null,
+    reachPose: s.reachPose ? { hip: { ...s.reachPose.hip }, shoulder: { ...s.reachPose.shoulder } } : null,
   };
 }
 
@@ -504,6 +519,12 @@ export function launchSpeed(limb: LimbId, power: number): number {
 export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] = []): boolean {
   if (!canLaunch(state, aim.limb)) return false;
   if (aim.power < SLING.minPower) return false;
+  // A reach for a hold: where the body has to be to get the limb onto it.
+  let pose: { hip: Vec2; shoulder: Vec2 } | null = null;
+  if (aim.target) {
+    const p = poseFor(reachEnvelope(state, aim.limb), aim.target.at, { hip: state.hip, shoulder: state.shoulder });
+    pose = { hip: { ...p.hip }, shoulder: { ...p.shoulder } };
+  }
   const l = state.limbs[aim.limb];
   const d = norm(aim.dir);
   const speed = launchSpeed(aim.limb, aim.power);
@@ -527,6 +548,8 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   l.grade = null;
 
   l.launchDir = { ...d };
+  l.target = aim.target?.id ?? null;
+  state.reachPose = pose;
   state.reachHome = { hip: { ...state.hip }, shoulder: { ...state.shoulder }, t: 0 };
   const bodyV = isHand(aim.limb) ? state.shV : state.hipV;
   l.vel = { x: bodyV.x + d.x * speed, y: bodyV.y + d.y * speed };
@@ -785,6 +808,7 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
     l.heldT = 0;
     l.touch = null;
     l.brushedChip = false;
+    l.target = null;
     l.prev = { ...l.pos };
     if (isHand(id)) {
       l.phase = 'flying';
@@ -806,6 +830,7 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
   state.dyno = true;
   state.left = true;
   state.reachHome = null;
+  state.reachPose = null;
   events.push({ kind: 'dyno', from, power: aim.power });
   return true;
 }
@@ -889,6 +914,50 @@ export function reachEnvelope(state: SlingState, limb: LimbId): Envelope {
 /** Whether a limb can get to a point from here, the body coming with it. */
 export function canReach(state: SlingState, _holds: Hold[], limb: LimbId, p: Vec2): boolean {
   return inEnvelope(reachEnvelope(state, limb), p);
+}
+
+/** How far either side of the pull a hold can be and still be the one reached for, radians. */
+const TARGET_CONE = 0.5;
+/** And for the hold the aim is already on, so it does not flicker off it. */
+const TARGET_STICKY = 0.7;
+/** And for a hold another limb is already on: only straight at it. */
+const TARGET_MATCH = 0.12;
+
+/**
+ * Which hold a pull is reaching for. The direction says where; how hard says
+ * how far, as a share of everything the envelope allows that way — a light
+ * pull takes the near hold, a full one the far one. Any hold in the envelope
+ * can be picked this way, whatever is in front of it. Null when nothing in
+ * reach is anywhere near the way the pull points.
+ */
+export function pickTarget(
+  state: SlingState, holds: Hold[], aim: LaunchAim, prefer: number | null = null,
+): Hold | null {
+  if (state.fallen || aim.power < SLING.minPower) return null;
+  const l = state.limbs[aim.limb];
+  const from = aim.from ?? l.pos;
+  const env = reachEnvelope(state, aim.limb);
+  const dir = norm(aim.dir);
+  const far = Math.max(envelopeExtent(env, from, dir), 0.3);
+  const want = clamp01(aim.power) * far;
+  const chosen = Math.atan2(dir.y, dir.x);
+  // Matching is something to mean: a hold another limb is on is only reached
+  // for when the pull points right at it.
+  const taken = new Set(LIMBS.filter((id) => id !== aim.limb).map((id) => state.limbs[id].holdId));
+  let best: Hold | null = null;
+  let bestScore = Infinity;
+  for (const h of reachableHolds(state, holds, aim.limb)) {
+    if (h.id === l.holdId) continue;
+    const to = sub(h.pos, from);
+    const d = len(to);
+    if (d < 0.05) continue;
+    const gap = angleGap(Math.atan2(to.y, to.x), chosen);
+    const cone = taken.has(h.id) ? TARGET_MATCH : h.id === prefer ? TARGET_STICKY : TARGET_CONE;
+    if (gap > cone) continue;
+    const score = Math.abs(d - want) / far + 0.5 * (gap / TARGET_CONE) - (h.id === prefer ? 0.15 : 0);
+    if (score < bestScore) { bestScore = score; best = h; }
+  }
+  return best;
 }
 
 /** The reach envelope's edge, as a ring of points round the limb's anchor, for drawing. */
@@ -1055,6 +1124,15 @@ export function stepSling(
   const carried = reaching ? Math.min(1, SLING.reachCarry * heldCount(state)) : 0;
   state.hipV.y -= g * (1 + 0.25 * hang) * (1 - carried) * dt;
   state.shV.y -= g * (1 + 0.25 * hang) * (1 - carried) * dt;
+  if (state.reachPose && reaching && !home && heldCount(state) > 0) {
+    // Reaching for a hold: the climber moves their body to where the limb
+    // gets there — hips over, torso leaning, as little as it takes.
+    const to = state.reachPose;
+    for (const [p, v, q] of [[state.hip, state.hipV, to.hip], [state.shoulder, state.shV, to.shoulder]] as const) {
+      v.x += ((q.x - p.x) * SLING.reachReturn - v.x * SLING.reachReturnDamp) * dt;
+      v.y += ((q.y - p.y) * SLING.reachReturn - v.y * SLING.reachReturnDamp) * dt;
+    }
+  }
   if (home) {
     // Missed: back in to where the reach started, as long as something is on to pull from.
     if (heldCount(state) > 0) {
@@ -1076,6 +1154,18 @@ export function stepSling(
       // A thrown limb flies flat; on a dyno the hands fall with the body,
       // because the body is the thing that was thrown.
       const flat = l.phase === 'flying' && !state.dyno;
+      const goal = flat && l.target != null ? map.get(l.target) : undefined;
+      if (goal) {
+        // A reach for a hold: the climber puts the limb on it. Straight
+        // there, at least briskly, the body coming along behind.
+        const to = sub(goal.pos, l.pos);
+        const d = len(to);
+        if (d > 1e-6) {
+          const speed = Math.max(len(l.vel), SLING.reachSpeed);
+          l.vel = { x: (to.x / d) * speed, y: (to.y / d) * speed };
+        }
+        continue;
+      }
       l.vel.y -= g * (flat ? SLING.flyGravity : 1) * dt;
       continue;
     }
@@ -1434,7 +1524,8 @@ export function stepSling(
     let near: { hold: Hold; at: Vec2; d: number } | null = null;
     const passing = state.dyno && l.vel.y > SLING.dynoPass;
     if (passing) l.touch = null;
-    for (const h of passing ? [] : holds) {
+    const aimedAt = !state.dyno && l.target != null ? map.get(l.target) : undefined;
+    for (const h of passing ? [] : aimedAt ? [aimedAt] : holds) {
       if (blocked.has(h.id)) continue;
       if (!canUse(h.type, id)) {
         if (closestOnSegment(h.pos, l.prev, l.pos).d <= contactRadius(h.size, h.type)) l.brushedChip = true;
@@ -1445,7 +1536,7 @@ export function stepSling(
       if (h.id === l.leftHoldId) continue;
       // Nor does the jug right next to it, while the limb is still leaving:
       // a foot thrown off a chip is not caught by the hand hold beside it.
-      if (l.launchAt && dist(h.pos, l.launchAt) < LAUNCH_CLEAR && dist(l.pos, l.launchAt) < LAUNCH_CLEAR + 0.08) continue;
+      if (!aimedAt && l.launchAt && dist(h.pos, l.launchAt) < LAUNCH_CLEAR && dist(l.pos, l.launchAt) < LAUNCH_CLEAR + 0.08) continue;
       const r = contactRadius(h.size, h.type);
       const { at, d } = closestOnSegment(h.pos, l.prev, l.pos);
       if (d <= r && (!near || d < near.d)) near = { hold: h, at, d };
@@ -1499,6 +1590,7 @@ export function stepSling(
       // they stop their weight where the move put it. (A dyno's catch is
       // the opposite — that is the whole point of it.)
       state.reachHome = null;
+      state.reachPose = null;
       if (!state.dyno) {
         const keep = SLING.reachSettle;
         state.hipV.x *= keep; state.hipV.y *= keep;
@@ -1518,16 +1610,18 @@ export function stepSling(
     // as far as this reach goes. A limb dragging the body along with it is
     // still going, however still it is against the body; one sagging back
     // under gravity is not, and the body does not go down with it.
-    const dir = l.launchDir ?? norm(l.vel);
+    const dir = aimedAt ? norm(sub(aimedAt.pos, l.pos)) : l.launchDir ?? norm(l.vel);
     const onward = l.vel.x * dir.x + l.vel.y * dir.y;
-    const stalled = l.taut && l.flightT > 0.12 && !state.dyno && onward < SLING.tautStall;
+    // A reach for a hold is not over until the body has had time to get there.
+    const stalled = !aimedAt && l.taut && l.flightT > 0.12 && !state.dyno && onward < SLING.tautStall;
     const floored = l.pos.y <= groundFloor(state) + 0.005;
-    const maxFlight = state.dyno ? SLING.dynoFlight : SLING.flightMax;
+    const maxFlight = state.dyno ? SLING.dynoFlight : aimedAt ? SLING.reachFlightMax : SLING.flightMax;
     if (l.flightT >= maxFlight || (hanging && !state.dyno) || stalled || floored) {
       l.phase = 'free';
       l.touch = null;
       l.flightT = 0;
       if (!state.dyno && state.reachHome) state.reachHome.t = SLING.reachRecover;
+      state.reachPose = null;
       events.push({
         kind: 'miss', limb: id, at: { ...l.pos },
         reason: state.dyno ? 'Caught nothing but air.' : missReason(state, l, holds),
@@ -1761,7 +1855,7 @@ export function predictDyno(
 
 /** Holds a limb could plausibly be thrown at from here: in its reach envelope, usable, not taken. */
 export function reachableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
-  return holdsInEnvelope(reachEnvelope(state, limb), holds, blockedHolds(state, holds, limb), 0.05);
+  return holdsInEnvelope(reachEnvelope(state, limb), holds, blockedHolds(state, holds, limb), -0.03);
 }
 
 /** How far off a hold a throw can be and still be steered onto it, radians. */
@@ -1833,6 +1927,13 @@ export type AssistedLaunch = {
 export function assistLaunch(
   state: SlingState, holds: Hold[], aim: LaunchAim, seconds = 1.0, prefer: number | null = null,
 ): AssistedLaunch {
+  // A reach for whatever hold in reach the pull points at, first.
+  const hold = pickTarget(state, holds, aim, prefer);
+  if (hold) {
+    const reach = { ...aim, target: { id: hold.id, at: { ...hold.pos } } };
+    const prediction = predictLaunch(state, holds, reach, Math.max(seconds, 1.5));
+    if (prediction.caught?.holdId === hold.id) return { aim: reach, prediction, assisted: hold.id };
+  }
   const raw = predictLaunch(state, holds, aim, seconds);
   if (raw.caught || aim.power < SLING.minPower) return { aim, prediction: raw, assisted: null };
   const l = state.limbs[aim.limb];

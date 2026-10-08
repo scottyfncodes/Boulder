@@ -66,12 +66,16 @@ the finger is clearly into it: the same finger position is always the same
 throw, and letting go fires exactly the arc on screen
 (`src/game/aimSearch.ts`).
 
-**Aim assist.** A throw that is nearly at an empty hold in reach is steered
-onto it: a fan of real throws either side of yours, played in the physics,
-nearest first, a few milliseconds' worth a frame and every one kept, until one
-catches something. The nearest catch is found first, so the answer never jumps
-back, and a hold it is locked onto stays locked further off it than it took to
-lock on. Anything further off flies where you pulled.
+**Reaching for a hold.** Every hold inside the reach outline is in play. The
+pull picks one: its direction says where, how hard says how far — a light pull
+takes the near hold that way, a full one the farthest the body can get to —
+and the limb goes to that hold, whatever is in front of it, the body moving
+into the position that gets it there. The hold it is going for is marked
+before you let go, and stays picked a little past where it took to pick it,
+so it does not flicker. A hold another limb is on is only picked when the pull
+points straight at it. A pull at nothing in reach is a plain throw: it flies
+where you pulled, and a throw that is nearly at a hold is still steered onto
+it.
 
 **Room to pull.** A full pull is shorter when you start it low on the screen —
 never under half the usual — and shorter for a foot, which needs less of a
