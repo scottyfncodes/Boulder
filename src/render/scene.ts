@@ -34,7 +34,8 @@ export type CameraState = {
 
 export const DEFAULT_CAMERA: CameraState = { focusY: 1.9, focusX: 0, frame: 3.9, orbit: 0 };
 export const FRAME_MIN = 2.3;
-export const FRAME_MAX = 6.0;
+/** Widest the camera goes: wide enough to show the whole of a long limb's reach on a phone. */
+export const FRAME_MAX = 7.5;
 export const ORBIT_LIMIT = 0.5;
 
 const FOV = 42;

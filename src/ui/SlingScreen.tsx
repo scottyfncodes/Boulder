@@ -33,6 +33,7 @@ import {
   sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice,
 } from '../render/sfx';
 import { setterOf } from '../content/setters';
+import { WALL } from '../content/wall';
 import { isLabRoute } from '../content/lab';
 import { HoldInspector } from './HoldInspector';
 import './climb.css';
@@ -99,6 +100,10 @@ const DYNO_TIME = 0.62;
 const FOOT_LOOK_DOWN = 0.55;
 /** How far up the wall the camera looks, metres, when it is pulled all the way back for a dyno. */
 const DYNO_LOOK_UP = 1.3;
+/** How wide the dyno pulls the camera back to. */
+const DYNO_FRAME = 6.0;
+/** Room left round the holds a picked-up limb can reach when the camera fits them, metres. */
+const REACH_MARGIN = 0.4;
 const DYNO_APEX_TIME = 0.28;
 /** Milliseconds a frame may spend searching the aim assist's fan. */
 const AIM_BUDGET_MS = 6;
@@ -258,6 +263,13 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   const framePunchRef = useRef(0);
   /** 0..1: how far the camera has pulled back for a dyno. */
   const dynoZoomRef = useRef(0);
+  /** 0..1, how far the camera has moved to show a picked-up limb's whole reach. */
+  const reachFitRef = useRef(0);
+  /** The reach outline's box the camera is fitting, kept while it eases back out. */
+  const reachBoxRef = useRef<{ key: string; x0: number; x1: number; y0: number; y1: number } | null>(null);
+  /** Fingers on the screen, for pinching. */
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ d0: number; frame0: number } | null>(null);
   /** How high each hand was when the dyno let go, metres. What it is measured from. */
   const dynoFromRef = useRef<Partial<Record<LimbId, number>>>({});
   /** When a dyno last stuck. The other hand landing just after belongs to the same move. */
@@ -759,8 +771,56 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       // The punch: out on the launch, in on the catch, and drawn in a little
       // while the belly is wound back — the camera leaning in to watch.
       framePunchRef.current *= Math.exp(-dt / 260);
-      const wide = zoom * Math.max(0, FRAME_MAX - cam.frame);
-      scene.setCamera({ ...cam, frame: clamp(cam.frame + framePunchRef.current + wide, FRAME_MIN, FRAME_MAX) });
+      const wide = zoom * Math.max(0, DYNO_FRAME - cam.frame);
+
+      // A limb picked up: the camera zooms in or out and moves to show all of
+      // where it can reach, so every hold in play is on screen to pick. Put
+      // down, it eases back to wherever you had it.
+      {
+        const sel = selectedRef.current;
+        const fitting = !!sel && sel !== 'BODY' && phaseRef.current === 'climbing' && canLaunch(sim, sel);
+        if (fitting) {
+          // The world holds still while aiming, so this is worked out once a pick.
+          const key = `${sel}:${sim.t.toFixed(2)}`;
+          if (reachBoxRef.current?.key !== key) {
+            // Every hold it can get to, and the limb itself: the choices, all
+            // on screen. With nothing in reach, the part of the outline that
+            // is wall — below the mat and off the edges there is nothing.
+            const inReach = reachableHolds(sim, route.holds, sel).map((h) => h.pos);
+            const pts = [...(inReach.length ? inReach : reachOutline(sim, sel)), sim.limbs[sel].pos].map((p) => ({
+              x: clamp(p.x, WALL.minX, WALL.maxX),
+              y: clamp(p.y, 0, routeTop(route) + 0.3),
+            }));
+            reachBoxRef.current = {
+              key,
+              x0: Math.min(...pts.map((p) => p.x)), x1: Math.max(...pts.map((p) => p.x)),
+              y0: Math.min(...pts.map((p) => p.y)), y1: Math.max(...pts.map((p) => p.y)),
+            };
+          }
+        }
+        const want = fitting ? 1 : 0;
+        reachFitRef.current += (want - reachFitRef.current) * (fitting ? 0.12 : 0.05);
+        if (reachFitRef.current < 0.002) reachFitRef.current = 0;
+      }
+      let view = { ...cam, frame: cam.frame + framePunchRef.current + wide };
+      const box = reachBoxRef.current;
+      const fit = reachFitRef.current;
+      if (box && fit > 0) {
+        const aspect = scene.camera.aspect || 0.5;
+        const frame = clamp(
+          Math.max(box.y1 - box.y0 + 2 * REACH_MARGIN, (box.x1 - box.x0 + 2 * REACH_MARGIN) / aspect),
+          FRAME_MIN, FRAME_MAX,
+        );
+        const lim = scene.focusXLimit(frame);
+        const k = fit * fit * (3 - 2 * fit);
+        view = {
+          ...view,
+          frame: view.frame + (frame - view.frame) * k,
+          focusX: view.focusX + (clamp((box.x0 + box.x1) / 2, -lim, lim) - view.focusX) * k,
+          focusY: view.focusY + ((box.y0 + box.y1) / 2 - view.focusY) * k,
+        };
+      }
+      scene.setCamera({ ...view, frame: clamp(view.frame, FRAME_MIN, FRAME_MAX) });
 
       // --- overlay ---
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -962,6 +1022,17 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     const y = e.clientY - rect.top;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const cam = camRef.current;
+    const fingers = pointersRef.current;
+    fingers.set(e.pointerId, { x, y });
+    if (fingers.size === 2) {
+      // A second finger: a pinch, not a pull. Whatever the first one started
+      // is dropped — a pinch never throws anything.
+      const [a, b] = [...fingers.values()];
+      pinchRef.current = { d0: Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1), frame0: cam.frame };
+      dragRef.current = null;
+      return;
+    }
+    if (fingers.size > 2) return;
 
     if (phaseRef.current === 'inspect') {
       const hold = holdAtScreen(sceneRef.current, x, y, route);
@@ -991,9 +1062,20 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   }, [targetAtPoint, route]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    const fingers = pointersRef.current;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (fingers.has(e.pointerId)) fingers.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    const pinch = pinchRef.current;
+    if (pinch && fingers.size === 2) {
+      // Fingers apart zooms in, together zooms out. It sets the view you come
+      // back to; a picked-up limb still widens it to show its whole reach.
+      const [a, b] = [...fingers.values()];
+      const d = Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1);
+      camRef.current.frame = clamp(pinch.frame0 * (pinch.d0 / d), FRAME_MIN, FRAME_MAX);
+      return;
+    }
     const drag = dragRef.current;
     if (!drag) return;
-    const rect = e.currentTarget.getBoundingClientRect();
     drag.x = e.clientX - rect.left;
     drag.y = e.clientY - rect.top;
     if (drag.kind === 'look') {
@@ -1006,6 +1088,14 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   }, [route]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
+    const fingers = pointersRef.current;
+    fingers.delete(e.pointerId);
+    if (pinchRef.current) {
+      // The pinch is over once both fingers are off; the one left behind does nothing.
+      if (fingers.size === 0) pinchRef.current = null;
+      dragRef.current = null;
+      return;
+    }
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag) return;
