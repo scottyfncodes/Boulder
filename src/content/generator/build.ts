@@ -321,7 +321,7 @@ class Setter {
 /** Same sizes the hand-set routes use, so generated holds read the same. */
 const HOLD_SIZE: Record<HoldType, number> = {
   jug: 0.115, crimp: 0.095, sloper: 0.115, pinch: 0.1, pocket: 0.105,
-  sidepull: 0.105, undercling: 0.11, gaston: 0.105, foothold: 0.085, volume: 0.15,
+  sidepull: 0.105, undercling: 0.11, gaston: 0.105, foothold: 0.085, volume: 0.15, smear: 0.08,
 };
 
 /**

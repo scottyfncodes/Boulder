@@ -60,6 +60,10 @@ function build(type: HoldType): THREE.BufferGeometry {
       g.rotateX(Math.PI * 0.5);
       break;
     }
+    case 'smear': {
+      g = new THREE.CircleGeometry(0.6, 10);
+      break;
+    }
     case 'volume': {
       // Big faceted plywood shape. Kevin's favourite.
       g = new THREE.ConeGeometry(1.25, d * 6, 4, 1);

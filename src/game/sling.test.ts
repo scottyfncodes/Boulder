@@ -405,17 +405,15 @@ describe('the body', () => {
     expect(most).toBeGreaterThan(0.12);
   });
 
-  it('an undercling loaded from below is weaker, but a hold is a hold: it takes a hanging body', () => {
-    // Loaded the wrong way it keeps about a third of what it has the right way,
-    // which is still a body weight: the pump decides, not the hold.
+  it('an undercling loaded from below is a fraction of what it is the right way, and peels a hanging body', () => {
+    // Hips below it, the pull is down and the hold wants up: it keeps a small
+    // share of its strength, and a body hanging off it comes away.
     const below = initialSling(holds, { LH: 23, RH: 25 });
-    run(below, 2);
     const wrong = below.limbs.LH.capacity;
-    expect(below.limbs.LH.holdId).toBe(23);
-    expect(wrong).toBeGreaterThan(1);
-    expect(wrong).toBeLessThan(SLING.gripStrength * 0.5);
     const jug = below.limbs.RH.capacity;
-    expect(jug).toBeGreaterThan(wrong * 2);
+    expect(jug).toBeGreaterThan(wrong * 3);
+    const events = run(below, 3);
+    expect(events.some((e) => e.kind === 'slip' && e.limb === 'LH')).toBe(true);
   });
 
   it('with nothing left holding on, the climber comes off and meets the mat', () => {

@@ -171,6 +171,19 @@ export const HOLD_PROFILES: Record<HoldType, HoldProfile> = {
     crossUse: 1.0,
     note: 'A large shape. Generous with position, stingy with security.',
   },
+  smear: {
+    type: 'smear',
+    label: 'Smear',
+    zones: [{ name: 'rubber on the wall', at: { x: 0, y: 0 }, r: 0.6, quality: 0.6 }],
+    affinity: 'foot',
+    zoneScale: 1,
+    perfectFrac: 0.3,
+    directionality: 0.2,
+    gripBase: 0.5,
+    push: false,
+    crossUse: 0,
+    note: 'Blank wall and good rubber. Weight straight down onto it, and keep your hips over it.',
+  },
 };
 
 export function profileOf(type: HoldType): HoldProfile {

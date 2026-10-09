@@ -46,7 +46,9 @@ export type HoldType =
   | 'undercling'
   | 'gaston'
   | 'foothold'
-  | 'volume';
+  | 'volume'
+  /** Blank wall a foot is pressed against: friction and nothing else. Never set on a route. */
+  | 'smear';
 
 export type LimbAffinity = 'hand' | 'foot' | 'both';
 

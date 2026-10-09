@@ -35,6 +35,8 @@ export type FootSupport = {
   support: number;
   /** A heel or toe hook: pulls rather than stands, so it still works upside down. */
   hooked: boolean;
+  /** A drop knee: turned in, pushing sideways, so it keeps working on steep ground. */
+  twist?: boolean;
 };
 
 /** What the body is doing this instant: everything the pump reads. */
@@ -65,6 +67,13 @@ export type Posture = {
   leftShare?: number;
   /** One entry per foot on. Left out, `feet` good feet. */
   footSupport?: FootSupport[];
+  /**
+   * How hard each hand has to close on what it is holding, per unit of load:
+   * 1 on a jug, more on anything worse. Left out, jugs.
+   */
+  grip?: Record<ArmId, number>;
+  /** Extra core work the body's technique is asking for (toe hooks, squeezing, cutting loose). */
+  core?: number;
 };
 
 /** One forearm. */
@@ -112,6 +121,8 @@ export const PUMP = {
   roofFeet: 0.3,
   /** Same for a hooked foot, which pulls: it loses much less upside down. */
   roofHook: 0.7,
+  /** A drop knee, which pushes sideways into the hold: in between. */
+  roofTwist: 0.55,
   /** Arms never carry less than this: hands are still balancing the body. */
   armFloor: 0.1,
   /**
@@ -198,9 +209,9 @@ export function wallFactor(angle: number): number {
 }
 
 /** What a foot can do on this wall, 0..1: all of it upright, less leaning out. */
-function footWork(angle: number, hooked: boolean): number {
+function footWork(angle: number, hooked: boolean, twist = false): number {
   const upright = Math.pow(Math.max(0, Math.cos(Math.max(0, angle))), 1.5);
-  const roof = hooked ? PUMP.roofHook : PUMP.roofFeet;
+  const roof = hooked ? PUMP.roofHook : twist ? PUMP.roofTwist : PUMP.roofFeet;
   return roof + (1 - roof) * upright;
 }
 
@@ -213,7 +224,7 @@ function footWork(angle: number, hooked: boolean): number {
 export function armShare(p: Pick<Posture, 'angle' | 'hands' | 'feet' | 'footSupport'>): number {
   if (p.hands <= 0) return 0;
   let feet = 0;
-  for (const f of feetOf(p as Posture)) feet += Math.max(0, Math.min(1, f.support)) * footWork(p.angle, f.hooked);
+  for (const f of feetOf(p as Posture)) feet += Math.max(0, Math.min(1, f.support)) * footWork(p.angle, f.hooked, f.twist);
   const carried = PUMP.feetMax * (1 - Math.exp(-PUMP.feetK * feet));
   return Math.max(PUMP.armFloor, 1 - carried);
 }
@@ -248,10 +259,13 @@ export function armEfforts(p: Posture): Record<ArmId, number> {
   const reach = p.reaching ? PUMP.reach * wall : 0;
   const hooksOnly = on === 0 && feetOf(p).length > 0 ? 0.35 * wall : 0;
   const out = { LH: 0, RH: 0 } as Record<ArmId, number>;
+  const grip = p.grip ?? { LH: 1, RH: 1 };
   for (const a of ARMS) {
     if (held[a]) {
       const load = share[a] * arms;
-      out[a] = PUMP.onWall + PUMP.core * lean + PUMP.forearm * load * load * wall
+      // The hold enters here and only here: the same load costs more the
+      // harder you have to close your hand to keep it.
+      out[a] = PUMP.onWall + PUMP.core * lean + PUMP.forearm * load * load * wall * grip[a]
         + swing * (0.5 + 0.5 * arms) + reach;
     } else {
       // Off the wall: hanging, or in the air. The body's tension still

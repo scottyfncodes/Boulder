@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SLING_LAB } from '../content/lab';
 import { SLING, initialSling, launch, letGo, placeLimb, postureOf, pumpOut, stepSling, type SlingEvent, type SlingState } from './sling';
-import { PUMP, type Pump, effort, freshPump, restRate, tickPump } from './pump';
+import { PUMP, type Pump, effort, fitnessFor, freshPump, restRate, tickPump } from './pump';
 import { flatProfile } from './profile';
 import { climb } from './climbBot';
 import { ROUTES } from '../content/routes';
@@ -180,7 +180,10 @@ describe('climbing it for real', () => {
       const res = generateRoute('brutal', seed);
       const route = 'route' in res ? res.route : res;
       if (route.profile?.length) folded++;
-      const sent = climb(route, 'efficient').outcome === 'sent' || climb(route, 'reckless').outcome === 'sent';
+      // Climbed by someone who climbs at the grade: holds now matter, and a
+      // beginner's forearms are not meant to get up V9.
+      const fitness = fitnessFor(route.grade, 40);
+      const sent = climb(route, 'efficient', { fitness }).outcome === 'sent' || climb(route, 'reckless', { fitness }).outcome === 'sent';
       expect(sent).toBe(true);
     }
     expect(folded).toBeGreaterThan(0);
