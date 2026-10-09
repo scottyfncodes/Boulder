@@ -1,5 +1,6 @@
 import type { Route } from '../game/types';
 import { LAB_ROUTES } from './lab';
+import { highballs } from './highball';
 import { generatedRouteById } from './generator';
 import {
   crimp, foot, gaston, jug, pinch, pocket, sidepull, sloper, undercling, volume,
@@ -619,5 +620,5 @@ export const ROUTES: Route[] = [...HAND_SET, ...BOARD_SET.map(boardRoute)];
 export const ROUTES_BY_ID: Map<string, Route> = new Map(ROUTES.map((r) => [r.id, r]));
 
 export function routeById(id: string): Route | undefined {
-  return ROUTES_BY_ID.get(id) ?? LAB_ROUTES.find((r) => r.id === id) ?? generatedRouteById(id);
+  return ROUTES_BY_ID.get(id) ?? LAB_ROUTES.find((r) => r.id === id) ?? highballs().find((r) => r.id === id) ?? generatedRouteById(id);
 }

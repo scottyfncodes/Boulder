@@ -14,7 +14,11 @@
     "check:overlay": "node scripts/check-overlay.mjs",
     "gen:icons": "node scripts/gen-icons.mjs",
     "show:routes": "esbuild scripts/show-routes.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/show-routes.mjs --log-level=error && node node_modules/.cache/show-routes.mjs",
-    "playtest": "esbuild scripts/playtest.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/playtest.mjs --log-level=error && node node_modules/.cache/playtest.mjs"
+    "playtest": "esbuild scripts/playtest.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/playtest.mjs --log-level=error && node node_modules/.cache/playtest.mjs",
+    "fit:grades": "esbuild scripts/grade-features.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/grade-features.mjs --log-level=error && node node_modules/.cache/grade-features.mjs && python3 scripts/fit-grades.py",
+    "find:highballs": "esbuild scripts/find-highballs.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/find-highballs.mjs --log-level=error && node node_modules/.cache/find-highballs.mjs",
+    "gen:grades": "esbuild scripts/gen-grades.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/gen-grades.mjs --log-level=error && node node_modules/.cache/gen-grades.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

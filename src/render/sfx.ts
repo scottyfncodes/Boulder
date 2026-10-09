@@ -290,3 +290,52 @@ export function sfxDynoStick(perfect: boolean): void {
   }
   noise(c, 'highpass', 5200, 0.5, { at: 0.03, attack: 0.004, release: 1.3, peak: 0.2 });
 }
+
+// --- exposure and breath ---------------------------------------------------
+
+let wind: { src: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode } | null = null;
+
+/**
+ * The air at height: a low wind bed that rises as the climber does on a
+ * highball, 0 silent .. 1 full. It is ambience, nothing else — the climbing
+ * does not change up there, only how it feels.
+ */
+export function sfxExposure(level: number): void {
+  const c = ready();
+  if (!c || !noiseBuf || !master) {
+    if (wind && ctx) wind.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+    return;
+  }
+  if (!wind) {
+    const src = c.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const filter = c.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 380;
+    const gain = c.createGain();
+    gain.gain.value = 0;
+    src.connect(filter).connect(gain).connect(master);
+    src.start();
+    wind = { src, gain, filter };
+  }
+  const l = Math.max(0, Math.min(1, level));
+  wind.gain.gain.setTargetAtTime(0.11 * l * l, c.currentTime, 0.6);
+  wind.filter.frequency.setTargetAtTime(300 + 500 * l, c.currentTime, 0.8);
+}
+
+/** Stops the wind bed, for leaving the climb. */
+export function stopExposure(): void {
+  if (!wind) return;
+  try { wind.src.stop(); } catch { /* already stopped */ }
+  wind.src.disconnect();
+  wind = null;
+}
+
+/** One breath, heavier the harder the body is working, 0..1. */
+export function sfxBreath(level: number): void {
+  const c = ready();
+  if (!c) return;
+  const l = Math.max(0, Math.min(1, level));
+  noise(c, 'bandpass', 520 + 300 * l, 0.8, { at: 0, attack: 0.18, hold: 0.12 + 0.1 * l, release: 0.35, peak: 0.02 + 0.05 * l });
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { LimbId, Route, Vec2 } from '../game/types';
+import type { Hold, LimbId, Route, Vec2 } from '../game/types';
 import { LIMBS, LIMB_LABEL, isHand } from '../game/types';
 import { anchorFor } from '../game/body';
 import { type Attempt, type AttemptMode, type BetaMove, beginAttempt } from '../game/attempt';
@@ -7,12 +7,18 @@ import {
   type DynoPrediction, type Prediction, type SlingEvent, type SlingState, SLING, bodySpeed, canDyno, canLaunch, dyno,
   heldCount, initialSling, isBand, isSlingSent, launch, limbPositions, placeLimb, placeableHolds,
   letGo, poseOf, pumpOut, reachableHolds, reachOutline, stepSling,
-  bodyAngle, postureOf,
+  bodyAngle, postureOf, contactState, contactRisk,
 } from '../game/sling';
+import { type Fatigue, breathWord, conditionOf, spendCatch, spendDyno as spendDynoBody, spendThrow, tickFatigue } from '../game/fatigue';
+import { TECHNIQUE_LABEL } from '../game/technique';
+import {
+  type TreadEnd, type TreadRun, type TreadSession, SECTION_LABEL, TREAD_END_WORDS, advanceTread, formatTime, levelGrade, sectionAt,
+} from '../game/tread';
+import { type Highball, isHighball, judgeLanding } from '../content/highball';
 import { AimSearch } from '../game/aimSearch';
 import {
-  type ArmId, type Pump, type PumpTrend, blownArms, catchCost, dynoCost, flingCost, freshPump, gain as addPump,
-  pumpReason, pumpStage, pumpTrend, tickPump,
+  type ArmId, type Pump, type PumpTrend, blownArms, catchCost, dynoCost, flingCost, freshPump,
+  pumpReason, pumpStage, pumpTrend,
 } from '../game/pump';
 import { profileOf, routeTop } from '../game/profile';
 import { flowStreak } from '../game/scoring';
@@ -30,7 +36,7 @@ import { Fx } from '../render/fx';
 import {
   buzz, isMuted, setMuted, sfxChalk, sfxExhale, sfxFall, sfxGrab, sfxHeartbeat, sfxLock, sfxSend, sfxSlip,
   sfxSnap, sfxStretch, sfxThrow, sfxThud, unlockAudio,
-  sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice,
+  sfxDynoLaunch, sfxDynoReady, sfxDynoStick, sfxDynoWind, sfxJuice, sfxExposure, stopExposure, sfxBreath,
 } from '../render/sfx';
 import { setterOf } from '../content/setters';
 import { WALL } from '../content/wall';
@@ -160,6 +166,14 @@ export type SlingScreenProps = {
   onExit: () => void;
   onOutcome: (attempt: Attempt, outcome: 'sent' | 'fallen') => void;
   attemptsNote?: string;
+  /** The tread wall: a running belt instead of a route with a top. */
+  tread?: TreadSession;
+  /** The best run on this tread program, to race. */
+  treadBest?: TreadRun | null;
+  /** The tread session is over. */
+  onTreadEnd?: (run: TreadRun) => void;
+  /** A highball fall has been judged. */
+  onLanding?: (kind: 'clean' | 'heavy' | 'off-pads') => void;
 };
 
 type Phase = 'inspect' | 'climbing' | 'fallen' | 'sent';
@@ -169,7 +183,9 @@ function blownHeld(p: Pump, sim: SlingState): LimbId[] {
   return blownArms(p).filter((a) => sim.limbs[a].phase === 'held');
 }
 
-export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsNote }: SlingScreenProps) {
+export function SlingScreen({
+  route, mode, fitness, onExit, onOutcome, attemptsNote, tread, treadBest, onTreadEnd, onLanding,
+}: SlingScreenProps) {
   const glRef = useRef<HTMLCanvasElement>(null);
   const uiRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<WallScene | null>(null);
@@ -195,6 +211,25 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   // The sim and everything the frame loop reads live in refs: sixty renders a
   // second of React would make the drag stutter on a phone.
   const simRef = useRef<SlingState>(initialSling(route.holds, route.start, profileOf(route)));
+  /** The holds the climb runs on: the route's, or the tread wall's stream as it is right now. */
+  const holdsRef = useRef<Hold[]>(tread ? tread.holds : route.holds);
+  const treadVersionRef = useRef(-1);
+  const highball: Highball | null = isHighball(route) ? route : null;
+  /** Power, core and breath, on top of the forearms. */
+  const bodyRef = useRef<Omit<Fatigue, 'pump'>>({ power: 1, core: 1, breath: 0 });
+  const powerBarRef = useRef<HTMLDivElement>(null);
+  const coreBarRef = useRef<HTMLDivElement>(null);
+  const breathRef = useRef<HTMLSpanElement>(null);
+  const techRef = useRef<HTMLDivElement>(null);
+  const breathAtRef = useRef(0);
+  const heightRef = useRef<HTMLDivElement>(null);
+  /** The tread wall's readouts, written straight to the DOM. */
+  const treadTimeRef = useRef<HTMLDivElement>(null);
+  const treadMetaRef = useRef<HTMLDivElement>(null);
+  const treadPbRef = useRef<HTMLDivElement>(null);
+  const treadStats = useRef({ rested: 0, maxPump: 0, slips: 0, moves: 0, ended: false });
+  /** A highball fall, judged: what the landing was, and when the next go is allowed. */
+  const [landing, setLandingState] = useState<{ kind: 'clean' | 'heavy' | 'off-pads'; words: string; until: number } | null>(null);
   const phaseRef = useRef<Phase>('inspect');
   const selectedRef = useRef<Selection | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -280,7 +315,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
 
   const accent = GRADE_COLOR[route.grade];
   const setter = setterOf(route.setter);
-  const holdsById = useMemo(() => new Map(route.holds.map((h) => [h.id, h])), [route]);
+  const holdsById = useMemo(() => ({ get: (id: number) => holdsRef.current.find((h) => h.id === id) }), []);
   const lab = isLabRoute(route.id);
 
   const say = useCallback((grade: string, reason: string, ms = 1500) => {
@@ -320,8 +355,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     if (!gl) return;
     const scene = new WallScene(gl);
     sceneRef.current = scene;
-    scene.setRoute(route);
+    // The tread wall's holds come in through syncHolds, coloured by section.
+    scene.setRoute(tread ? { ...route, holds: [] } : route);
     scene.setWall(profileOf(route));
+    scene.setLanding(isHighball(route) ? route.highball.landing : null);
     scene.resize();
     camRef.current.focusX = startFocusX(route, scene);
 
@@ -367,6 +404,44 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     if (!shoutRef.current) shoutRef.current = { at: { ...poseOf(simRef.current).head }, start: now };
   }, []);
 
+  /** A technique, named for a moment under the pump bar. */
+  const techFlashRef = useRef<{ word: string; until: number } | null>(null);
+  const showTech = useCallback((word: string) => {
+    techFlashRef.current = { word, until: performance.now() + 1400 };
+  }, []);
+
+  /** The body's budget, forward by `dt` seconds in `posture`; the sim reads what is left. */
+  const tickBody = (posture: ReturnType<typeof postureOf>, dt: number) => {
+    const before = pumpStateRef.current.pump;
+    const f = tickFatigue({ pump: pumpStateRef.current, ...bodyRef.current }, posture, dt);
+    pumpStateRef.current = f.pump;
+    bodyRef.current = { power: f.power, core: f.core, breath: f.breath };
+    simRef.current.cond = conditionOf(f);
+    const st = treadStats.current;
+    if (f.pump.pump < before) st.rested += dt;
+    st.maxPump = Math.max(st.maxPump, f.pump.pump);
+  };
+
+  /** The tread session's result, from where everything is now. */
+  const buildRun = (end: TreadEnd): TreadRun => {
+    const t = tread!;
+    const st = treadStats.current;
+    return {
+      program: t.program.id,
+      time: Math.round(t.t * 10) / 10,
+      distance: Math.round(t.ground * 10) / 10,
+      moves: st.moves,
+      peakLevel: Math.round(t.peakLevel * 10) / 10,
+      rested: Math.round(st.rested),
+      maxPump: Math.round(st.maxPump * 100) / 100,
+      slips: st.slips,
+      end,
+      reason: end === 'fell' && reasonRef.current ? reasonRef.current : TREAD_END_WORDS[end],
+      at: Date.now(),
+    };
+  };
+  const treadEndRef = useRef<TreadEnd | null>(null);
+
   const handleEvents = useCallback((events: SlingEvent[], now: number) => {
     const fx = fxRef.current;
     for (const e of events) {
@@ -376,7 +451,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           buzz(6);
           {
             const s = simRef.current;
-            pumpStateRef.current = addPump(pumpStateRef.current, flingCost(e.power, bodyAngle(s), heldCount(s)));
+            const f = spendThrow({ pump: pumpStateRef.current, ...bodyRef.current }, e.power, bodyAngle(s), flingCost(e.power, bodyAngle(s), heldCount(s)));
+            pumpStateRef.current = f.pump;
+            bodyRef.current = { power: f.power, core: f.core, breath: f.breath };
           }
           movesRef.current.push({
             limb: e.limb, holdId: null, grade: 'MISS',
@@ -394,7 +471,11 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           }
           sfxDynoLaunch(e.power);
           buzz([10, 20, 40]);
-          pumpStateRef.current = addPump(pumpStateRef.current, dynoCost(e.power, bodyAngle(simRef.current)));
+          {
+            const f = spendDynoBody({ pump: pumpStateRef.current, ...bodyRef.current }, e.power, dynoCost(e.power, bodyAngle(simRef.current)));
+            pumpStateRef.current = f.pump;
+            bodyRef.current = { power: f.power, core: f.core, breath: f.breath };
+          }
           fx.kick(0.45);
           fx.launch(e.from, []);
           framePunchRef.current = 0.7;
@@ -443,7 +524,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             const hands = LIMBS.filter((id) => isHand(id) && s.limbs[id].phase === 'held').length;
             // The hand that caught it is the forearm that takes it.
             const arm = isHand(e.limb) ? (e.limb as ArmId) : undefined;
-            pumpStateRef.current = addPump(pumpStateRef.current, catchCost(bodySpeed(s), isHand(e.limb), hands, bodyAngle(s)), arm);
+            const f = spendCatch({ pump: pumpStateRef.current, ...bodyRef.current }, catchCost(bodySpeed(s), isHand(e.limb), hands, bodyAngle(s)), arm);
+            pumpStateRef.current = f.pump;
+            bodyRef.current = { power: f.power, core: f.core, breath: f.breath };
+            treadStats.current.moves++;
           }
           sfxGrab(e.grade, streakNow);
           // The juice. A dyno's own catch is paid back by the dyno; the second
@@ -489,6 +573,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           break;
         }
         case 'miss': {
+          treadStats.current.slips++;
           delete pendingRef.current[e.limb];
           setStreak(0);
           setJuice(onMiss(juiceRef.current));
@@ -500,7 +585,16 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           say('MISS', e.reason);
           break;
         }
+        case 'tech': {
+          // Named when it happens, quietly: the body did something with a name.
+          if (e.tech === 'deadpoint' || e.tech === 'footSwap' || e.tech === 'smear' || e.tech === 'flag') {
+            showTech(TECHNIQUE_LABEL[e.tech]);
+            fx.chalk(e.at, 0.5, 'rgba(143,211,255,0.8)');
+          }
+          break;
+        }
         case 'slip': {
+          treadStats.current.slips++;
           setStreak(0);
           setJuice(onSlip(juiceRef.current));
           sfxSlip();
@@ -537,6 +631,12 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           setStreak(0);
           const reason = reasonRef.current ?? 'Ran out of wall to hold.';
           setLastReason(reason);
+          if (highball) {
+            const judged = judgeLanding(highball.highball.landing, e.from, e.at.x);
+            const pause = judged.kind === 'clean' ? 0 : judged.kind === 'heavy' ? 6000 : 8000;
+            setLandingState({ ...judged, until: Date.now() + pause });
+            onLanding?.(judged.kind);
+          }
           setSelected(null);
           selectedRef.current = null;
           dragRef.current = null;
@@ -547,7 +647,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         }
       }
     }
-  }, [say, startShout, setJuice]);
+  }, [say, startShout, setJuice, showTech]);
 
   const celebrate = useCallback((now: number) => {
     const sim = simRef.current;
@@ -581,6 +681,33 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       const sim = simRef.current;
       const ph = phaseRef.current;
 
+      // The belt. It runs on the clock, not the sim: aiming does not stop it.
+      if (tread) {
+        if (ph === 'climbing' && dt > 0 && !treadEndRef.current) {
+          advanceTread(tread, dt / 1000, { pump: pumpStateRef.current.pump, power: bodyRef.current.power });
+          sim.ground = tread.ground;
+          // The floor reaching the hips is the end of it, however well you are holding on.
+          if (sim.left && !sim.fallen && heldCount(sim) > 0 && sim.hip.y - tread.ground < 0.78) {
+            treadEndRef.current = 'floor';
+            reasonRef.current = TREAD_END_WORDS.floor;
+            setLastReason(TREAD_END_WORDS.floor);
+            setSelected(null);
+            selectedRef.current = null;
+            dragRef.current = null;
+            setPhase('fallen');
+            phaseRef.current = 'fallen';
+            endedRef.current = { at: now, outcome: 'fallen' };
+            sfxThud(0.6);
+          }
+        }
+        if (tread.version !== treadVersionRef.current) {
+          treadVersionRef.current = tread.version;
+          holdsRef.current = tread.holds;
+          scene.syncHolds(tread.holds, (h) => GRADE_COLOR[levelGrade(sectionAt(tread, h.pos.y)?.level ?? tread.level)]);
+        }
+        scene.setScroll(tread.ground);
+      }
+
       if (ph === 'climbing' && introRef.current === -Infinity) introRef.current = now;
 
       // The sim runs on a fixed step, however the frames come. It keeps
@@ -607,7 +734,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         accRef.current = 0;
         const posture = { ...postureOf(sim), speed: 0 };
         const events: SlingEvent[] = [];
-        pumpStateRef.current = tickPump(pumpStateRef.current, posture, dt / 1000);
+        tickBody(posture, dt / 1000);
         if (pumpOut(sim, events, blownHeld(pumpStateRef.current, sim))) dragRef.current = null;
         if (events.length) handleEvents(events, now);
       }
@@ -616,7 +743,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         const events: SlingEvent[] = [];
         let steps = 0;
         while (accRef.current >= SLING.dt && steps < 12) {
-          stepSling(sim, route.holds, SLING.dt, 0, events);
+          stepSling(sim, holdsRef.current, SLING.dt, 0, events);
           accRef.current -= SLING.dt;
           steps++;
           for (const limb of LIMBS) {
@@ -637,7 +764,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         // time is not a tax.
         if (ph === 'climbing' && dt > 0 && !sim.fallen) {
           const posture = postureOf(sim);
-          pumpStateRef.current = tickPump(pumpStateRef.current, posture, (dt / 1000) * timeScaleRef.current);
+          tickBody(posture, (dt / 1000) * timeScaleRef.current);
           pumpOut(sim, events, blownHeld(pumpStateRef.current, sim));
         }
         if (events.length) handleEvents(events, now);
@@ -685,6 +812,44 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         if (low > 0 && now >= heartRef.current) {
           sfxHeartbeat(low);
           heartRef.current = now + 1100 - low * 620;
+        }
+        const b = bodyRef.current;
+        if (powerBarRef.current) powerBarRef.current.style.transform = `scaleX(${b.power})`;
+        if (coreBarRef.current) coreBarRef.current.style.transform = `scaleX(${b.core})`;
+        if (breathRef.current) breathRef.current.textContent = breathWord(b.breath);
+        // Breathing you can hear once it is heavy.
+        if (climbing && b.breath > 0.45 && now >= breathAtRef.current) {
+          sfxBreath(b.breath);
+          breathAtRef.current = now + 2600 - 1300 * b.breath;
+        }
+        if (techRef.current) {
+          const flash = techFlashRef.current && techFlashRef.current.until > now ? techFlashRef.current.word : null;
+          const shown = (sim.tech?.active ?? []).filter((t) => t !== 'sidepull' && t !== 'pinch').slice(0, 3).map((t) => TECHNIQUE_LABEL[t]);
+          const text = climbing ? (flash ? [flash, ...shown.filter((x) => x !== flash)] : shown).slice(0, 3).join(' · ') : '';
+          if (techRef.current.textContent !== text) techRef.current.textContent = text;
+          techRef.current.classList.toggle('is-flash', !!flash);
+        }
+      }
+
+      // How high you are, on a highball, and how much air is around you.
+      const handsY = Math.max(sim.limbs.LH.pos.y, sim.limbs.RH.pos.y);
+      if (highball) {
+        if (heightRef.current) heightRef.current.textContent = `${Math.max(0, handsY).toFixed(1)} m`;
+        sfxExposure(phaseRef.current === 'climbing' ? clamp((sim.hip.y - 2.2) / 5.5, 0, 1) : 0);
+      }
+      if (tread && phaseRef.current !== 'inspect') {
+        if (treadTimeRef.current) treadTimeRef.current.textContent = formatTime(tread.t);
+        const sec = sectionAt(tread, handsY);
+        if (treadMetaRef.current) {
+          treadMetaRef.current.textContent = `${tread.ground.toFixed(1)} m · ${sec ? SECTION_LABEL[sec.kind] : 'Start'} · ${levelGrade(sec?.level ?? tread.level)} · belt ${(tread.speed * 60).toFixed(1)} m/min`;
+        }
+        if (treadPbRef.current) {
+          if (!treadBest) treadPbRef.current.textContent = 'first run on this program';
+          else {
+            const d = tread.t - treadBest.time;
+            treadPbRef.current.textContent = d < 0 ? `PB ${formatTime(treadBest.time)} · ${formatTime(-d)} to go` : `PB beaten by ${formatTime(d)}`;
+            treadPbRef.current.classList.toggle('is-ahead', d >= 0);
+          }
         }
       }
 
@@ -741,7 +906,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         // bottom of the screen with nowhere to pull it back to.
         const sel = selectedRef.current;
         const footDrop = sel === 'LF' || sel === 'RF' ? FOOT_LOOK_DOWN : 0;
-        const want = clamp(pose.com.y + 0.55 - footDrop + zoom * DYNO_LOOK_UP, footDrop ? 1.2 : 1.7, routeTop(route) - 0.65);
+        const g0 = tread ? tread.ground : 0;
+        const top = tread ? tread.ground + 4.6 : routeTop(route);
+        const want = clamp(pose.com.y + 0.55 - footDrop + zoom * DYNO_LOOK_UP, g0 + (footDrop ? 1.2 : 1.7), top - 0.65);
         cam.focusY += (want - cam.focusY) * (zoom > 0.05 ? 0.09 : 0.045);
         // Sideways too, but only as far as the wall goes — a route that
         // traverses off the edge of a phone screen should not leave you there.
@@ -758,7 +925,14 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       if (ended && now - ended.at > (ended.outcome === 'sent' ? CELEBRATE_MS : MAT_MS)) {
         endedRef.current = null;
         if (ended.outcome === 'fallen') setLanded(true);
-        onOutcome(buildAttempt(ended.outcome), ended.outcome);
+        if (tread) {
+          const end = treadEndRef.current ?? (reasonRef.current?.startsWith('Pumped') ? 'pumped' : 'fell');
+          treadEndRef.current = end;
+          stopExposure();
+          onTreadEnd?.(buildRun(end));
+        } else {
+          onOutcome(buildAttempt(ended.outcome), ended.outcome);
+        }
       }
 
       const shake = fxRef.current.shake();
@@ -786,10 +960,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             // Every hold it can get to, and the limb itself: the choices, all
             // on screen. With nothing in reach, the part of the outline that
             // is wall — below the mat and off the edges there is nothing.
-            const inReach = reachableHolds(sim, route.holds, sel).map((h) => h.pos);
+            const inReach = reachableHolds(sim, holdsRef.current, sel).map((h) => h.pos);
             const pts = [...(inReach.length ? inReach : reachOutline(sim, sel)), sim.limbs[sel].pos].map((p) => ({
               x: clamp(p.x, WALL.minX, WALL.maxX),
-              y: clamp(p.y, 0, routeTop(route) + 0.3),
+              y: clamp(p.y, tread ? tread.ground : 0, (tread ? tread.ground + 4.6 : routeTop(route)) + 0.3),
             }));
             reachBoxRef.current = {
               key,
@@ -802,7 +976,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         reachFitRef.current += (want - reachFitRef.current) * (fitting ? 0.12 : 0.05);
         if (reachFitRef.current < 0.002) reachFitRef.current = 0;
       }
-      let view = { ...cam, frame: cam.frame + framePunchRef.current + wide };
+      // Height on a highball: the camera eases out a little as you go up, so
+      // the ground stays in the picture's reckoning without hiding the holds.
+      const exposure = highball ? clamp((pose.com.y - 3) * 0.13, 0, 1.0) : 0;
+      let view = { ...cam, frame: cam.frame + framePunchRef.current + wide + exposure };
       const box = reachBoxRef.current;
       const fit = reachFitRef.current;
       if (box && fit > 0) {
@@ -852,7 +1029,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           const snapped = AimSearch.snap({ x: dx, y: -dy }, max, aimNotchRef.current);
           aimNotchRef.current = drag?.kind === 'aim' ? snapped : null;
           const pulling = drag?.kind === 'aim' && snapped.power >= SLING.minPower;
-          if (pulling && !aimSearchRef.current) aimSearchRef.current = new AimSearch(sim, route.holds);
+          if (pulling && !aimSearchRef.current) aimSearchRef.current = new AimSearch(sim, holdsRef.current);
           const search = aimSearchRef.current;
 
           // The wind-up. The limb itself comes back with the finger, the elbow
@@ -913,8 +1090,8 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             power: pulling ? aim.power : 0,
             prediction,
             dynoPrediction,
-            reachable: body ? [] : reachableHolds(sim, route.holds, sel),
-            placeable: body ? [] : placeableHolds(sim, route.holds, sel),
+            reachable: body ? [] : reachableHolds(sim, holdsRef.current, sel),
+            placeable: body ? [] : placeableHolds(sim, holdsRef.current, sel),
             bands: body && pulling
               ? LIMBS.filter((id) => isBand(sim.limbs[id])).map((id) => ({
                 limb: id, at: limbs[id], anchor: anchorFor(id, pose.hip, pose.shoulder),
@@ -970,6 +1147,12 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
           accent,
           showLimbs: climbing,
           intro: introAlpha(now - introRef.current),
+          contacts: climbing ? contactsView(sim) : undefined,
+          ruler: highball ? {
+            x: pose.com.x,
+            from: 1, to: highball.highball.height + 0.4, climber: handsY,
+          } : null,
+          floor: tread ? tread.ground : null,
         });
         fxRef.current.draw(ctx, scene);
       }
@@ -1035,7 +1218,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     if (fingers.size > 2) return;
 
     if (phaseRef.current === 'inspect') {
-      const hold = holdAtScreen(sceneRef.current, x, y, route);
+      const hold = holdAtScreen(sceneRef.current, x, y, holdsRef.current);
       if (hold !== null) { setInspectHold(hold); return; }
       dragRef.current = newDrag('look', x, y, cam);
       return;
@@ -1082,7 +1265,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
       const scene = sceneRef.current;
       if (!scene) return;
       const mpp = scene.metresPerPixel();
-      camRef.current.focusY = clamp(drag.camFocus + (drag.y - drag.startY) * mpp, 0.9, routeTop(route) + 0.15);
+      camRef.current.focusY = clamp(drag.camFocus + (drag.y - drag.startY) * mpp, 0.9 + (tread ? tread.ground : 0), (tread ? tread.ground + 4.6 : routeTop(route)) + 0.15);
       camRef.current.orbit = clamp(drag.camOrbit - (drag.x - drag.startX) * 0.0022, -ORBIT_LIMIT, ORBIT_LIMIT);
     }
   }, [route]);
@@ -1118,10 +1301,10 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         return;
       }
       if (sel !== 'BODY' && sim.limbs[sel].phase === 'free') {
-        const hold = holdAtScreen(sceneRef.current, drag.x, drag.y, route);
+        const hold = holdAtScreen(sceneRef.current, drag.x, drag.y, holdsRef.current);
         if (hold !== null) {
           const events: SlingEvent[] = [];
-          if (placeLimb(sim, sel, hold, route.holds, events)) {
+          if (placeLimb(sim, sel, hold, holdsRef.current, events)) {
             handleEvents(events, performance.now());
             setSelected(null);
             selectedRef.current = null;
@@ -1146,7 +1329,7 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     const events: SlingEvent[] = [];
     // The world held still while the pull was made, so this is the very
     // throw the screen was showing for this notch.
-    const search = aimSearchRef.current ?? new AimSearch(sim, route.holds);
+    const search = aimSearchRef.current ?? new AimSearch(sim, holdsRef.current);
     let aim = { limb: (sel === 'BODY' ? 'RH' : sel) as LimbId, dir: { x: 0, y: 1 }, power: snapped.power } as Parameters<typeof launch>[1];
     let wind: Vec2 | null = null;
     let dynoWind: Vec2 | null = null;
@@ -1289,6 +1472,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
     reasonRef.current = null;
     shoutRef.current = null;
     pumpStateRef.current = freshPump(lab0 ? fitness * 2.5 : fitness);
+    bodyRef.current = { power: 1, core: 1, breath: 0 };
+    treadStats.current = { rested: 0, maxPump: 0, slips: 0, moves: 0, ended: false };
+    setLandingState(null);
     juiceRef.current = freshJuice(lab0);
     juiceBoxRef.current?.classList.toggle('is-ready', lab0);
     timeScaleRef.current = 1;
@@ -1324,6 +1510,41 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
   };
   const restartClimbRef = useRef(restartClimb);
   restartClimbRef.current = restartClimb;
+
+  /** The tread wall: end the session on purpose. */
+  const stepOff = () => {
+    if (!tread || treadEndRef.current) return;
+    treadEndRef.current = 'stopped';
+    stopExposure();
+    onTreadEnd?.(buildRun('stopped'));
+  };
+
+  // Leaving the climb takes the wind with it.
+  useEffect(() => () => stopExposure(), []);
+
+  // Test hook, only with ?debug in the URL: lift the body and let go of
+  // everything, so the smoke test can check a fall and its landing.
+  useEffect(() => {
+    if (typeof location === 'undefined' || !location.search.includes('debug')) return;
+    const w = window as unknown as { __bruh?: unknown };
+    w.__bruh = {
+      fallFrom: (h: number) => {
+        const sim = simRef.current;
+        const lift = (p: Vec2) => { p.y += h; };
+        lift(sim.hip); lift(sim.shoulder);
+        for (const id of LIMBS) {
+          const l = sim.limbs[id];
+          lift(l.pos);
+          l.phase = 'free';
+          l.holdId = null;
+        }
+        sim.left = true;
+        sim.heldLast = 4;
+      },
+      state: () => ({ phase: phaseRef.current, hip: simRef.current.hip, ground: simRef.current.ground ?? 0 }),
+    };
+    return () => { delete w.__bruh; };
+  }, []);
 
   const onRestartTap = () => {
     unlockAudio();
@@ -1379,16 +1600,23 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         <button className="climb__back" onClick={onExit} aria-label="Back to routes">←</button>
         <div className="climb__id">
           <div className="climb__name">
-            <span className="climb__grade" style={{ background: accent }}>{lab ? 'LAB' : route.grade}</span>
+            <span className="climb__grade" style={{ background: tread ? '#9b8cff' : accent }}>{lab ? 'LAB' : tread ? 'TREAD' : route.grade}</span>
             {route.name}
           </div>
-          <div className="climb__setter">{setter.name} — “{setter.line}”</div>
+          <div className="climb__setter">
+            {tread ? `${tread.program.angle}° panel · ${tread.program.blurb}` : `${setter.name} — “${setter.line}”`}
+          </div>
         </div>
         <div className="climb__corner">
-          <div className={`climb__mode climb__mode--${modeRef.current}`}>
-            {lab ? 'PRACTICE' : modeRef.current === 'onsight' ? 'ONSIGHT' : 'PROJECT'}
+          <div className={`climb__mode climb__mode--${tread ? 'tread' : highball ? 'highball' : modeRef.current}`}>
+            {lab ? 'PRACTICE' : tread ? 'ENDURANCE' : highball ? 'HIGHBALL' : modeRef.current === 'onsight' ? 'ONSIGHT' : 'PROJECT'}
           </div>
-          {phase === 'climbing' && (
+          {phase === 'climbing' && tread && (
+            <button className="climb__restart climb__stepoff" onClick={stepOff} aria-label="Step off and end the session">
+              Step off
+            </button>
+          )}
+          {phase === 'climbing' && !tread && (
             <button
               className={`climb__restart${confirmRestart ? ' is-confirm' : ''}`}
               onClick={onRestartTap}
@@ -1416,6 +1644,18 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             <div className="stamina__other" ref={otherArmRef} />
           </div>
           <div className="stamina__why" ref={whyRef} />
+          <div className="body">
+            <div className="body__meter">
+              <span>Power</span>
+              <div className="body__track"><div className="body__fill body__fill--power" ref={powerBarRef} /></div>
+            </div>
+            <div className="body__meter">
+              <span>Core</span>
+              <div className="body__track"><div className="body__fill body__fill--core" ref={coreBarRef} /></div>
+            </div>
+            <div className="body__breath"><span>Breath</span><b ref={breathRef}>easy</b></div>
+          </div>
+          <div className="tech" ref={techRef} />
           <div className={`juice${lab ? ' is-ready' : ''}`} ref={juiceBoxRef}>
             <div className="stamina__row">
               <span className="stamina__label juice__label">Dyno</span>
@@ -1429,10 +1669,24 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         </div>
       )}
 
+      {tread && phase !== 'inspect' && (
+        <div className="treadhud">
+          <div className="treadhud__time" ref={treadTimeRef}>0:00.0</div>
+          <div className="treadhud__meta" ref={treadMetaRef} />
+          <div className="treadhud__pb" ref={treadPbRef} />
+        </div>
+      )}
+      {highball && phase === 'climbing' && (
+        <div className="heighthud">
+          <div className="heighthud__now" ref={heightRef}>0.0 m</div>
+          <div className="heighthud__of">of {highball.highball.height.toFixed(1)} m</div>
+        </div>
+      )}
+
       <div className="climb__stats">
         <span><b>{launches}</b> moves</span>
         <span><b>{catches}</b> caught</span>
-        {!lab && <span className="climb__par">par {route.par}</span>}
+        {!lab && !tread && <span className="climb__par">par {route.par}</span>}
         {attemptsNote && <span className="climb__note">{attemptsNote}</span>}
       </div>
 
@@ -1458,7 +1712,43 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         </div>
       )}
 
-      {phase === 'inspect' && (
+      {phase === 'inspect' && highball && (
+        <div className="hbinfo">
+          <div className="hbinfo__row">
+            <span className="hbinfo__height">{highball.highball.height.toFixed(1)} m</span>
+            <span className="hbinfo__char">{highball.highball.character}</span>
+          </div>
+          <div className="hbinfo__landing">
+            Landing: {highball.highball.landing.pads} highball pad{highball.highball.landing.pads > 1 ? 's' : ''}
+            {highball.highball.landing.spotter ? ', a spotter' : ', no spotter'}
+            {' · '}good for falls to about {(2.4 + 1.3 * highball.highball.landing.pads).toFixed(1)} m. Above that, do not fall.
+          </div>
+        </div>
+      )}
+
+      {phase === 'inspect' && tread && (
+        <div className="inspect">
+          <div className="inspect__hint">
+            <strong>{tread.program.name}: {tread.program.angle}° panel.</strong> The wall rolls down as you climb.
+            Stay on as long as you can: climb faster than the belt to earn height, rest only where your
+            feet take the weight, and do not let the floor catch you. The clock starts when you pull on.
+          </div>
+          <button className="btn btn--primary inspect__go" onClick={startClimb}>Pull on</button>
+        </div>
+      )}
+
+      {phase === 'inspect' && highball && (
+        <div className="inspect">
+          <div className="inspect__hint">
+            <strong>Read the whole line before you pull on.</strong> Same climbing as the boulders — same
+            body, same holds — with a lot more air under it, more than one hard part, and very few
+            places to stop. Rest where your feet take the weight.
+          </div>
+          <button className="btn btn--primary inspect__go" onClick={startClimb}>Commit to it</button>
+        </div>
+      )}
+
+      {phase === 'inspect' && !tread && !highball && (
         <div className="inspect">
           <div className="inspect__hint">
             <strong>{lab ? 'The practice wall.' : 'Read the route.'}</strong> Press a hand or a foot (or
@@ -1467,7 +1757,9 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
             dyno meter, every whiff drains it, and a dyno spends the lot. Tap a dangling limb,
             then a hold, to put it back on. The pump fills from the moment you pull on: hanging on
             your arms fills it, and weight on your feet lets it drain. Tap a picked-up hand again
-            to take it off and shake it out — if your feet can hold you.
+            to take it off and shake it out — if your feet can hold you. Holds are not all equal:
+            jugs take a swinging body, crimps want your feet on, slopers want your weight under them.
+            A foot thrown at blank wall smears below your hips and flags out to the side.
           </div>
           {holdToInspect && (
             <HoldInspector hold={holdToInspect} onClose={() => setInspectHold(null)} />
@@ -1488,13 +1780,14 @@ export function SlingScreen({ route, mode, fitness, onExit, onOutcome, attemptsN
         <div className="climb__hint">{hint}</div>
       )}
 
-      {phase === 'fallen' && landed && (
-        <div className="falloff">
+      {phase === 'fallen' && landed && !tread && (
+        <div className={`falloff${landing ? ` falloff--${landing.kind}` : ''}`}>
           <div className="falloff__word">Bruuuuuuh</div>
           <div className="falloff__reason">{lastReason ?? 'You are on the mat.'}</div>
+          {landing && <div className="falloff__landing">{landing.words}</div>}
           <div className="falloff__row">
             <button className="btn" onClick={onExit}>Leave it</button>
-            <button className="btn btn--primary" onClick={() => restart()}>Try again</button>
+            <BreathButton until={landing?.until ?? 0} onGo={() => restart()} />
           </div>
         </div>
       )}
@@ -1523,11 +1816,11 @@ function moodOf(sim: SlingState, phase: Phase): Mood {
   return 'calm';
 }
 
-function holdAtScreen(scene: WallScene | null, x: number, y: number, route: Route): number | null {
+function holdAtScreen(scene: WallScene | null, x: number, y: number, holds: Hold[]): number | null {
   if (!scene) return null;
   let best: number | null = null;
   let bestD = 34;
-  for (const h of route.holds) {
+  for (const h of holds) {
     const p = scene.project(h.pos, HOLD_Z);
     const d = Math.hypot(p.x - x, p.y - y);
     if (d < bestD) { best = h.id; bestD = d; }
@@ -1543,4 +1836,34 @@ function startFocusX(route: Route, scene: WallScene): number {
   const x = hands.reduce((sum, h) => sum + h.pos.x, 0) / hands.length;
   const lim = scene.focusXLimit();
   return clamp(x, -lim, lim);
+}
+
+/** What the overlay draws round each limb: its contact state and how close it is to going. */
+function contactsView(sim: SlingState): Partial<Record<LimbId, { state: string; risk: number }>> {
+  const out: Partial<Record<LimbId, { state: string; risk: number }>> = {};
+  for (const id of LIMBS) {
+    const state = contactState(sim, id);
+    if (state === 'free' || state === 'searching' || state === 'released') continue;
+    out[id] = { state, risk: contactRisk(sim, id) };
+  }
+  return out;
+}
+
+/**
+ * Try again, after a breath if the landing called for one. Counts down
+ * rather than hiding: the wait is part of the highball, not a punishment.
+ */
+function BreathButton({ until, onGo }: { until: number; onGo: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (until <= Date.now()) return;
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [until]);
+  const left = Math.ceil((until - now) / 1000);
+  return (
+    <button className="btn btn--primary" disabled={left > 0} onClick={onGo}>
+      {left > 0 ? `Breathe… ${left}` : 'Try again'}
+    </button>
+  );
 }

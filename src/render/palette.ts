@@ -71,4 +71,5 @@ export const HOLD_DEPTH: Record<HoldType, number> = {
   gaston: 0.09,
   foothold: 0.06,
   volume: 0.22,
+  smear: 0.01,
 };

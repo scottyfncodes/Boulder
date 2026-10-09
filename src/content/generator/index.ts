@@ -3,6 +3,9 @@ import { hashString } from '../../game/rng';
 import { buildRoute, type BuildResult } from './build';
 import { isDifficulty, type Difficulty } from './difficulty';
 import { checkClimb, checkShape, checkStructure, parFor } from './validate';
+import { gradeRoute } from '../../game/grading';
+import { GRADES, gradeIndex } from '../../game/types';
+import { TIERS } from './difficulty';
 
 /**
  * The route setter.
@@ -58,7 +61,16 @@ export function generateRoute(difficulty: Difficulty, seed: number): GenerateRes
     const v = checkClimb(b);
     if (v.ok) {
       b.route.par = parFor(b.route, v.solution);
-      b.route.id = `${b.route.id}-${b.route.par}`;
+      // The grade is what the moves add up to, kept inside the tier the
+      // route was set for (give or take one) so the setter's buttons still
+      // mean something.
+      const report = gradeRoute(b.route, [v.solution.moves.map((m) => ({ limb: m.limb, holdId: m.holdId }))]);
+      const band = TIERS[difficulty].grades.map(gradeIndex);
+      const lo = Math.max(0, Math.min(...band) - 1);
+      const hi = Math.min(GRADES.length - 1, Math.max(...band) + 1);
+      const g = Math.max(lo, Math.min(hi, gradeIndex(report.grade)));
+      b.route.grade = GRADES[g];
+      b.route.id = `${b.route.id}-${b.route.par}-g${g}`;
       rememberRoute(b.route);
       return { route: b.route, build: b, rejected: reasons.length, climbs, reasons };
     }
@@ -85,17 +97,17 @@ export function randomSeed(): number {
   return Math.floor(Math.random() * 0xffffffff) >>> 0;
 }
 
-const ID_RE = /^gen-([a-zA-Z]+)-([0-9a-z]+)-(\d)-(\d+)$/;
+const ID_RE = /^gen-([a-zA-Z]+)-([0-9a-z]+)-(\d)-(\d+)(?:-g(\d+))?$/;
 
 export function isGeneratedId(id: string): boolean {
   return ID_RE.test(id);
 }
 
 /** What a generated id records: enough to rebuild the route without climbing it. */
-export function parseGeneratedId(id: string): { difficulty: Difficulty; seed: number; relax: number; par: number } | null {
+export function parseGeneratedId(id: string): { difficulty: Difficulty; seed: number; relax: number; par: number; grade: number | null } | null {
   const m = ID_RE.exec(id);
   if (!m || !isDifficulty(m[1])) return null;
-  return { difficulty: m[1], seed: parseInt(m[2], 36), relax: Number(m[3]), par: Number(m[4]) };
+  return { difficulty: m[1], seed: parseInt(m[2], 36), relax: Number(m[3]), par: Number(m[4]), grade: m[5] !== undefined ? Number(m[5]) : null };
 }
 
 const cache = new Map<string, Route>();
@@ -117,6 +129,8 @@ export function generatedRouteById(id: string): Route | undefined {
   if (!parsed) return undefined;
   const route = buildRoute(parsed.difficulty, parsed.seed, { relax: parsed.relax }).route;
   route.par = parsed.par;
+  // Older ids carry no assessed grade: those keep the grade they were set at.
+  if (parsed.grade !== null && GRADES[parsed.grade]) route.grade = GRADES[parsed.grade];
   route.id = id;
   cache.set(id, route);
   return route;

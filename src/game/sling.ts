@@ -2,12 +2,15 @@ import type { Contact, Hold, LimbId, MoveGrade, Pose, Vec2 } from './types';
 import { LIMBS, isHand } from './types';
 import { BODY, anchorFor, analyseStance, footShare, seedPoseFor } from './body';
 import {
-  affinityFactor, canShare, canUse, contactRadius, profileOf, worldZones,
+  canShare, canUse, contactRadius, profileOf, worldZones,
 } from './holds';
 import { clamp, clamp01, dist, len, norm, sub } from './vec';
 import { type WallProfile, ROOF_ANGLE, angleAt, flatProfile } from './profile';
 import type { ArmId, FootSupport, Posture } from './pump';
 import { type Envelope, type ReachLimits, envelopeExtent, envelopeOf, envelopeOutline, holdsInEnvelope, inEnvelope, poseFor } from './reach';
+import { ESTABLISH_TIME, establishFactor, gripCost, holdCapacity, stepSlip } from './grip';
+import { type TechReading, type TechniqueId, readTechnique } from './technique';
+import { armShare } from './pump';
 
 /**
  * Slingshot limbs.
@@ -244,7 +247,35 @@ export type SlingLimb = {
   launchDir?: Vec2 | null;
   /** The hold a reach is going for. It goes there, past anything on the way. */
   target?: number | null;
+  /** 0..1: how far this contact has slipped. 1 is gone. */
+  slip?: number;
+  /** Extra load from arriving on the hold moving, body weights, dying away. */
+  impact?: number;
+  /** What the limb is asking of its hold this step, body weights. */
+  demand?: number;
+  /** A free foot pressed flat on the wall to balance: a flag. */
+  flag?: boolean;
+  /** Where the flag sits, relative to the hips. */
+  flagAt?: Vec2 | null;
+  /** Seconds since this limb last came off something. */
+  releasedT?: number;
 };
+
+/**
+ * What the body has left. The screen writes it from the fatigue model every
+ * frame; the sim only reads it, so a preview run on a copy sees the same
+ * tired body the real throw will. 1 is fresh.
+ */
+export type Condition = {
+  /** Each forearm's grip, 1 fresh .. 0 blown. */
+  grip: Record<'LH' | 'RH', number>;
+  /** Short-term power: how hard you can still throw. */
+  power: number;
+  /** Core tension: keeping feet on and the body in on steep ground. */
+  core: number;
+};
+
+export const FRESH: Condition = { grip: { LH: 1, RH: 1 }, power: 1, core: 1 };
 
 export type SlingState = {
   hip: Vec2;
@@ -275,6 +306,22 @@ export type SlingState = {
   reachHome?: { hip: Vec2; shoulder: Vec2; t: number } | null;
   /** Where the body is going to get a limb onto the hold it is reaching for. */
   reachPose?: { hip: Vec2; shoulder: Vec2 } | null;
+  /** What the body has left. Fresh when left out. */
+  cond?: Condition;
+  /**
+   * Where the ground is, metres up the wall's coordinates. Zero in a gym; on
+   * the tread wall it rises at the belt's speed, which is the same thing as
+   * the wall going down.
+   */
+  ground?: number;
+  /** Smears: blank wall a foot is standing on. Ids are negative. */
+  smears?: Hold[];
+  /** The techniques the body read as doing, last step. */
+  tech?: TechReading;
+  /** The holds the last step ran against, so readers without them (the pump) can price a grip. */
+  holdsRef?: Hold[];
+  /** Highest the hips have been since the last thing let go: how far a fall really is. */
+  fallPeak?: number | null;
 };
 
 export type SlingEvent =
@@ -292,7 +339,9 @@ export type SlingEvent =
   /** The climber met the mat. */
   | { kind: 'fell'; at: Vec2; from: number }
   /** A forearm ran out: its hand opened on its own. `hands` is how many opened. */
-  | { kind: 'pumped'; at: Vec2; hands: number };
+  | { kind: 'pumped'; at: Vec2; hands: number }
+  /** The body did something with a name: a smear, a flag, a deadpoint, a foot swap. */
+  | { kind: 'tech'; limb: LimbId | null; tech: TechniqueId | 'deadpoint' | 'footSwap'; at: Vec2 };
 
 export type LaunchAim = {
   limb: LimbId;
@@ -339,6 +388,24 @@ function holdMap(holds: Hold[]): Map<number, Hold> {
   return m;
 }
 
+/** A hold by id: the route's, or a smear the body made. */
+export function holdIn(state: SlingState, holds: Hold[], id: number | null): Hold | undefined {
+  if (id === null) return undefined;
+  if (id < 0) return state.smears?.find((h) => h.id === id);
+  return holdMap(holds).get(id);
+}
+
+/** Smear ids: one per foot, so a foot moving its smear replaces it. */
+const SMEAR_ID: Record<'LF' | 'RF', number> = { LF: -1, RF: -2 };
+
+function condOf(state: SlingState): Condition {
+  return state.cond ?? FRESH;
+}
+
+function groundOf(state: SlingState): number {
+  return state.ground ?? 0;
+}
+
 // --- construction --------------------------------------------------------
 
 function freshLimb(id: LimbId, pos: Vec2): SlingLimb {
@@ -347,7 +414,7 @@ function freshLimb(id: LimbId, pos: Vec2): SlingLimb {
     phase: 'free', holdId: null, onFloor: false,
     seat: 0, zone: null, grade: null,
     flightT: 0, heldT: 0, tension: 0, capacity: 0, leftHoldId: null, touch: null,
-    brushedChip: false,
+    brushedChip: false, slip: 0, impact: 0, demand: 0, flag: false, flagAt: null, releasedT: 10,
   };
 }
 
@@ -405,6 +472,7 @@ export function initialSling(
     hip: { ...seed.hip }, hipV: { x: 0, y: 0 },
     shoulder: { ...seed.shoulder }, shV: { x: 0, y: 0 },
     limbs, profile, t: 0, left: false, fallen: false, peelSign: 1, heldLast: 0, dyno: false, dynoLast: false, reachHome: null, reachPose: null,
+    cond: FRESH, ground: 0, smears: [],
   };
   state.heldLast = heldCount(state);
   // Let it settle. Heavy damping for the warm-up only, so the opening frame is
@@ -414,6 +482,8 @@ export function initialSling(
     const l = state.limbs[limb];
     l.tension = 0;
     l.heldT = 10;
+    l.slip = 0;
+    l.impact = 0;
   }
   state.t = 0;
   state.left = false;
@@ -448,6 +518,7 @@ export function cloneSling(s: SlingState): SlingState {
     limbs[limb] = {
       ...l, pos: { ...l.pos }, vel: { ...l.vel }, prev: { ...l.prev },
       touch: l.touch ? { ...l.touch, at: { ...l.touch.at } } : null,
+      flagAt: l.flagAt ? { ...l.flagAt } : null,
     };
   }
   return {
@@ -457,6 +528,7 @@ export function cloneSling(s: SlingState): SlingState {
     limbs,
     reachHome: s.reachHome ? { hip: { ...s.reachHome.hip }, shoulder: { ...s.reachHome.shoulder }, t: s.reachHome.t } : null,
     reachPose: s.reachPose ? { hip: { ...s.reachPose.hip }, shoulder: { ...s.reachPose.shoulder } } : null,
+    smears: s.smears ? s.smears.map((h) => ({ ...h, pos: { ...h.pos } })) : [],
   };
 }
 
@@ -502,8 +574,20 @@ export function windupPos(state: SlingState, limb: LimbId, pull: Vec2, power: nu
     target.x = anchor.x + (d.x / L) * max;
     target.y = anchor.y + (d.y / L) * max;
   }
-  if (target.y < LIMB_CLEARANCE) target.y = LIMB_CLEARANCE;
+  if (target.y < groundOf(state) + LIMB_CLEARANCE) target.y = groundOf(state) + LIMB_CLEARANCE;
   return target;
+}
+
+/** How much of a full throw a tired body still has. */
+export function powerScale(state: SlingState): number {
+  return 0.78 + 0.22 * condOf(state).power;
+}
+
+/** A foot leaving its smear takes the smear with it. */
+function dropSmear(state: SlingState, l: SlingLimb): void {
+  if (l.holdId !== null && l.holdId < 0 && state.smears) {
+    state.smears = state.smears.filter((h) => h.id !== l.holdId);
+  }
 }
 
 /** Launch speed for a pull, metres per second. */
@@ -527,16 +611,22 @@ export function launch(state: SlingState, aim: LaunchAim, events: SlingEvent[] =
   }
   const l = state.limbs[aim.limb];
   const d = norm(aim.dir);
-  const speed = launchSpeed(aim.limb, aim.power);
+  // Tired arms throw shorter: the same pull is less of a throw.
+  const speed = launchSpeed(aim.limb, aim.power) * powerScale(state);
 
   // Where it left from: whatever is touching that spot cannot grab it back
   // before it has gone anywhere.
   l.launchAt = l.holdId !== null ? { ...l.pos } : null;
   l.leftHoldId = l.holdId;
+  dropSmear(state, l);
   l.holdId = null;
   l.onFloor = false;
   l.touch = null;
   l.brushedChip = false;
+  l.slip = 0;
+  l.impact = 0;
+  l.flag = false;
+  l.flagAt = null;
   if (aim.from) l.pos = { ...aim.from };
   l.phase = 'flying';
   l.flightT = 0;
@@ -631,6 +721,7 @@ export function postureOf(state: SlingState): Posture {
   const held = { LH: false, RH: false } as Record<ArmId, boolean>;
   const shaking = { LH: false, RH: false } as Record<ArmId, boolean>;
   const footSupport: FootSupport[] = [];
+  const grip = { LH: 1, RH: 1 } as Record<ArmId, number>;
   const com = centreOfMass(state);
   for (const id of LIMBS) {
     const l = state.limbs[id];
@@ -640,11 +731,26 @@ export function postureOf(state: SlingState): Posture {
     if (isHand(id)) {
       hands++;
       held[id as ArmId] = true;
+      const list = state.holdsRef;
+      const hold = list ? holdIn(state, list, l.holdId) : undefined;
+      if (hold) {
+        const anchor = anchorFor(id, state.hip, state.shoulder);
+        grip[id as ArmId] = gripCost(hold, {
+          limb: id, force: pullDirection(hold, l, anchor), angle: angleAt(state.profile, hold.pos.y),
+          opposition: state.tech?.opposition[id] ?? null,
+        });
+        // Hanging off something you are about to lose is the most expensive
+        // thing a forearm does: the closer to letting go, the harder you squeeze.
+        const ratio = (l.demand ?? 0) / Math.max(l.capacity, 1e-3);
+        grip[id as ArmId] *= 1 + 0.9 * smoothstep(0.55, 1.0, ratio);
+      }
     } else {
       feet++;
       footSupport.push(footSupportOf(state, l, com));
     }
   }
+  const flag = state.tech?.flag;
+  if (flag && state.limbs[flag.limb].phase === 'free') footSupport.push({ support: 0.18 * flag.counter, hooked: false });
   return {
     angle: bodyAngle(state),
     hands,
@@ -656,8 +762,15 @@ export function postureOf(state: SlingState): Posture {
     shaking,
     leftShare: hands === 2 ? leftShareOf(state, com) : undefined,
     footSupport,
+    grip,
+    core: (state.tech?.active ?? []).reduce((n, t) => n + (CORE_TECH[t] ?? 0), 0),
   };
 }
+
+/** How much each technique asks of the core while it is held, per second of effort. */
+const CORE_TECH: Partial<Record<TechniqueId, number>> = {
+  toeHook: 0.5, heelHook: 0.25, compression: 0.35, flag: 0.15, cutLoose: 0.6, dropKnee: 0.1, stem: 0.1,
+};
 
 /** Where the weight is: hips and shoulders, by their masses. */
 function centreOfMass(state: SlingState): Vec2 {
@@ -680,15 +793,26 @@ function smoothstep(a: number, b: number, x: number): number {
  * best; at full stretch, or way out to the side of where the weight is, it is
  * only touching. A hook is a different thing: it pulls, and holds well.
  */
-function footSupportOf(state: SlingState, l: SlingLimb, com: Vec2): FootSupport {
+function footSupportOf(state: SlingState, l: SlingLimb, com: Vec2, holds?: Hold[]): FootSupport {
   const below = state.hip.y - l.pos.y;
   const under = 0.25 + 0.75 * smoothstep(-0.15, 0.5, below);
   const reach = dist(anchorFor(l.id, state.hip, state.shoulder), l.pos) / LEG_MAX;
   const stretch = 1 - 0.6 * smoothstep(0.85, 1.0, reach);
   const out = 1 - 0.45 * smoothstep(0.35, 0.95, Math.abs(l.pos.x - com.x));
-  const support = under * stretch * out;
+  let support = under * stretch * out;
   const hooked = !!l.hooked && l.holdId !== null;
-  return { support: hooked ? Math.max(support, 0.85) : support, hooked };
+  // A drop knee: the foot is level with the hips and out wide, the knee
+  // turned in. On steep ground that foot carries weight a flat foot could not.
+  const twist = !hooked && !!state.tech?.dropKnee[l.id];
+  if (twist) support = Math.max(support, 0.72);
+  // A bad foot takes less off the hands, however well it is placed.
+  const list = holds ?? state.holdsRef;
+  const hold = list ? holdIn(state, list, l.holdId) : undefined;
+  if (hold) {
+    const cap = capacityOf(hold, l, anchorFor(l.id, state.hip, state.shoulder), state);
+    support *= 0.45 + 0.55 * smoothstep(0.25, 1.3, cap);
+  }
+  return { support: hooked ? Math.max(support, 0.85) : support, hooked, twist };
 }
 
 /**
@@ -754,7 +878,7 @@ export function dynoWindup(state: SlingState, pull: Vec2, power: number): Vec2 {
   }
   const off = { x: dir.x * full * k, y: dir.y * full * k };
   // The hips do not go through the mat.
-  const floorHip = FOOT_FLOOR + LEG_STAND * 0.45;
+  const floorHip = groundOf(state) + FOOT_FLOOR + LEG_STAND * 0.45;
   if (state.hip.y + off.y < floorHip) off.y = Math.min(0, floorHip - state.hip.y);
   return off;
 }
@@ -780,7 +904,7 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
   if (!canDyno(state)) return false;
   if (aim.power < SLING.minPower) return false;
   const d = norm(aim.dir);
-  const speed = dynoSpeed(aim.power);
+  const speed = dynoSpeed(aim.power) * (0.8 + 0.2 * condOf(state).power);
   if (aim.wind) {
     // The body lets go from where it was drawn back to. Whatever was not
     // holding on comes with it; the limbs that were are where they are.
@@ -798,7 +922,12 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
   for (const id of LIMBS) {
     const l = state.limbs[id];
     l.leftHoldId = l.phase === 'held' ? l.holdId : l.leftHoldId;
+    dropSmear(state, l);
     l.holdId = null;
+    l.slip = 0;
+    l.impact = 0;
+    l.flag = false;
+    l.flagAt = null;
     l.onFloor = false;
     l.tension = 0;
     l.capacity = 0;
@@ -843,6 +972,8 @@ export function dyno(state: SlingState, aim: DynoAim, events: SlingEvent[] = [])
 export function placeableHolds(state: SlingState, holds: Hold[], limb: LimbId): Hold[] {
   const l = state.limbs[limb];
   if (l.phase !== 'free' || state.fallen) return [];
+  // Nobody puts a foot back on while the body is still swinging past it.
+  if (bodySpeed(state) > PLACE_SWING) return [];
   const anchor = anchorFor(limb, state.hip, state.shoulder);
   const max = isHand(limb) ? ARM_MAX : LEG_MAX;
   const blocked = blockedHolds(state, holds, limb);
@@ -878,9 +1009,30 @@ export function placeLimb(
   l.tension = 0;
   l.touch = null;
   l.leftHoldId = null;
-  l.capacity = capacityOf(hold, l, anchorFor(limb, state.hip, state.shoulder));
+  l.slip = 0;
+  l.impact = 0;
+  l.flag = false;
+  l.flagAt = null;
+  swapOff(state, l, events);
+  l.capacity = capacityOf(hold, l, anchorFor(limb, state.hip, state.shoulder), state);
   events.push({ kind: 'place', limb, holdId: hold.id, at: { ...l.pos } });
   return true;
+}
+
+/** Fastest the body can be moving for a dangling limb to be put straight back on, m/s. */
+export const PLACE_SWING = 0.9;
+
+/** A foot arriving on the other foot's hold: the other one comes off. */
+function swapOff(state: SlingState, l: SlingLimb, events: SlingEvent[]): void {
+  if (isHand(l.id) || l.holdId === null) return;
+  for (const o of ['LF', 'RF'] as LimbId[]) {
+    if (o === l.id) continue;
+    const other = state.limbs[o];
+    if (other.phase === 'held' && other.holdId === l.holdId) {
+      release(state, other, [], '');
+      events.push({ kind: 'tech', limb: l.id, tech: 'footSwap', at: { ...l.pos } });
+    }
+  }
 }
 
 // --- reach -----------------------------------------------------------------
@@ -982,6 +1134,10 @@ export function blockedHolds(state: SlingState, holds: Hold[], except: LimbId): 
   for (const [id, n] of count) {
     const h = byId.get(id);
     if (!h) continue;
+    // A foot can take a hold the other foot is on: the other one hops off.
+    // That is a foot swap, and it is how you change feet on a small edge.
+    const swap = !isHand(except) && n === 1 && LIMBS.some((o) => o !== except && !isHand(o) && state.limbs[o].holdId === id);
+    if (swap) continue;
     if (n >= 2 || !canShare(h.size, h.type)) blocked.add(id);
   }
   return blocked;
@@ -1030,9 +1186,10 @@ export function gradeOfSeat(seat: number): Exclude<MoveGrade, 'MISS' | 'YEET'> {
 export const STUCK = 'PERFECT' as const;
 
 /**
- * Direction the climber is actually pulling a hold, from where the anchor of
+ * Direction the climber is actually loading a hold, from where the anchor of
  * the limb has ended up. This is what makes an undercling useless with your
- * hips below it: the pull is down, the hold wants up.
+ * hips below it: the pull is down, the hold wants up. A hand with the
+ * shoulders over it on a hold that faces up is pressing down on it: a mantle.
  */
 function pullDirection(hold: Hold, limb: SlingLimb, anchor: Vec2): Vec2 {
   let base = norm(sub(anchor, hold.pos));
@@ -1041,7 +1198,11 @@ function pullDirection(hold: Hold, limb: SlingLimb, anchor: Vec2): Vec2 {
   if (!isHand(limb.id) && limb.hooked) return base;
   if (!isHand(limb.id)) {
     // Feet press down into the hold whatever the hips are doing.
-    base = norm({ x: base.x * 0.3, y: base.y * 0.3 - 0.7 });
+    return norm({ x: -base.x * 0.3, y: -0.7 - Math.abs(base.y) * 0.3 });
+  }
+  // Pressing on top of a hold: the force goes down into it.
+  if (anchor.y > hold.pos.y + 0.08 && Math.sin(hold.dir) < -0.3 && !profileOf(hold.type).push) {
+    return norm({ x: -base.x * 0.4, y: -1 });
   }
   return base;
 }
@@ -1055,20 +1216,28 @@ export function loadAlignment(hold: Hold, pull: Vec2): number {
 }
 
 /**
- * The load a hold will take through this limb before it lets go, in body
- * weights. Every hold is as strong as every other: what hold it is does not
- * decide whether you stay on — the pump does. What can still pull a limb off
- * is swinging hard on a hold loaded the way it was never meant to be (an
- * undercling from below, a sloper from the side), or a foot asked to be a hand.
+ * The load a hold will take through this limb before it starts to go, in
+ * body weights: the shape, its size, the way it is being loaded, how far the
+ * wall leans, and what the body has left (`grip.ts`). A jug takes a swinging
+ * body on one arm; a crimp a still one; a sloper on a roof almost nothing.
  */
-export function capacityOf(hold: Hold, limb: SlingLimb, anchor: Vec2): number {
-  // A hooked foot is wrapped round the hold, heel or toe: it holds from any side.
-  const raw = loadAlignment(hold, pullDirection(hold, limb, anchor));
-  const angleQ = limb.hooked ? Math.max(raw, 0.6) : raw;
-  const aff = affinityFactor(hold.type, limb.id);
-  // Loaded the wrong way a hold still takes a body weight, near enough: it
-  // is the swing on top that pulls you off it, not the hold.
-  return SLING.gripStrength * (0.35 + 0.65 * angleQ) * aff;
+export function capacityOf(hold: Hold, limb: SlingLimb, anchor: Vec2, state?: SlingState): number {
+  const cond = state ? condOf(state) : FRESH;
+  const tech = state?.tech;
+  const angle = state ? angleAt(state.profile, hold.pos.y) : 0;
+  const hand = isHand(limb.id);
+  const matched = hand && !!state && limb.holdId !== null
+    && LIMBS.some((id) => id !== limb.id && isHand(id) && state.limbs[id].phase === 'held' && state.limbs[id].holdId === limb.holdId);
+  return holdCapacity(hold, {
+    limb: limb.id,
+    force: pullDirection(hold, limb, anchor),
+    angle,
+    grip: hand ? cond.grip[limb.id as 'LH' | 'RH'] : undefined,
+    core: cond.core,
+    opposition: tech?.opposition[limb.id] ?? null,
+    hooked: !hand && !!limb.hooked,
+    matched,
+  });
 }
 
 // --- the step ------------------------------------------------------------
@@ -1088,7 +1257,11 @@ export function stepSling(
 ): SlingEvent[] {
   if (state.fallen) return events;
   const map = holdMap(holds);
+  const holdAt = (id: number | null) => holdIn(state, holds, id);
+  state.holdsRef = holds;
   const g = SLING.gravity;
+  const cond = condOf(state);
+  const g0 = groundOf(state);
   const W = bodyMass() * g;
   const lean = bodyAngle(state);
   const hang = Math.sin(lean);
@@ -1108,6 +1281,20 @@ export function stepSling(
   }
   /** Hands on, or the body hanging off a hooked foot: either keeps it on the wall. */
   const hanging = (n: number) => n > 0 || hooks > 0;
+  state.tech = readTechnique(state, (id) => holdAt(id), (y) => angleAt(state.profile, y));
+
+  // A flagged leg stays pressed on the wall where it was put, moving with the
+  // hips, until it is thrown again or there is nothing left to flag against.
+  for (const id of ['LF', 'RF'] as LimbId[]) {
+    const l = state.limbs[id];
+    l.releasedT = (l.releasedT ?? 10) + dt;
+    if (!l.flag || l.phase !== 'free' || !l.flagAt) continue;
+    const anyHand = state.limbs.LH.phase === 'held' || state.limbs.RH.phase === 'held';
+    if (!anyHand || state.dyno) { l.flag = false; l.flagAt = null; continue; }
+    l.pos = { x: state.hip.x + l.flagAt.x, y: Math.max(g0 + LIMB_CLEARANCE, state.hip.y + l.flagAt.y) };
+    l.vel = { ...state.hipV };
+  }
+  for (const id of ['LH', 'RH'] as LimbId[]) state.limbs[id].releasedT = (state.limbs[id].releasedT ?? 10) + dt;
 
   // A limb in the air on purpose: the body is going after it, and the feet
   // stay on while it does — a climber reaching does not step off their feet.
@@ -1180,7 +1367,7 @@ export function stepSling(
       // arm. Not enough to do a pull-up on one arm; enough to sit up on two.
       const above = clamp01((-n.y - 0.2) / 0.5);
       if (L > ARM_LOCK && above > 0) {
-        const f = SLING.armPull * W * clamp01((L - ARM_LOCK) / (BODY.arm * 0.2)) * above;
+        const f = SLING.armPull * (0.55 + 0.45 * cond.power) * W * clamp01((L - ARM_LOCK) / (BODY.arm * 0.2)) * above;
         state.shV.x -= (n.x * f / SLING.massShoulder) * dt;
         state.shV.y -= (n.y * f / SLING.massShoulder) * dt;
         legLoad[id] = f;
@@ -1242,7 +1429,10 @@ export function stepSling(
     // is about to leave.
     if (sw > 0 && (hanging(handsOn) || state.dyno)) {
       // Reaching, the climber leans out on purpose; the pull back comes after.
-      const a = (sx / sw - state.hip.x) * SLING.restore * g * (1 - carried);
+      // A flag on the far side of the weight is a counterweight: it holds
+      // the body over its support the way a third limb would.
+      const flagK = state.tech?.flag ? 1 + 0.9 * state.tech.flag.counter : 1;
+      const a = (sx / sw - state.hip.x) * SLING.restore * flagK * g * (1 - carried);
       state.hipV.x += a * dt;
       state.shV.x += a * dt;
     }
@@ -1261,7 +1451,7 @@ export function stepSling(
     const tx = dyT / tl;
     const ty = -dxT / tl;
     const relV = (state.shV.x - state.hipV.x) * tx + (state.shV.y - state.hipV.y) * ty;
-    const a = -(SLING.core * g * theta) - SLING.coreDamp * relV;
+    const a = -(SLING.core * (0.55 + 0.45 * cond.core) * g * theta) - SLING.coreDamp * relV;
     // Internal: equal and opposite on the hip, so it turns the body without
     // dragging it across the wall.
     state.shV.x += a * tx * dt;
@@ -1420,8 +1610,8 @@ export function stepSling(
     // The mat. Bodies stop at it; so do limbs — and while anything is still
     // holding on, a loose limb does not get that far: only a fall puts a
     // hand or a foot on the ground.
-    if (state.hip.y < MAT_HIP_MIN) state.hip.y = MAT_HIP_MIN;
-    if (state.shoulder.y < MAT_SHOULDER_MIN) state.shoulder.y = MAT_SHOULDER_MIN;
+    if (state.hip.y < g0 + MAT_HIP_MIN) state.hip.y = g0 + MAT_HIP_MIN;
+    if (state.shoulder.y < g0 + MAT_SHOULDER_MIN) state.shoulder.y = g0 + MAT_SHOULDER_MIN;
     const floorY = groundFloor(state);
     for (const id of LIMBS) {
       const l = state.limbs[id];
@@ -1489,6 +1679,10 @@ export function stepSling(
   let corrSum = 0;
   for (const id of LIMBS) corrSum += corr[id];
 
+  // What the arms are carrying with the body where it is: the feet take what
+  // they can and the hands the rest, split by where the weight hangs. The
+  // rope's own load says what a swing adds on top.
+  const statics = staticHandLoads(state, holds);
   for (const id of LIMBS) {
     const l = state.limbs[id];
     if (l.phase !== 'held') continue;
@@ -1499,17 +1693,27 @@ export function stepSling(
       continue;
     }
     if (l.holdId === null) continue; // standing on the mat: it holds
-    const hold = map.get(l.holdId);
+    const hold = holdAt(l.holdId);
     if (!hold) continue;
+    // The tread wall: a hold that has gone under the bottom of the panel is gone.
+    if (g0 > 0 && hold.pos.y < g0 + 0.12) {
+      release(state, l, events, isHand(id) ? 'The hold went under the floor. So did you.' : 'That foot went under the floor.');
+      continue;
+    }
 
     const share = corrSum > 1e-9 ? corr[id] / corrSum : 0;
     const inst = Math.min(((netImpulse * share) / dt + legLoad[id]) / W, 12);
     l.tension += (inst - l.tension) * Math.min(1, dt / SLING.tensionTau);
+    l.impact = (l.impact ?? 0) * Math.exp(-dt / IMPACT_TAU);
 
     const anchor = anchorFor(id, state.hip, state.shoulder);
-    l.capacity = capacityOf(hold, l, anchor);
-    if (extraDamp === 0 && l.heldT > SLING.lockOnGrace && l.tension > l.capacity) {
-      release(state, l, events, slipReason(hold, l, anchor));
+    const full = capacityOf(hold, l, anchor, state);
+    l.capacity = full * establishFactor(hold.type, l.heldT);
+    const base = isHand(id) ? Math.max(l.tension, statics[id as 'LH' | 'RH']) : l.tension;
+    l.demand = base + (l.impact ?? 0);
+    if (extraDamp === 0) {
+      l.slip = stepSlip(l.slip ?? 0, l.demand / Math.max(l.capacity, 1e-3), dt);
+      if ((l.slip ?? 0) >= 1) release(state, l, events, slipReason(hold, l, anchor, state));
     }
   }
 
@@ -1581,11 +1785,23 @@ export function stepSling(
         y: caught.at.y + (target.y - caught.at.y) * pull,
       };
       l.vel = { x: 0, y: 0 };
-      l.capacity = capacityOf(caught.hold, l, anchorFor(id, state.hip, state.shoulder));
+      l.slip = 0;
+      // Arriving moving is a load the hold has to stop, on top of the body's
+      // weight, and it lands while the hand is still closing.
+      const bodyV = isHand(id) ? state.shV : state.hipV;
+      const arrive = len(bodyV);
+      l.impact = arrive * (state.dyno ? 0.18 : IMPACT_PER_MS);
+      l.capacity = capacityOf(caught.hold, l, anchorFor(id, state.hip, state.shoulder), state) * establishFactor(caught.hold.type, 0);
+      swapOff(state, l, events);
       events.push({
         kind: 'catch', limb: id, holdId: caught.hold.id, at: { ...l.pos }, grade, seat, zone, speed,
         dyno: state.dyno,
       });
+      // A dynamic move caught at the top of its arc, when the body is barely
+      // moving: the deadpoint. It is why a hard catch can stick.
+      if (state.dyno && Math.abs(state.hipV.y) < 1.0 && isHand(id)) {
+        events.push({ kind: 'tech', limb: id, tech: 'deadpoint', at: { ...l.pos } });
+      }
       // A reach that lands is a climber arriving, not a body still flying:
       // they stop their weight where the move put it. (A dyno's catch is
       // the opposite — that is the whole point of it.)
@@ -1616,7 +1832,22 @@ export function stepSling(
     const stalled = !aimedAt && l.taut && l.flightT > 0.12 && !state.dyno && onward < SLING.tautStall;
     const floored = l.pos.y <= groundFloor(state) + 0.005;
     const maxFlight = state.dyno ? SLING.dynoFlight : aimedAt ? SLING.reachFlightMax : SLING.flightMax;
+    // A foot thrown at blank wall is put there: at the top of its arc it
+    // presses on, as a smear or a flag, if the wall and the body allow it.
+    const apex = !isHand(id) && !aimedAt && !state.dyno && l.flightT > 0.1 && l.vel.y - state.hipV.y < 0 && (l.launchDir?.y ?? 0) > -0.5;
+    if (apex && pressFoot(state, l, events)) {
+      state.reachPose = null;
+      state.reachHome = null;
+      continue;
+    }
     if (l.flightT >= maxFlight || (hanging && !state.dyno) || stalled || floored) {
+      // A foot that finds no hold is not necessarily wasted: pressed onto
+      // blank wall below the hips it is a smear, out to the side it is a flag.
+      if (!isHand(id) && !state.dyno && !floored && pressFoot(state, l, events)) {
+        state.reachPose = null;
+        state.reachHome = null;
+        continue;
+      }
       l.phase = 'free';
       l.touch = null;
       l.flightT = 0;
@@ -1638,7 +1869,7 @@ export function stepSling(
   // the ground is for falling onto. Off the ground is off it.
   if (!state.left) {
     const anyFloor = LIMBS.some((id) => state.limbs[id].onFloor);
-    if (!anyFloor && state.hip.y > SLING.leftHip && handsOn > 0) state.left = true;
+    if (!anyFloor && state.hip.y > g0 + SLING.leftHip && handsOn > 0) state.left = true;
   }
 
   const heldNow = LIMBS.filter((id) => state.limbs[id].phase === 'held').length;
@@ -1648,10 +1879,13 @@ export function stepSling(
     events.push({ kind: 'off', at: { ...state.hip } });
   }
   state.dynoLast = state.dyno;
-  if (state.left && heldNow === 0 && state.hip.y <= SLING.matHip) {
+  // Off the wall, the fall is measured from the highest the body got, not
+  // from where it meets the mat.
+  state.fallPeak = heldNow === 0 && state.left ? Math.max(state.fallPeak ?? -Infinity, peakOf(state)) : null;
+  if (state.left && heldNow === 0 && state.hip.y <= g0 + SLING.matHip) {
     state.fallen = true;
     state.dyno = false;
-    events.push({ kind: 'fell', at: { ...state.hip }, from: peakOf(state) });
+    events.push({ kind: 'fell', at: { ...state.hip }, from: (state.fallPeak ?? peakOf(state)) - g0 });
   }
   state.heldLast = heldNow;
 
@@ -1666,7 +1900,7 @@ export function stepSling(
  */
 function groundFloor(state: SlingState): number {
   const holding = state.dyno || LIMBS.some((id) => state.limbs[id].phase === 'held');
-  return holding && !state.fallen ? LIMB_CLEARANCE : FLOOR + 0.02;
+  return groundOf(state) + (holding && !state.fallen ? LIMB_CLEARANCE : FLOOR + 0.02);
 }
 
 /** Highest the hip could sensibly have fallen from: for the thud, not the sim. */
@@ -1676,6 +1910,11 @@ function peakOf(state: SlingState): number {
 
 function release(state: SlingState, l: SlingLimb, events: SlingEvent[], reason: string): void {
   const holdId = l.holdId;
+  dropSmear(state, l);
+  l.slip = 0;
+  l.impact = 0;
+  l.demand = 0;
+  l.releasedT = 0;
   l.phase = 'free';
   l.holdId = null;
   l.onFloor = false;
@@ -1687,13 +1926,113 @@ function release(state: SlingState, l: SlingLimb, events: SlingEvent[], reason: 
   l.grade = null;
   const bodyV = isHand(l.id) ? state.shV : state.hipV;
   l.vel = { x: bodyV.x, y: bodyV.y };
-  events.push({ kind: 'slip', limb: l.id, holdId, reason });
+  if (reason) events.push({ kind: 'slip', limb: l.id, holdId, reason });
 }
 
-function slipReason(hold: Hold, l: SlingLimb, anchor: Vec2): string {
+function slipReason(hold: Hold, l: SlingLimb, anchor: Vec2, state: SlingState): string {
+  const label = profileOf(hold.type).label.toLowerCase();
   const angle = loadAlignment(hold, pullDirection(hold, l, anchor));
-  if (angle < 0.5) return `Wrong angle on the ${profileOf(hold.type).label.toLowerCase()}. It let go.`;
-  return `Too much swing for a ${profileOf(hold.type).label.toLowerCase()}.`;
+  if (!isHand(l.id)) {
+    if (hold.type === 'smear') return 'The smear skated. Hips were not over it.';
+    if (wallAngleAtHold(state, hold) > 0.35) return `Foot popped off the ${label}. Steep ground needs core to keep feet on.`;
+    return `Foot skated off the ${label}.`;
+  }
+  if (l.heldT < ESTABLISH_TIME) return `Arrived too fast for a ${label}. Slow down into it, or deadpoint.`;
+  if (angle < 0.5) return `Wrong angle on the ${label}. Get your body under the way it pulls.`;
+  const cond = condOf(state);
+  if (cond.grip[l.id as 'LH' | 'RH'] < 0.45) return `Too pumped to hold the ${label}.`;
+  if ((l.impact ?? 0) > 0.2 || bodySpeed(state) > 1.2) return `Too much swing for a ${label}.`;
+  return `Not enough on your feet for a ${label}. It peeled.`;
+}
+
+function wallAngleAtHold(state: SlingState, hold: Hold): number {
+  return angleAt(state.profile, hold.pos.y);
+}
+
+/** Body weights of extra load per m/s the body is moving when a reach lands. */
+const IMPACT_PER_MS = 0.32;
+/** How fast arriving load dies away, seconds. */
+const IMPACT_TAU = 0.14;
+
+/**
+ * Smearing and flagging: a foot put on blank wall. Below the hips, on wall
+ * that is not too steep for rubber, it stands — a smear, as good as the
+ * friction and the angle allow. Out to the side it is a flag: it carries
+ * nothing, and holds the body against the barn door. Returns false when it
+ * is neither, and the foot just dangles.
+ */
+function pressFoot(state: SlingState, l: SlingLimb, events: SlingEvent[]): boolean {
+  const g0 = groundOf(state);
+  if (l.pos.y < g0 + LIMB_CLEARANCE + 0.1) return false;
+  const handOn = state.limbs.LH.phase === 'held' || state.limbs.RH.phase === 'held';
+  if (!handOn) return false;
+  const hipDist = dist(anchorFor(l.id, state.hip, state.shoulder), l.pos);
+  if (hipDist > LEG_MAX * 1.02 || hipDist < BODY.leg * 0.35) return false;
+  const angle = angleAt(state.profile, l.pos.y);
+  const below = state.hip.y - l.pos.y;
+  if (below > 0.2 && angle < SMEAR_MAX_ANGLE && Math.abs(l.pos.x - state.hip.x) < 0.55) {
+    const id = SMEAR_ID[l.id as 'LF' | 'RF'];
+    const smear: Hold = { id, pos: { ...l.pos }, type: 'smear', size: 0.08, dir: -Math.PI / 2 };
+    state.smears = [...(state.smears ?? []).filter((h) => h.id !== id), smear];
+    l.phase = 'held';
+    l.holdId = id;
+    l.onFloor = false;
+    l.vel = { x: 0, y: 0 };
+    l.seat = 0.6;
+    l.zone = 'rubber on the wall';
+    l.grade = 'GOOD';
+    l.heldT = 0;
+    l.tension = 0;
+    l.flightT = 0;
+    l.slip = 0;
+    l.impact = 0;
+    l.touch = null;
+    events.push({ kind: 'tech', limb: l.id, tech: 'smear', at: { ...l.pos } });
+    return true;
+  }
+  if (Math.abs(l.pos.x - state.hip.x) > 0.22 && l.pos.y < state.hip.y + 0.25 && angle < ROOF_ANGLE) {
+    l.phase = 'free';
+    l.flag = true;
+    l.flagAt = { x: l.pos.x - state.hip.x, y: l.pos.y - state.hip.y };
+    l.vel = { ...state.hipV };
+    l.touch = null;
+    l.flightT = 0;
+    events.push({ kind: 'tech', limb: l.id, tech: 'flag', at: { ...l.pos } });
+    return true;
+  }
+  return false;
+}
+
+/** Steeper than this, radians, rubber on blank wall does not stand. */
+const SMEAR_MAX_ANGLE = (28 * Math.PI) / 180;
+
+/**
+ * What each hand is carrying with the body held where it is, in body
+ * weights: the share the feet leave the arms, split between the hands by
+ * where the weight hangs. Steep ground puts more on them because the feet
+ * do less there, not because gravity changes.
+ */
+export function staticHandLoads(state: SlingState, holds: Hold[]): Record<'LH' | 'RH', number> {
+  const out = { LH: 0, RH: 0 };
+  if (!state.left || state.dyno) return out;
+  const com = centreOfMass(state);
+  const held = { LH: state.limbs.LH.phase === 'held', RH: state.limbs.RH.phase === 'held' };
+  const hands = (held.LH ? 1 : 0) + (held.RH ? 1 : 0);
+  if (hands === 0) return out;
+  const feet: FootSupport[] = [];
+  for (const id of ['LF', 'RF'] as LimbId[]) {
+    const l = state.limbs[id];
+    if (l.phase === 'held') feet.push(footSupportOf(state, l, com, holds));
+    else if (l.flag && state.tech?.flag?.limb === id) feet.push({ support: 0.18 * state.tech.flag.counter, hooked: false });
+  }
+  const arms = armShare({ angle: bodyAngle(state), hands, feet: feet.length, footSupport: feet });
+  if (hands === 2) {
+    const left = leftShareOf(state, com);
+    out.LH = arms * left;
+    out.RH = arms * (1 - left);
+  } else if (held.LH) out.LH = arms;
+  else out.RH = arms;
+  return out;
 }
 
 function missReason(state: SlingState, l: SlingLimb, holds: Hold[]): string {
@@ -1996,3 +2335,28 @@ export function assistLaunch(
 }
 
 export const SLING_LIMITS = { ARM_MAX, LEG_MAX, ARM_LOCK, LEG_STAND } as const;
+
+/** What a contact is doing, for the eye and for the tests. */
+export type ContactState = 'free' | 'searching' | 'establishing' | 'engaged' | 'loaded' | 'slipping' | 'released' | 'flagging';
+
+export function contactState(state: SlingState, limb: LimbId): ContactState {
+  const l = state.limbs[limb];
+  if (l.phase === 'flying') return 'searching';
+  if (l.phase === 'free') {
+    if (l.flag) return 'flagging';
+    return (l.releasedT ?? 10) < 0.4 ? 'released' : 'free';
+  }
+  if (l.holdId === null) return 'engaged';
+  if ((l.slip ?? 0) > 0.04) return 'slipping';
+  if (l.heldT < ESTABLISH_TIME) return 'establishing';
+  const ratio = (l.demand ?? 0) / Math.max(l.capacity, 1e-3);
+  return ratio > 0.25 ? 'loaded' : 'engaged';
+}
+
+/** How close each contact is to going, 0 comfortable .. 1 gone: the larger of its load ratio and its slip. */
+export function contactRisk(state: SlingState, limb: LimbId): number {
+  const l = state.limbs[limb];
+  if (l.phase !== 'held' || l.holdId === null) return 0;
+  const ratio = (l.demand ?? 0) / Math.max(l.capacity, 1e-3);
+  return clamp01(Math.max(l.slip ?? 0, (ratio - 0.5) / 0.5));
+}

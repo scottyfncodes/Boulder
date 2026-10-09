@@ -159,8 +159,14 @@ describe('the curve: where pump comes back and where it goes', () => {
     expect(timeToFail(pose(ROOF, 1, 0))).toBeLessThan(12);
   });
 
-  it('the same hold costs whatever your body makes it cost: no hold enters into it', () => {
+  it('the body decides most of it: a jug on a roof costs far more than a jug on a vertical wall', () => {
     expect(effort(pose(ROOF, 1, 1))).toBeGreaterThan(effort(pose(VERTICAL, 1, 2)) * 8);
+  });
+
+  it('and the hold the rest: the same load on a hold you have to squeeze costs the forearm more', () => {
+    const jug = effort({ ...pose(VERTICAL, 2, 0), grip: { LH: 1, RH: 1 } });
+    const crimp = effort({ ...pose(VERTICAL, 2, 0), grip: { LH: 1.8, RH: 1.8 } });
+    expect(crimp).toBeGreaterThan(jug * 1.3);
   });
 });
 

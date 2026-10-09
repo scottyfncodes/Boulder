@@ -7,13 +7,24 @@ Fling. Stick. Send. Try not to get pumped.
 You control four limbs, one at a time. Press one, pull it back like a
 slingshot, and let go. It flies, and then the rest of the body has to deal with
 whatever that was. Grab the hips and pull, and the whole body goes: a dyno,
-everything off the wall, one or two hands to catch it. Every hold sticks the
-same; what a climb costs is how you climbed it, and the pump bar is the bill.
-Twenty handcrafted routes from V0 to V10 and fourteen long ones from V11 to
-V17 up a tall cave that bends into roofs, a route setter that will set you a
-new problem at any of seven difficulties, five
-route setters with strong opinions and poor judgement, and a climber who is
-technically cooperating.
+everything off the wall, one or two hands to catch it. Holds are not all the
+same: a jug takes a swinging body, a crimp wants your feet on, a sloper wants
+your weight under it and a wall that is not tipping it away. What a climb costs
+is how you climbed it, and the pump bar is the bill.
+
+Three ways to climb:
+
+- **Bouldering** — twenty handcrafted routes from V0 to V10, fourteen long ones
+  up a tall cave that bends into roofs, and a route setter that will set you a
+  new problem at any of seven difficulties, graded by what its moves ask for.
+- **Highball** — six tall problems on a ten-metre tower, each with its own
+  character, a landing spelled out before you commit, and a fall that is
+  judged by how far it was and what was under you.
+- **Tread Wall** — a wall on a belt that never ends. Stay on as long as you
+  can; the score is time on the wall, against your own best.
+
+Five route setters with strong opinions and poor judgement, and a climber who
+is technically cooperating.
 
 ## Run it
 
@@ -28,9 +39,13 @@ npm run show:routes              # prints generated routes as ASCII wall maps
 npm run show:routes -- brutal 5  # five of one difficulty
 npm run playtest                 # the climbing bot plays every route, prints the pump
 npm run playtest -- --human cave # at a person's pace, just routes matching 'cave'
+npm run gen:grades     # re-assesses the curated routes after changing them or the physics
+npm run fit:grades     # refits the grader's weights against the setters (needs numpy)
+npm run find:highballs # searches seeds for the highball tiers
 
 # Needs a browser and a running dev server, so it is not part of npm test:
 npm run check:overlay   # asserts the 2D overlay agrees with the 3D scene
+npm run smoke           # plays all three modes in Chromium (needs `npx vite preview --port 4173`)
 ```
 
 `check:overlay` exists because the overlay draws on its own canvas with no depth
@@ -149,18 +164,55 @@ foot that is off the wall stays clear of the floor — a dangling leg folds at t
 knee, and a throw at the floor stops short of it. Only a fall, with nothing
 left on, puts a limb on the ground.
 
-**Holds catch what passes through them, and that is all.** A limb in flight
-that gets to a hold has it — all of it, wherever on the hold it landed — and a
-limb that does not get there has nothing. There is no catch quality and no
-fingertip rip. A hand will not grab a foot chip. The hold you just let go of,
-and anything touching the spot you threw from, will not grab you back. A limb
-that catches nothing dangles; fling it again or tap it back on.
+**Reaching a hold is not holding it.** A limb in flight that gets to a hold
+closes on it — and then the hold has to take what you ask of it. Every contact
+lives through states you can see: *searching* while it flies, *establishing*
+for a moment after it lands (a ring that shrinks onto the hold), *engaged*,
+*loaded* (a thin arc that fills amber, then red, as it nears its limit),
+*slipping* (it flickers — get a foot back on, or move), and *released*. A hand
+will not grab a foot chip, and the hold you just let go of will not grab you
+back.
 
-**Every hold is as strong as every other.** Holds do not decide whether you
-stay on — the pump does. One limb on anything will hold the whole body. What
-can still pull a limb off is swinging hard on a hold loaded the way it was
-never meant to be (an undercling with your hips below it keeps only about a
-third of its strength), and a foot standing on something cannot hang from it.
+**What a hold can take** (`src/game/grip.ts`) is worked out every step, in
+body weights, from:
+
+- *its shape* — how positive it is (fingers behind an edge) against how much is
+  friction; a jug takes a swinging body on one arm, a crimp a still one, a
+  sloper not much;
+- *its size* — which matters a lot to an edge and hardly at all to a jug;
+- *how it is loaded* — the direction your body pulls it from, so an undercling
+  is useless with your hips below it and a sidepull wants your body across it;
+- *the wall* — friction holds lose most of themselves as the wall leans out,
+  and are best on slab; positive holds barely notice;
+- *your forearms* — a pumped hand closes on less, gradually, long before it
+  opens on its own;
+- *how you arrived* — a catch ramps up over a fifth of a second, slowly for a
+  sloper, at once for a jug, so a body arriving fast on a bad hold leaves
+  again. Arriving slow, at the top of a dynamic move, is a deadpoint.
+
+What the hold is asked for is what each hand is really carrying: the share of
+your weight your feet do not take (worse feet, steeper wall or a stretched
+stance all leave more on your hands), split by where your weight hangs, plus
+whatever a swing or a catch adds. Over capacity a contact does not vanish in a
+frame — it starts to slip, faster the further over it is, and comes back if
+you take the load off it in time.
+
+**Feet slip too.** A foot pushes on its hold; a foot on a sloper or a smear on
+a steep wall skates under a hard push, and keeping feet on steep ground is the
+core's job.
+
+**Technique is read off the body** (`src/game/technique.ts`), never pressed as a
+button, and each one changes the forces: a **flag** (a free foot thrown out to
+the side presses on the wall and counters the barn door), a **smear** (a foot
+thrown at blank wall below the hips stands on rubber, not too steep), a **drop
+knee** (a foot level with the hips and out wide on a steep wall carries weight
+a flat foot could not), **heel and toe hooks**, a **high step**, a **mantle**
+(pressing down on a hold below the shoulders), **gastons, underclings and
+sidepulls** loaded the way they work, **compression** (two hands on holds that
+face each other squeeze, so each can point its force where gravity alone would
+peel it off), **stemming**, **matching**, a **foot swap** (a foot can take the
+other foot's hold; the other one hops off), a **deadpoint**, and **cutting
+loose**. The ones in use are named quietly under the pump bar.
 
 **Any limb can hold you.** A foot on a hold above your hips, or anywhere on a
 roof, is a heel or toe hook: let go with both hands and the body hangs off it.
@@ -470,6 +522,90 @@ and a test checks each one still rebuilds hold for hold and still goes.
 the camera now follows the climber sideways as well as up, as far as the wall
 goes, and starts on the start holds.
 
+## The body's budget
+
+The pump is grip endurance. Underneath it (`src/game/fatigue.ts`):
+
+- **Power** — short-term pulling. Big throws and dynos spend it, lock-offs
+  wear it down, and it comes back in seconds once you stop throwing. Tired
+  arms throw shorter: the same pull is less of a throw, and the preview shows
+  it, because the preview runs the same tired body.
+- **Core** — body tension. Steep ground, cutting loose, toe hooks and
+  squeezing cost it; standing upright on good feet gives it back. Low core
+  makes feet slip on steep walls and the torso harder to hold still.
+- **Breath** — general exertion, smoothed over half a minute. It stops
+  nothing on its own; it slows every other recovery, and you can hear it.
+
+The forearms also pay for the hold: the same load on a hold you have to
+squeeze costs more than on a jug, and hanging on something you are about to
+lose costs most of all. That is overgripping, priced. None of it is a switch.
+
+## Grades come out of the moves
+
+`src/game/grading.ts` replays a route's sequence through the static body and
+measures every stance and every move with the same grip and pump functions the
+live physics uses: how close each hand is to its hold's limit (with the moving
+limb off, and after it lands), how far the reach is against the limb, how
+forgiving the target is to arrive on, which techniques the stance needs, how
+steep the wall is, how pumped a paced climber is at each move, how many tanks
+of pump the whole thing costs net of its rests, how much the sequence changes
+its mind, and how many distinct ways up are known. The crux matters most;
+endurance, complexity and steepness next; more solutions make it easier.
+
+The weights were fitted by least squares against the setters' grades of the
+hand-set routes (`npm run fit:grades`, needs numpy) and then frozen — rank
+correlation 0.94 on the hand-set routes. Route-setter routes take the assessed
+grade (kept to their tier, give or take one). Curated routes keep their
+setter's grade and show the assessment beside it on the board
+(`npm run gen:grades`); where they disagree the card says so in amber. Notably
+the long board routes published at V11–V17 assess at V9–V15: their length is
+real endurance, but their moves are not that hard. Treat every grade as
+provisional and the fit as the thing to retune with play data.
+
+## Highball
+
+Six problems on **the Tower** (`src/content/highball.ts`), eight to nine and a
+half metres tall, set by the route setter's own section builders from their own
+rules and frozen to seeds the solver has proven go: a technical slab, steady
+climbing to a crux at the very top, a power-endurance pinch line with no rest,
+a steep start under a crimpy headwall, a compression test piece, and a roof
+halfway up with the whole tower above it. The climbing does not change at
+height — same body, same holds, no hidden penalties. What changes is the
+presentation and the consequence: the camera eases out as you go up, a metre
+ruler runs up the side, a wind bed rises with you, and the landing is a stack
+of highball pads (two or three, with or without a spotter) that is good for a
+fall from so high and no higher. A fall is judged from where you came off and
+where you land: onto the pads from a height they are good for is fine; heavier
+than that, or off the pads, and the game asks you to take a breath — a few
+seconds' countdown — before the next go. Nobody gets hurt. Highball sends are
+their own tick list and do not open boulder grades.
+
+## Tread Wall
+
+A wall on a belt (`src/game/tread.ts`): it rolls down as you climb, so you stay
+put and the climbing never ends. In the sim the holds are fixed and the floor
+rises at the belt's speed, which is the same thing; the renderer scrolls the
+panels so it looks like a treadwall. Three programs — Warm-up (5°), Classic
+(15°) and Steep (30°) — each with its own belt speed and leaderboard. The belt
+never stops, not even while you aim.
+
+The holds come from a stream of two-metre sections, each with a job: a jug
+ladder to recover on, a crimp line, a pinch column, sloper steps, gaston
+zig-zags, an undercling stack, a diagonal, a section of big moves. Harder on
+average as the session goes on, never every section harder than the last, a
+recovery ladder every few sections and sooner if you are pumped, never the
+same kind three times running, feet under at least every other hand, and no
+hand move longer than a limb. Tests prove stretches of every program, early and
+at their hardest, go for the solver or the real-physics climbing bot.
+
+A session ends when you come off, pump off, the floor reaches your hips, or
+you step off. You cannot win by hanging still — the floor catches you in under
+half a minute — and you only recover where your feet take the weight. The
+result shows time on the wall, distance, holds caught, the hardest section
+reached, pace, time spent recovering and peak pump, against your personal best
+and a local top five per program, kept in the same local save as everything
+else.
+
 ## What is not built
 
 - **No backend.** Standings are local to the device and say so. The community
@@ -477,8 +613,11 @@ goes, and starts on the start holds.
   the send screen says that too. Both are shaped like what a server would send.
 - **No community betas for generated routes.** They are set on the device, so
   there is nobody else's beta to compare against.
-- **One wall.** Routes name their wall, so more can be added without touching
-  the sim.
+- **Two walls.** The cave and the tower. Routes name their wall, so more can
+  be added without touching the sim.
+- **Still planar.** Hip rotation, drop knees and flags change the forces and
+  the reach the way they would, but the body never twists out of the wall's
+  plane, and the rig does not draw a turned hip.
 
 ## Tests
 
@@ -511,6 +650,23 @@ src/game/pumpSim.test.ts   the pump read off the real body: a stance that rests
                            reaching, hooked feet hold you on a roof and peel
                            off a vertical wall, the bot climbs a vertical route
                            fresh and a roof route pumped, generated roofs go
+src/game/grip.test.ts      holds that differ: shape, size, angle, direction,
+                           squeeze, fatigue and overgripping; contacts that
+                           establish and slip; a jug that holds where a sloper
+                           in the same place does not; feet that skate; smears,
+                           flags and foot swaps; a dyno into a jug and a sloper;
+                           drop knees, compression and mantles read off the body
+src/game/fatigue.test.ts   power, core and breath: spent, recovered, and what a
+                           tired body can no longer do
+src/game/grading.test.ts   grades from moves: agreement with the setters, and a
+                           grade that answers to angle, holds, geometry and
+                           alternative solutions, not to one number
+src/game/tread.test.ts     the belt, the stream's variety, recovery and pacing,
+                           move and foot limits, that it goes, that standing
+                           still ends it, and personal bests that persist
+src/content/highball.test.ts
+                           the highballs: tall, distinct, solvable, graded, the
+                           landing model, and their own tick list
 src/game/sim.test.ts       the validator's static solver and move resolution
 src/game/feel.test.ts      flow streaks, the shout, and the introductory labels
 src/content/routes.test.ts every route: valid data, inside the wall, a start

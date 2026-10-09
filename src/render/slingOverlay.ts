@@ -82,6 +82,16 @@ export type SlingOverlayInput = {
   showLimbs: boolean;
   /** Opacity of the introductory limb names. */
   intro: number;
+  /**
+   * How each contact is doing: its state and how close it is to letting go,
+   * 0..1. Drawn as a thin ring round the limb, so a slipping foot is seen
+   * before it is felt.
+   */
+  contacts?: Partial<Record<LimbId, { state: string; risk: number }>>;
+  /** A highball's height ruler: metre marks up the side of the line. */
+  ruler?: { x: number; from: number; to: number; climber: number } | null;
+  /** Where the tread wall's floor is, to draw its edge. */
+  floor?: number | null;
 };
 
 export function drawSlingOverlay(input: SlingOverlayInput): void {
@@ -95,6 +105,9 @@ export function drawSlingOverlay(input: SlingOverlayInput): void {
   if (input.pull) drawPrediction(input);
   if (input.pull) drawDynoPrediction(input);
   if (input.pull && input.pull.power > 0) drawBand(input);
+  if (input.ruler) drawRuler(input);
+  if (input.floor !== null && input.floor !== undefined) drawFloor(input);
+  if (input.showLimbs && input.contacts) drawContacts(input);
   if (input.showLimbs) drawPips(input);
   if (input.showLimbs) drawBodyPip(input);
   if (input.pull && input.pull.power > 0) drawGhost(input);
@@ -469,5 +482,121 @@ function drawBodyPip(input: SlingOverlayInput): void {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(live ? 'DYNO!' : 'DYNO', p.x, p.y + 0.5);
+  ctx.restore();
+}
+
+/**
+ * Contact rings. Comfortable contacts get nothing; a loaded one a thin arc
+ * that fills toward its limit, amber then red; a slipping one flickers; a
+ * catch still closing gets a ring that shrinks onto the hold.
+ */
+function drawContacts(input: SlingOverlayInput): void {
+  const { ctx, scene, limbs, contacts, now } = input;
+  if (!contacts) return;
+  for (const limb of ['LF', 'RF', 'LH', 'RH'] as LimbId[]) {
+    const c = contacts[limb];
+    if (!c) continue;
+    const p = scene.project(limbs[limb], isHand(limb) ? HAND_Z : FOOT_Z);
+    if (!p.visible) continue;
+    const r = LIMB_PIP_RADIUS + 6;
+    ctx.save();
+    if (c.state === 'establishing') {
+      ctx.globalAlpha = 0.7;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r + 6 * ((now % 300) / 300), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (c.state === 'flagging') {
+      ctx.globalAlpha = 0.85;
+      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = '#8fd3ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (c.risk > 0.05) {
+      const slipping = c.state === 'slipping';
+      const col = c.risk > 0.75 ? '#e8564f' : c.risk > 0.4 ? '#f2a13c' : '#f2e35c';
+      ctx.globalAlpha = slipping ? 0.55 + 0.45 * Math.abs(Math.sin(now / 45)) : 0.85;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = slipping ? 4 : 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      const start = -Math.PI / 2;
+      ctx.arc(p.x, p.y, r, start, start + Math.PI * 2 * Math.min(1, c.risk));
+      ctx.stroke();
+      if (slipping) {
+        // A slipping contact drifts on screen the way it does on the hold.
+        ctx.globalAlpha *= 0.6;
+        ctx.beginPath();
+        ctx.arc(p.x + Math.sin(now / 37) * 2, p.y + 3, r + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+/** Metre marks down the left edge of the screen on a highball, and where the climber's hands are. */
+function drawRuler(input: SlingOverlayInput): void {
+  const { ctx, scene, ruler } = input;
+  if (!ruler) return;
+  const X = 10;
+  ctx.save();
+  ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 3;
+  for (let m = Math.ceil(ruler.from); m <= ruler.to; m++) {
+    const a = scene.project({ x: ruler.x, y: m }, 0);
+    if (!a.visible || a.y < 0 || a.y > input.height) continue;
+    const major = m % 2 === 0;
+    ctx.globalAlpha = major ? 0.85 : 0.45;
+    ctx.strokeStyle = '#f2c249';
+    ctx.lineWidth = major ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(0, a.y);
+    ctx.lineTo(major ? X + 6 : X, a.y);
+    ctx.stroke();
+    if (major) {
+      ctx.fillStyle = '#f2c249';
+      ctx.fillText(`${m} m`, X + 9, a.y);
+    }
+  }
+  const c = scene.project({ x: ruler.x, y: ruler.climber }, 0);
+  if (c.visible) {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#f2c249';
+    ctx.beginPath();
+    ctx.moveTo(1, c.y - 6);
+    ctx.lineTo(10, c.y);
+    ctx.lineTo(1, c.y + 6);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** The tread wall's bottom edge: where holds go under, and where the climber must not end up. */
+function drawFloor(input: SlingOverlayInput): void {
+  const { ctx, scene, floor, width } = input;
+  if (floor === null || floor === undefined) return;
+  const p = scene.project({ x: 0, y: floor + 0.12 }, 0);
+  if (!p.visible) return;
+  ctx.save();
+  const g = ctx.createLinearGradient(0, p.y - 26, 0, p.y);
+  g.addColorStop(0, 'rgba(155,140,255,0)');
+  g.addColorStop(1, 'rgba(155,140,255,0.35)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, p.y - 26, width, 26);
+  ctx.strokeStyle = 'rgba(155,140,255,0.9)';
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, p.y);
+  ctx.lineTo(width, p.y);
+  ctx.stroke();
   ctx.restore();
 }

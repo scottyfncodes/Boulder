@@ -63,6 +63,11 @@ export class WallScene {
   private canvas: HTMLCanvasElement;
   private cam: CameraState = { ...DEFAULT_CAMERA };
   private disposed = false;
+  private key: THREE.DirectionalLight | null = null;
+  /** The tread wall's belt: how far the wall has rolled down, metres. */
+  private scroll = 0;
+  /** Highball pads, rebuilt when the landing changes. */
+  private padGroup = new THREE.Group();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -111,6 +116,8 @@ export class WallScene {
     key.shadow.bias = -0.0012;
     this.scene.add(key, key.target);
     key.target.position.set(0, 2, 0);
+    this.key = key;
+    this.scene.add(this.padGroup);
 
     const fill = new THREE.DirectionalLight('#cfe0ff', 0.5);
     fill.position.set(-3.4, 1.4, 3);
@@ -208,6 +215,75 @@ export class WallScene {
     }
   }
 
+  /**
+   * Brings the hold meshes in line with a hold list that changes while you
+   * climb — the tread wall's stream. New holds are added, gone ones removed,
+   * the rest left alone. `colorOf` paints each new hold.
+   */
+  syncHolds(holds: Hold[], colorOf: (h: Hold) => string): void {
+    const want = new Set(holds.map((h) => h.id));
+    for (const [id, m] of this.holdMeshes) {
+      if (want.has(id)) continue;
+      this.holdGroup.remove(m);
+      (m.material as THREE.Material).dispose();
+      this.holdMeshes.delete(id);
+    }
+    for (const hold of holds) {
+      if (this.holdMeshes.has(hold.id) || hold.type === 'smear') continue;
+      const color = colorOf(hold);
+      const mesh = new THREE.Mesh(
+        holdGeometry(hold.type),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0.04, emissive: color, emissiveIntensity: 0 }),
+      );
+      this.placeHold(mesh, hold);
+      mesh.castShadow = true;
+      this.holdGroup.add(mesh);
+      this.holdMeshes.set(hold.id, mesh);
+    }
+  }
+
+  /**
+   * The belt. Everything on the wall rolls down by `metres`; the floor and the
+   * mat stay where they are. Callers keep using wall coordinates — the
+   * projection and the camera take the roll out.
+   */
+  setScroll(metres: number): void {
+    this.scroll = metres;
+    const a = this.warp.point(0, 0, 0);
+    const b = this.warp.point(0, -metres, 0);
+    this.plane.position.set(b.x - a.x, b.y - a.y, b.z - a.z);
+    // The panels wrap every seam, so a belt that runs for an hour never runs out of wall.
+    const seam = 1.22;
+    const wrap = Math.floor(metres / seam) * seam;
+    const c = this.warp.point(0, wrap, 0);
+    this.wallGroup.position.set(c.x - a.x, c.y - a.y, c.z - a.z);
+    this.applyCamera();
+  }
+
+  /**
+   * Highball landing: stacked pads under the line, as many as the problem
+   * has, so the screen shows how much is (and is not) under you.
+   */
+  setLanding(landing: { pads: number; halfWidth: number; centre: number } | null): void {
+    for (const o of [...this.padGroup.children]) {
+      this.padGroup.remove(o);
+      if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); }
+    }
+    if (!landing) return;
+    const colors = ['#2f4f7a', '#3b6aa0', '#2b5c8c'];
+    const width = landing.halfWidth * 2;
+    for (let i = 0; i < landing.pads; i++) {
+      const pad = new THREE.Mesh(
+        new THREE.BoxGeometry(width - i * 0.06, 0.2, 1.35 - i * 0.04),
+        new THREE.MeshStandardMaterial({ color: colors[i % colors.length], roughness: 0.95 }),
+      );
+      pad.position.set(landing.centre, 0.1 + i * 0.205, 0.78);
+      pad.receiveShadow = true;
+      pad.castShadow = true;
+      this.padGroup.add(pad);
+    }
+  }
+
   private placeHold(mesh: THREE.Mesh, hold: Hold): void {
     // Every hold geometry is authored around a unit radius, so scaling by the
     // contact radius makes what you see the same size as what the sim tests
@@ -281,13 +357,13 @@ export class WallScene {
     // focusY is a distance up the wall's surface, and on a leaning or bent
     // wall that is not a height in the world, so the focus point goes through
     // the same warp as everything on the wall.
-    const f = this.warp.point(focusX, focusY, 0);
+    const f = this.warp.point(focusX, focusY - this.scroll, 0);
 
     // The camera pulls back from the climber mostly level, so an overhang
     // reads the way it does from the mat — wall leaning away overhead — but
     // it drops under a steep wall part of the way, so a roof is something you
     // look up into rather than a sliver seen edge on.
-    const under = this.warp.angle(focusY) * CAMERA_UNDER;
+    const under = this.warp.angle(focusY - this.scroll) * CAMERA_UNDER;
     this.camera.position.set(
       f.x + Math.sin(orbit) * dist,
       f.y - Math.sin(under) * dist * Math.cos(orbit) + Math.sin(orbit) * 0.1,
@@ -295,6 +371,13 @@ export class WallScene {
     );
     this.camera.lookAt(f.x, f.y, f.z);
     this.camera.updateMatrixWorld();
+    // The key light goes up the wall with the camera, so a highball's top
+    // casts shadows the way its bottom does.
+    if (this.key) {
+      this.key.position.set(2.6, f.y + 3.2, 4.2);
+      this.key.target.position.set(0, f.y, 0);
+      this.key.target.updateMatrixWorld();
+    }
   }
 
   /** The mesh for a hold, so a test can check the overlay agrees with it. */
@@ -313,7 +396,7 @@ export class WallScene {
    */
   project(p: Vec2, z: number = HOLD_Z): { x: number; y: number; visible: boolean } {
     // Wall-space to world: the same warp everything on the wall goes through.
-    const v = this.warp.point(p.x, p.y, z);
+    const v = this.warp.point(p.x, p.y - this.scroll, z);
     v.project(this.camera);
     const rect = this.canvas.getBoundingClientRect();
     return {

@@ -22,6 +22,13 @@ import { type Difficulty, generatedRouteById } from './content/generator';
 import { nextRoute, prefetchRoute } from './content/generator/client';
 import type { SetterState } from './ui/RouteSetter';
 import { loadSetterChoice, saveSetterChoice } from './state/setterChoice';
+import { HighballList } from './ui/HighballList';
+import { TreadLobby } from './ui/TreadLobby';
+import { TreadResult } from './ui/TreadResult';
+import type { ClimbMode } from './ui/ModeTabs';
+import { isHighball } from './content/highball';
+import { type TreadRun, type TreadSession, programById, startTread, treadRouteOf } from './game/tread';
+import { recordTreadRun } from './state/progress';
 import './app.css';
 
 /**
@@ -34,13 +41,48 @@ type Screen =
   | { kind: 'standings' }
   | { kind: 'climb'; route: Route; mode: AttemptMode; daily: boolean }
   | { kind: 'result'; route: Route; attempt: Attempt; card: ScoreCard; best: ScoreCard | null }
-  | { kind: 'breakthrough'; data: BreakthroughData; unlocked: number };
+  | { kind: 'breakthrough'; data: BreakthroughData; unlocked: number }
+  | { kind: 'highballs' }
+  | { kind: 'treadLobby' }
+  | { kind: 'tread'; session: TreadSession; route: Route; n: number }
+  | { kind: 'treadResult'; run: TreadRun; previous: TreadRun | null; isBest: boolean };
+
+const TREAD_KEY = 'bruh.tread.program';
+function loadTreadProgram(): string {
+  try { return localStorage.getItem(TREAD_KEY) ?? 'classic'; } catch { return 'classic'; }
+}
 
 export default function App() {
   const { profile, update } = useProfile();
   const [screen, setScreen] = useState<Screen>({ kind: 'title' });
 
   const daily = useMemo(() => refreshDaily(profile.daily), [profile.daily]);
+  const [treadProgram, setTreadProgram] = useState(loadTreadProgram);
+  const treadRuns = useRef(0);
+
+  const pickTreadProgram = useCallback((id: string) => {
+    setTreadProgram(id);
+    try { localStorage.setItem(TREAD_KEY, id); } catch { /* play on */ }
+  }, []);
+
+  const goMode = useCallback((m: ClimbMode) => {
+    setScreen(m === 'boulder' ? { kind: 'board' } : m === 'highball' ? { kind: 'highballs' } : { kind: 'treadLobby' });
+  }, []);
+
+  const startTreadSession = useCallback(() => {
+    const session = startTread(programById(treadProgram), Math.floor(Math.random() * 0xffffffff) >>> 0);
+    setScreen({ kind: 'tread', session, route: treadRouteOf(session), n: ++treadRuns.current });
+  }, [treadProgram]);
+
+  const endTread = useCallback((run: TreadRun) => {
+    const { isBest, previous } = recordTreadRun(profile, run);
+    update((p) => recordTreadRun(p, run).profile);
+    setScreen({ kind: 'treadResult', run, previous, isBest });
+  }, [profile, update]);
+
+  const onLanding = useCallback((kind: 'clean' | 'heavy' | 'off-pads') => {
+    if (kind !== 'clean') update((p) => ({ ...p, heavyLandings: (p.heavyLandings ?? 0) + 1 }));
+  }, [update]);
 
   // --- the route setter ---
   // Lives up here rather than on the board so a route being set keeps being
@@ -161,7 +203,7 @@ export default function App() {
       pendingBreakthrough.current = null;
       setScreen({ kind: 'breakthrough', data: pending.data, unlocked: pending.unlocked });
     } else {
-      setScreen({ kind: 'board' });
+      setScreen((s) => (s.kind === 'result' && isHighball(s.route) ? { kind: 'highballs' } : { kind: 'board' }));
     }
   }, []);
 
@@ -186,6 +228,47 @@ export default function App() {
           setter={setter}
           onSetterPick={pickDifficulty}
           onSetterReroll={() => rollRoute(setter.difficulty)}
+          onMode={goMode}
+        />
+      );
+
+    case 'highballs':
+      return <HighballList profile={profile} onClimb={(r) => startClimb(r, {})} onMode={goMode} />;
+
+    case 'treadLobby':
+      return (
+        <TreadLobby
+          profile={profile}
+          program={treadProgram}
+          onProgram={pickTreadProgram}
+          onStart={startTreadSession}
+          onMode={goMode}
+        />
+      );
+
+    case 'tread':
+      return (
+        <SlingScreen
+          key={`tread:${screen.n}`}
+          route={screen.route}
+          mode="project"
+          fitness={fitnessFor(profile.topGrade, profile.totalSends)}
+          onExit={() => setScreen({ kind: 'treadLobby' })}
+          onOutcome={() => undefined}
+          tread={screen.session}
+          treadBest={profile.tread?.best[screen.session.program.id] ?? null}
+          onTreadEnd={endTread}
+        />
+      );
+
+    case 'treadResult':
+      return (
+        <TreadResult
+          run={screen.run}
+          previous={screen.previous}
+          isBest={screen.isBest}
+          onAgain={startTreadSession}
+          onDone={() => setScreen({ kind: 'treadLobby' })}
         />
       );
 
@@ -200,8 +283,9 @@ export default function App() {
           route={screen.route}
           mode={screen.mode}
           fitness={fitnessFor(profile.topGrade, profile.totalSends)}
-          onExit={() => setScreen({ kind: 'board' })}
+          onExit={() => setScreen(isHighball(screen.route) ? { kind: 'highballs' } : { kind: 'board' })}
           onOutcome={handleOutcome}
+          onLanding={onLanding}
           attemptsNote={screen.daily ? `daily · ${left} left` : undefined}
         />
       );

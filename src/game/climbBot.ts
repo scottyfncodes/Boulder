@@ -6,9 +6,10 @@ import {
   pumpOut, reachableHolds, stepSling, assistLaunch, placeLimb, placeableHolds, cloneSling, letGo,
 } from './sling';
 import {
-  type ArmId, type Pump, blownArms, catchCost, dynoCost, flingCost, freshPump, gain, restRate, tickPump,
+  type ArmId, type Pump, blownArms, catchCost, dynoCost, flingCost, freshPump, gain, restRate,
 } from './pump';
 import { profileOf } from './profile';
+import { type Fatigue, conditionOf, freshFatigue, tickFatigue, FATIGUE } from './fatigue';
 import { freshJuice, isFull, onMiss, onStick, spendDyno, onDynoStuck, type Juice } from './juice';
 
 /**
@@ -54,6 +55,8 @@ type Ctx = {
   holds: Hold[];
   sim: SlingState;
   pump: Pump;
+  /** Power, core and breath; its pump is kept in step with `pump`. */
+  fat: Fatigue;
   juice: Juice;
   t: number;
   trace: [number, number, number][];
@@ -69,7 +72,9 @@ function step(c: Ctx, events: SlingEvent[] = []): SlingEvent[] {
   c.t += DT;
   if (!c.sim.fallen) {
     const posture = postureOf(c.sim);
-    c.pump = tickPump(c.pump, posture, DT);
+    c.fat = tickFatigue({ ...c.fat, pump: c.pump }, posture, DT);
+    c.pump = c.fat.pump;
+    c.sim.cond = conditionOf(c.fat);
     const blown = blownArms(c.pump).filter((a) => c.sim.limbs[a].phase === 'held');
     if (blown.length) pumpOut(c.sim, events, blown);
   }
@@ -244,12 +249,14 @@ function apply(c: Ctx, o: Option): void {
   if (o.kind === 'throw') {
     const leftOn = heldCount(s) - (s.limbs[o.aim.limb].phase === 'held' ? 1 : 0);
     c.pump = gain(c.pump, flingCost(o.aim.power, bodyAngle(s), leftOn));
+    c.fat = { ...c.fat, power: Math.max(0, c.fat.power - FATIGUE.throwCost * o.aim.power ** 2 * (1 + Math.sin(Math.max(0, bodyAngle(s))))) };
     launch(s, o.aim, []);
     return;
   }
   const spent = spendDyno(c.juice);
   if (spent) c.juice = spent;
   c.pump = gain(c.pump, dynoCost(o.power, bodyAngle(s)));
+  c.fat = { ...c.fat, power: Math.max(0, c.fat.power - FATIGUE.dynoCost * (0.4 + 0.6 * o.power)) };
   dyno(s, { dir: o.dir, power: o.power }, []);
 }
 
@@ -277,7 +284,7 @@ export function climb(
   const maxMoves = opts.maxMoves ?? 70;
   const sim = initialSling(route.holds, route.start, profileOf(route));
   const c: Ctx = {
-    route, holds: route.holds, sim, pump: freshPump(opts.fitness ?? 1), juice: freshJuice(),
+    route, holds: route.holds, sim, pump: freshPump(opts.fitness ?? 1), fat: freshFatigue(opts.fitness ?? 1), juice: freshJuice(),
     t: 0, trace: [], maxPump: 0, nextTrace: 0,
   };
   let moves = 0;

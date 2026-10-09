@@ -321,7 +321,7 @@ class Setter {
 /** Same sizes the hand-set routes use, so generated holds read the same. */
 const HOLD_SIZE: Record<HoldType, number> = {
   jug: 0.115, crimp: 0.095, sloper: 0.115, pinch: 0.1, pocket: 0.105,
-  sidepull: 0.105, undercling: 0.11, gaston: 0.105, foothold: 0.085, volume: 0.15,
+  sidepull: 0.105, undercling: 0.11, gaston: 0.105, foothold: 0.085, volume: 0.15, smear: 0.08,
 };
 
 /**
@@ -633,11 +633,17 @@ export type BuildOptions = {
    * failing validation still yields something on the second or third pass.
    */
   relax?: number;
+  /**
+   * Set from these parameters instead of the difficulty's own. Highballs use
+   * this: the same section builders, a much taller wall, their own rules.
+   * The tier's `difficulty` should be the board difficulty it climbs like.
+   */
+  tier?: TierParams;
 };
 
 export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOptions = {}): BuildResult {
   const relax = opts.relax ?? 0;
-  const base = TIERS[difficulty];
+  const base = opts.tier ?? TIERS[difficulty];
   const t: TierParams = relax === 0 ? base : {
     ...base,
     footDensity: Math.min(1, base.footDensity + 0.15 * relax),
@@ -723,7 +729,7 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
     setter: meta.setter,
     wall: 'main',
     tagline: meta.tagline,
-    ...(overhang > 0 ? { overhang } : {}),
+    ...(overhang !== 0 ? { overhang } : {}),
     ...(profile.length ? { profile } : {}),
     // Par is set properly once the route has been climbed by the validator.
     par: Math.round(s.spine.length * 2.2),

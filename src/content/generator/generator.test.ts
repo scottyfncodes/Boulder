@@ -52,7 +52,11 @@ describe('generated routes, end to end', () => {
             const ids = route.holds.map((h) => h.id);
             expect(new Set(ids).size).toBe(ids.length);
             expect(SETTERS[route.setter]).toBeDefined();
-            expect(TIERS[d].grades).toContain(route.grade);
+            // The grade is the assessment of its moves, held to the tier give or take one.
+            const band = TIERS[d].grades.map(gradeIndex);
+            expect(gradeIndex(route.grade)).toBeGreaterThanOrEqual(Math.min(...band) - 1);
+            expect(gradeIndex(route.grade)).toBeLessThanOrEqual(Math.max(...band) + 1);
+            expect(parseGeneratedId(route.id)?.grade).toBe(gradeIndex(route.grade));
             for (const h of route.holds) {
               expect(h.pos.x).toBeGreaterThanOrEqual(WALL.minX);
               expect(h.pos.x).toBeLessThanOrEqual(WALL.maxX);
@@ -253,6 +257,6 @@ describe('generated routes and progression', () => {
     expect(breakthrough).toBeNull();
     expect(profile.records[route.id].sent).toBe(true);
     expect(profile.totalSends).toBe(1);
-    expect(gradeIndex(route.grade)).toBeGreaterThanOrEqual(gradeIndex('V8'));
+    expect(gradeIndex(route.grade)).toBeGreaterThanOrEqual(gradeIndex('V7'));
   });
 });

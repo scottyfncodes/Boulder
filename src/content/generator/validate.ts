@@ -23,13 +23,13 @@ export type Verdict =
   | { ok: false; reason: string };
 
 /** Cheap checks first; the climb is the expensive one and only runs if these pass. */
-export function checkStructure(b: BuildResult): string | null {
+export function checkStructure(b: BuildResult, wall: { minX: number; maxX: number; minY: number; maxY: number } = WALL): string | null {
   const { route } = b;
   const ids = new Set<number>();
   for (const h of route.holds) {
     if (ids.has(h.id)) return `duplicate hold ${h.id}`;
     ids.add(h.id);
-    if (h.pos.x < WALL.minX || h.pos.x > WALL.maxX || h.pos.y < WALL.minY || h.pos.y > WALL.maxY) {
+    if (h.pos.x < wall.minX || h.pos.x > wall.maxX || h.pos.y < wall.minY || h.pos.y > wall.maxY) {
       return `hold ${h.id} off the wall`;
     }
     if (!Number.isFinite(h.pos.x) || !Number.isFinite(h.pos.y) || !Number.isFinite(h.dir)) {
