@@ -320,6 +320,8 @@ export type SlingState = {
   tech?: TechReading;
   /** The holds the last step ran against, so readers without them (the pump) can price a grip. */
   holdsRef?: Hold[];
+  /** Highest the hips have been since the last thing let go: how far a fall really is. */
+  fallPeak?: number | null;
 };
 
 export type SlingEvent =
@@ -1877,10 +1879,13 @@ export function stepSling(
     events.push({ kind: 'off', at: { ...state.hip } });
   }
   state.dynoLast = state.dyno;
+  // Off the wall, the fall is measured from the highest the body got, not
+  // from where it meets the mat.
+  state.fallPeak = heldNow === 0 && state.left ? Math.max(state.fallPeak ?? -Infinity, peakOf(state)) : null;
   if (state.left && heldNow === 0 && state.hip.y <= g0 + SLING.matHip) {
     state.fallen = true;
     state.dyno = false;
-    events.push({ kind: 'fell', at: { ...state.hip }, from: peakOf(state) });
+    events.push({ kind: 'fell', at: { ...state.hip }, from: (state.fallPeak ?? peakOf(state)) - g0 });
   }
   state.heldLast = heldNow;
 

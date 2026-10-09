@@ -377,3 +377,20 @@ export function streamRoute(program: TreadProgram, seed: number, height: number,
     ...(program.angle ? { overhang: program.angle } : {}),
   };
 }
+
+/** The route the climbing screen runs a session on: the stream's holds, the standard start, no top. */
+export function treadRouteOf(s: TreadSession): import('./types').Route {
+  return {
+    id: `tread-${s.program.id}`,
+    name: `Tread Wall · ${s.program.name}`,
+    grade: 'V0',
+    setter: 'house',
+    wall: 'main',
+    tagline: s.program.blurb,
+    holds: s.holds,
+    start: { ...TREAD_START },
+    finish: [],
+    par: 0,
+    ...(s.program.angle ? { overhang: s.program.angle } : {}),
+  };
+}

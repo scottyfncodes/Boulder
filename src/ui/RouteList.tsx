@@ -9,6 +9,8 @@ import { GRADE_COLOR } from '../render/palette';
 import { SLING_LAB } from '../content/lab';
 import type { Difficulty } from '../content/generator';
 import { RouteSetter, type SetterState } from './RouteSetter';
+import { type ClimbMode, ModeTabs } from './ModeTabs';
+import { assessmentOf } from '../content/routeGrades';
 import './routelist.css';
 import './sling.css';
 
@@ -29,10 +31,11 @@ export type RouteListProps = {
   setter: SetterState;
   onSetterPick: (d: Difficulty) => void;
   onSetterReroll: () => void;
+  onMode: (m: ClimbMode) => void;
 };
 
 export function RouteList({
-  profile, daily, onClimb, onToggleProject, onStandings, setter, onSetterPick, onSetterReroll,
+  profile, daily, onClimb, onToggleProject, onStandings, setter, onSetterPick, onSetterReroll, onMode,
 }: RouteListProps) {
   const [tab, setTab] = useState<'board' | 'projects'>('board');
 
@@ -68,6 +71,8 @@ export function RouteList({
           <div><b>{profile.totalFalls}</b><span>falls</span></div>
         </button>
       </header>
+
+      <ModeTabs mode="boulder" onMode={onMode} />
 
       <button className="lab" onClick={() => onClimb(SLING_LAB, {})}>
         <div className="lab__tag">Practice wall</div>
@@ -180,6 +185,7 @@ function RouteCard({
   const rec = recordFor(profile, route.id);
   const setter = setterOf(route.setter);
   const fresh = onsightAvailable(profile, route.id);
+  const assessment = assessmentOf(route.id);
 
   return (
     <div className={`card${rec.sent ? ' is-sent' : ''}`}>
@@ -191,6 +197,12 @@ function RouteCard({
           {fresh && <span className="card__badge card__badge--fresh">ONSIGHT LIVE</span>}
         </div>
         <div className="card__setter">{setter.name} — “{setter.line}”</div>
+        {assessment && (
+          <div className="card__assess">
+            <span className={assessment.grade === route.grade ? '' : 'is-diff'}>assessed {assessment.grade}</span>
+            {' · '}{assessment.styles.slice(0, 3).join(' · ')}
+          </div>
+        )}
         <div className="card__meta">
           {rec.attempts === 0
             ? `par ${route.par}`

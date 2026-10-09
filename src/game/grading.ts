@@ -144,7 +144,8 @@ export function readStance(route: Route, contacts: Contact[], hip: Vec2, shoulde
     const anchor = anchorFor(l, hip, shoulder);
     let force = norm({ x: anchor.x - h.pos.x, y: anchor.y - h.pos.y });
     if (GRIP[h.type] && h.type === 'gaston') force = { x: -force.x, y: -force.y };
-    if (tech.mantle[l]) force = { x: -force.x * 0.4, y: -1 };
+    // Pressing down on top of it, the same rule the live sim uses.
+    if (shoulder.y > c.pos.y + 0.08 && Math.sin(h.dir) < -0.3 && h.type !== 'gaston') force = norm({ x: -force.x * 0.4, y: -1 });
     const ctx = { limb: l, force, angle: angleAt(profile, h.pos.y), opposition: tech.opposition[l] ?? null };
     const share = handsOn.length === 2 ? (l === 'LH' ? leftShare! : 1 - leftShare!) : 1;
     const load = arms * share;

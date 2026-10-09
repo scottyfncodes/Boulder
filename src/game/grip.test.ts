@@ -271,7 +271,7 @@ describe('technique is read off the body', () => {
   it('shoulders over a hand on a hold that faces up is a mantle', () => {
     add(jug(21, 0.1, 3.0, { dir: DOWN })); add(jug(22, -0.2, 3.0));
     const b: TechBody = {
-      hip: { x: 0, y: 2.8 }, shoulder: { x: 0, y: 3.32 },
+      hip: { x: 0, y: 2.95 }, shoulder: { x: 0, y: 3.47 },
       limbs: { LH: limb({ x: -0.2, y: 3.0 }, 22), RH: limb({ x: 0.1, y: 3.0 }, 21), LF: limb({ x: -0.3, y: 2.0 }, null), RF: limb({ x: 0.3, y: 2.0 }, null) },
     };
     expect(read(b).active).toContain('mantle');
@@ -279,5 +279,17 @@ describe('technique is read off the body', () => {
     add({ ...jug(23, 0.1, 2.5), type: 'undercling', dir: UP });
     b.limbs.RH = limb({ x: 0.1, y: 2.5 }, 23);
     expect(read(b).active).toContain('undercling');
+  });
+});
+
+describe('a fall', () => {
+  it('is measured from where the body came off, not where it lands', () => {
+    const holds = [jug(1, -0.3, 6.5), jug(2, 0.3, 6.5)];
+    const s = onWall(holds, { LH: 1, RH: 2 });
+    run(s, holds, 0.3);
+    for (const id of ['LH', 'RH'] as const) { s.limbs[id].phase = 'free'; s.limbs[id].holdId = null; }
+    const events = run(s, holds, 4);
+    const fell = events.find((e) => e.kind === 'fell');
+    expect(fell && fell.kind === 'fell' && fell.from).toBeGreaterThan(5);
   });
 });

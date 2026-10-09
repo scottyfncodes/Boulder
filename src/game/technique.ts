@@ -79,7 +79,7 @@ export const TECH = {
   /** ...on a wall at least this steep, radians. */
   dropKneeAngle: (8 * Math.PI) / 180,
   /** Mantle: shoulders this far over the hand. */
-  mantleOver: 0.08,
+  mantleOver: 0.42,
   /** Compression: hands at least this far apart. */
   squeezeWidth: 0.32,
   /** Stem: feet at least this far apart. */

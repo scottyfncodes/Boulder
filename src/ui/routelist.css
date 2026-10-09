@@ -204,3 +204,12 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* The model's second opinion: the moves' grade, and what kind of climbing it is. */
+.card__assess {
+  margin-top: 0.22rem;
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+  text-transform: lowercase;
+}
+.card__assess .is-diff { color: var(--warn); }
