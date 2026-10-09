@@ -633,11 +633,17 @@ export type BuildOptions = {
    * failing validation still yields something on the second or third pass.
    */
   relax?: number;
+  /**
+   * Set from these parameters instead of the difficulty's own. Highballs use
+   * this: the same section builders, a much taller wall, their own rules.
+   * The tier's `difficulty` should be the board difficulty it climbs like.
+   */
+  tier?: TierParams;
 };
 
 export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOptions = {}): BuildResult {
   const relax = opts.relax ?? 0;
-  const base = TIERS[difficulty];
+  const base = opts.tier ?? TIERS[difficulty];
   const t: TierParams = relax === 0 ? base : {
     ...base,
     footDensity: Math.min(1, base.footDensity + 0.15 * relax),
@@ -723,7 +729,7 @@ export function buildRoute(difficulty: Difficulty, seed: number, opts: BuildOpti
     setter: meta.setter,
     wall: 'main',
     tagline: meta.tagline,
-    ...(overhang > 0 ? { overhang } : {}),
+    ...(overhang !== 0 ? { overhang } : {}),
     ...(profile.length ? { profile } : {}),
     // Par is set properly once the route has been climbed by the validator.
     par: Math.round(s.spine.length * 2.2),

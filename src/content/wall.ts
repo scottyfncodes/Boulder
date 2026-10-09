@@ -25,6 +25,24 @@ export const WALL = {
   topY: 3.9,
 } as const;
 
+/**
+ * The highball tower. Same panels, same width, a lot more of it: the top of
+ * a highball is two storeys up, and the landing under it is a stack of
+ * highball pads with a spotter, not the gym's ordinary floor.
+ */
+export const TOWER = {
+  ...WALL,
+  id: 'tower',
+  name: 'The Tower',
+  maxY: 10.4,
+  topY: 9.0,
+} as const;
+
+/** The climbable extents of whichever wall a route is on. */
+export function wallFor(id: string): typeof WALL | typeof TOWER {
+  return id === TOWER.id ? TOWER : WALL;
+}
+
 /** Decorative off-route holds. Rendered dim grey, never grabbable. */
 export const DECOR: { x: number; y: number; type: Hold['type']; size: number; roll: number }[] = [
   { x: -1.52, y: 0.72, type: 'foothold', size: 0.07, roll: 0.4 },

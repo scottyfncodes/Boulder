@@ -3,6 +3,7 @@ import { GRADES, gradeIndex } from '../game/types';
 import type { Beta } from '../game/attempt';
 import type { ScoreCard } from '../game/scoring';
 import type { DailyState } from '../game/daily';
+import type { TreadRun } from '../game/tread';
 
 /**
  * What the player keeps.
@@ -44,7 +45,21 @@ export type Profile = {
   points: number;
   /** Dynos actually stuck. */
   totalDynos: number;
+  /** The tread wall: every recent run, and the best per program. */
+  tread: TreadRecord;
+  /** Highball falls that ended off the pads or heavier than the pads were for. */
+  heavyLandings: number;
 };
+
+export type TreadRecord = {
+  /** Best run per program id, by time on the wall. */
+  best: Record<string, TreadRun>;
+  /** The most recent runs, newest first. */
+  runs: TreadRun[];
+};
+
+/** How many runs the tread record keeps. */
+export const TREAD_HISTORY = 40;
 
 export function freshProfile(now = Date.now()): Profile {
   return {
@@ -58,7 +73,38 @@ export function freshProfile(now = Date.now()): Profile {
     totalFalls: 0,
     points: 0,
     totalDynos: 0,
+    tread: { best: {}, runs: [] },
+    heavyLandings: 0,
   };
+}
+
+/**
+ * Folds a tread wall run into the profile. Time on the wall is the score;
+ * runs on different programs are never compared.
+ */
+export function recordTreadRun(profile: Profile, run: TreadRun): { profile: Profile; isBest: boolean; previous: TreadRun | null } {
+  const tread = profile.tread ?? { best: {}, runs: [] };
+  const previous = tread.best[run.program] ?? null;
+  const isBest = !previous || run.time > previous.time;
+  return {
+    profile: {
+      ...profile,
+      tread: {
+        best: isBest ? { ...tread.best, [run.program]: run } : tread.best,
+        runs: [run, ...tread.runs].slice(0, TREAD_HISTORY),
+      },
+    },
+    isBest,
+    previous,
+  };
+}
+
+/** The local leaderboard for a program: best runs first, same rules for all of them. */
+export function treadBoard(profile: Profile, program: string, n = 5): TreadRun[] {
+  const runs = (profile.tread?.runs ?? []).filter((r) => r.program === program);
+  const best = profile.tread?.best[program];
+  const all = best && !runs.some((r) => r.at === best.at) ? [best, ...runs] : runs;
+  return [...all].sort((a, b) => b.time - a.time).slice(0, n);
 }
 
 /** How many routes the player has onsighted. */
@@ -121,7 +167,8 @@ export function applySend(
   // Generated routes are scored and remembered like any other, but your grade
   // is what you have sent on the board. A route you can reroll until it suits
   // you does not get to open the next rung.
-  const counts = !route.blueprint;
+  // Highballs are their own tick list: a tall V4 does not open the V5s.
+  const counts = !route.blueprint && route.wall !== 'tower';
   const raised = counts && (prevTop === null || gradeIndex(route.grade) > gradeIndex(prevTop));
   const topGrade = raised ? route.grade : prevTop;
 
